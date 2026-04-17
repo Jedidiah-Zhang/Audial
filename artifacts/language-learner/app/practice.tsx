@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  TextInput,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,6 +28,8 @@ export default function PracticeScreen() {
 
   const [showVocab, setShowVocab] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
@@ -62,9 +65,47 @@ export default function PracticeScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
-          {text.title}
-        </Text>
+        {editingTitle ? (
+          <TextInput
+            value={titleDraft}
+            onChangeText={setTitleDraft}
+            autoFocus
+            style={[
+              styles.headerTitle,
+              styles.headerTitleInput,
+              { color: colors.foreground, borderColor: colors.primary, backgroundColor: colors.muted },
+            ]}
+            onSubmitEditing={() => {
+              const trimmed = titleDraft.trim();
+              if (trimmed && trimmed !== text.title) {
+                addText({ ...text, title: trimmed });
+              }
+              setEditingTitle(false);
+            }}
+            onBlur={() => {
+              const trimmed = titleDraft.trim();
+              if (trimmed && trimmed !== text.title) {
+                addText({ ...text, title: trimmed });
+              }
+              setEditingTitle(false);
+            }}
+            returnKeyType="done"
+          />
+        ) : (
+          <TouchableOpacity
+            onPress={() => {
+              setTitleDraft(text.title);
+              setEditingTitle(true);
+            }}
+            style={styles.titleTouch}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
+              {text.title}
+            </Text>
+            <Feather name="edit-2" size={13} color={colors.mutedForeground} />
+          </TouchableOpacity>
+        )}
         <View style={{ width: 36 }} />
       </View>
 
@@ -257,6 +298,21 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     flex: 1,
     textAlign: "center",
+    marginHorizontal: 8,
+  },
+  headerTitleInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    textAlign: "center",
+  },
+  titleTouch: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
     marginHorizontal: 8,
   },
   content: {
