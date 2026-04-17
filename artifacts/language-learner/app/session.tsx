@@ -16,9 +16,10 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { useAudioPlayer, useAudioRecorder, transcribeAudio } from "@/hooks/useAudio";
+import { useAudioRecorder, transcribeAudio } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { ScoreCard } from "@/components/ScoreCard";
+import { SentenceArticle } from "@/components/SentenceArticle";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import type { LearningMode } from "@/types";
 
@@ -39,7 +40,6 @@ export default function SessionScreen() {
   const insets = useSafeAreaInsets();
   const { id, stage: stageParam } = useLocalSearchParams<{ id: string; stage: string }>();
   const { texts, addResult, completeListeningStage, settings } = useApp();
-  const { playTTS, stop, isPlaying, isLoading: ttsLoading } = useAudioPlayer();
   const { startRecording, stopRecording, isRecording } = useAudioRecorder();
 
   const stageIdx = parseInt(stageParam ?? "0", 10);
@@ -59,20 +59,12 @@ export default function SessionScreen() {
   useEffect(() => {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
-      stop();
     };
   }, []);
-
-  const handlePlayAudio = useCallback(async () => {
-    if (!text) return;
-    setHasListened(true);
-    await playTTS(text.text, settings.preferredVoice);
-  }, [text, playTTS, settings.preferredVoice]);
 
   const handleBeginPractice = () => {
     if (stageIdx === 0) {
       setPhase("listening");
-      setTimeout(() => handlePlayAudio(), 300);
     } else if (stageIdx === 3) {
       setPhase("memorize");
       setMemorizeCountdown(30);
@@ -88,7 +80,6 @@ export default function SessionScreen() {
       }, 1000);
     } else {
       setPhase("study");
-      if (settings.autoPlayAudio) setTimeout(() => handlePlayAudio(), 400);
     }
   };
 
@@ -299,31 +290,12 @@ export default function SessionScreen() {
 
         {phase === "listening" && stageIdx === 0 && (
           <View style={styles.section}>
-            <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.textContent, { color: colors.foreground }]}>{text.text}</Text>
-            </View>
-
-            <View style={styles.audioSection}>
-              <TouchableOpacity
-                onPress={handlePlayAudio}
-                disabled={isPlaying || ttsLoading}
-                style={[styles.bigAudioBtn, {
-                  backgroundColor: stageColor,
-                  opacity: isPlaying || ttsLoading ? 0.65 : 1,
-                }]}
-                activeOpacity={0.85}
-              >
-                {ttsLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Feather name={isPlaying ? "volume-2" : "play-circle"} size={26} color="#fff" />
-                )}
-                <Text style={styles.bigAudioBtnText}>
-                  {ttsLoading ? "加载中..." : isPlaying ? "播放中..." : hasListened ? "再次播放" : "播放音频"}
-                </Text>
-              </TouchableOpacity>
-              {isPlaying && <AudioWaveform isActive color={stageColor} barCount={9} />}
-            </View>
+            <SentenceArticle
+              text={text.text}
+              voice={settings.preferredVoice}
+              accentColor={stageColor}
+              onPlay={() => setHasListened(true)}
+            />
 
             <TouchableOpacity
               onPress={handleCompleteListening}
@@ -348,108 +320,115 @@ export default function SessionScreen() {
               <Text style={[styles.countdownNum, { color: stageColor }]}>{memorizeCountdown}</Text>
               <Text style={[styles.countdownLabel, { color: colors.mutedForeground }]}>秒后文章将被隐藏</Text>
             </View>
-            <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.textContent, { color: colors.foreground }]}>{text.text}</Text>
-            </View>
+            <SentenceArticle
+              text={text.text}
+              voice={settings.preferredVoice}
+              accentColor={stageColor}
+            />
             <Text style={[styles.memorizeHint, { color: colors.mutedForeground }]}>
               请认真记忆文章内容，倒计时结束后需要从记忆中背诵
             </Text>
           </View>
         )}
 
-        {phase === "study" && stageIdx !== 0 && (
+        {phase === "study" && stageIdx === 1 && (
           <View style={styles.section}>
-            {stageIdx === 2 ? (
-              <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
-                <Feather name="eye-off" size={28} color={colors.mutedForeground} />
-                <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>文章已隐藏</Text>
-                <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
-                  反复收听音频，将您听到的内容写在下方
-                </Text>
-              </View>
-            ) : stageIdx === 3 ? (
-              <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
-                <Feather name="book-open" size={28} color={colors.mutedForeground} />
-                <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>从记忆中背诵</Text>
-                <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
-                  不看文章，录制您的背诵音频
-                </Text>
-              </View>
-            ) : (
-              <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.textContent, { color: colors.foreground }]}>{text.text}</Text>
-              </View>
-            )}
+            <SentenceArticle
+              text={text.text}
+              voice={settings.preferredVoice}
+              accentColor={stageColor}
+            />
 
-            {stageIdx !== 3 && (
+            <View style={styles.recordSection}>
               <TouchableOpacity
-                onPress={handlePlayAudio}
-                disabled={isPlaying || ttsLoading}
-                style={[styles.bigAudioBtn, {
-                  backgroundColor: isPlaying || ttsLoading ? colors.muted : stageColor + "20",
-                  opacity: isPlaying || ttsLoading ? 0.65 : 1,
+                onPress={handleRecord}
+                style={[styles.recordBtn, {
+                  backgroundColor: isRecording ? "#EF4444" : stageColor,
+                  shadowColor: isRecording ? "#EF4444" : stageColor,
                 }]}
                 activeOpacity={0.85}
               >
-                {ttsLoading ? (
-                  <ActivityIndicator color={stageColor} size="small" />
-                ) : (
-                  <Feather name="volume-2" size={22} color={stageColor} />
-                )}
-                <Text style={[styles.bigAudioBtnText, { color: stageColor }]}>
-                  {ttsLoading ? "加载中..." : isPlaying ? "播放中..." : "播放音频"}
-                </Text>
+                <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
               </TouchableOpacity>
-            )}
+              <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
+                {isRecording ? "点击停止录音" : "听完后点击录音跟读"}
+              </Text>
+              {isRecording && <AudioWaveform isActive color="#EF4444" />}
+            </View>
+          </View>
+        )}
 
-            {isPlaying && <AudioWaveform isActive color={stageColor} barCount={9} />}
+        {phase === "study" && stageIdx === 2 && (
+          <View style={styles.section}>
+            <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
+              <Feather name="eye-off" size={28} color={colors.mutedForeground} />
+              <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>文章已隐藏</Text>
+              <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
+                反复收听后将听到的内容写在下方
+              </Text>
+            </View>
 
-            {stageIdx === 2 ? (
-              <>
-                <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
-                  <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>听写内容</Text>
-                  <TextInput
-                    style={[styles.dictationInput, { color: colors.foreground }]}
-                    value={dictationInput}
-                    onChangeText={setDictationInput}
-                    placeholder="将您听到的内容写在这里..."
-                    placeholderTextColor={colors.mutedForeground}
-                    multiline
-                    textAlignVertical="top"
-                    autoCorrect={false}
-                  />
-                </View>
-                <TouchableOpacity
-                  onPress={handleDictationSubmit}
-                  disabled={!dictationInput.trim()}
-                  style={[styles.submitBtn, {
-                    backgroundColor: stageColor,
-                    opacity: dictationInput.trim() ? 1 : 0.4,
-                  }]}
-                  activeOpacity={0.85}
-                >
-                  <Feather name="check" size={20} color="#fff" />
-                  <Text style={styles.submitBtnText}>提交答案</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <View style={styles.recordSection}>
-                <TouchableOpacity
-                  onPress={handleRecord}
-                  style={[styles.recordBtn, {
-                    backgroundColor: isRecording ? "#EF4444" : stageColor,
-                    shadowColor: isRecording ? "#EF4444" : stageColor,
-                  }]}
-                  activeOpacity={0.85}
-                >
-                  <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
-                </TouchableOpacity>
-                <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
-                  {isRecording ? "点击停止录音" : "点击开始录音"}
-                </Text>
-                {isRecording && <AudioWaveform isActive color="#EF4444" />}
-              </View>
-            )}
+            <SentenceArticle
+              text={text.text}
+              voice={settings.preferredVoice}
+              accentColor={stageColor}
+              visible={false}
+            />
+
+            <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
+              <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>听写内容</Text>
+              <TextInput
+                style={[styles.dictationInput, { color: colors.foreground }]}
+                value={dictationInput}
+                onChangeText={setDictationInput}
+                placeholder="将您听到的内容写在这里..."
+                placeholderTextColor={colors.mutedForeground}
+                multiline
+                textAlignVertical="top"
+                autoCorrect={false}
+              />
+            </View>
+            <TouchableOpacity
+              onPress={handleDictationSubmit}
+              disabled={!dictationInput.trim()}
+              style={[styles.submitBtn, {
+                backgroundColor: stageColor,
+                opacity: dictationInput.trim() ? 1 : 0.4,
+              }]}
+              activeOpacity={0.85}
+            >
+              <Feather name="check" size={20} color="#fff" />
+              <Text style={styles.submitBtnText}>提交答案</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {phase === "study" && stageIdx === 3 && (
+          <View style={styles.section}>
+            <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
+              <Feather name="book-open" size={28} color={colors.mutedForeground} />
+              <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>从记忆中背诵</Text>
+              <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
+                不看文章，录制您的背诵音频
+              </Text>
+            </View>
+
+            <View style={styles.recordSection}>
+              <TouchableOpacity
+                onPress={handleRecord}
+                style={[styles.recordBtn, {
+                  backgroundColor: isRecording ? "#EF4444" : stageColor,
+                  shadowColor: isRecording ? "#EF4444" : stageColor,
+                }]}
+                activeOpacity={0.85}
+              >
+                <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
+              </TouchableOpacity>
+              <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
+                {isRecording ? "点击停止录音" : "点击开始背诵录音"}
+              </Text>
+              {isRecording && <AudioWaveform isActive color="#EF4444" />}
+            </View>
           </View>
         )}
 
@@ -689,35 +668,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_400Regular",
     lineHeight: 22,
-  },
-  textCard: {
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-  },
-  textContent: {
-    fontSize: 16,
-    fontFamily: "Inter_400Regular",
-    lineHeight: 28,
-  },
-  audioSection: {
-    gap: 10,
-    alignItems: "center",
-  },
-  bigAudioBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    width: "100%",
-  },
-  bigAudioBtnText: {
-    color: "#fff",
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
   },
   completeBtn: {
     flexDirection: "row",

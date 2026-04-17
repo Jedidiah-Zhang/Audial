@@ -12,13 +12,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
+import { SentenceArticle } from "@/components/SentenceArticle";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 
 export default function PracticeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { texts, getProgressForText } = useApp();
+  const { texts, getProgressForText, settings } = useApp();
 
   const text = texts.find((t) => t.id === id);
   const progress = text ? getProgressForText(text.id) : undefined;
@@ -71,42 +72,47 @@ export default function PracticeScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.textContent, { color: colors.foreground }]}>
-            {text.text}
-          </Text>
-          <View style={styles.textActions}>
-            {text.translation ? (
-              <TouchableOpacity
-                onPress={() => setShowTranslation(!showTranslation)}
-                style={[styles.pillBtn, { borderColor: colors.border }]}
-                activeOpacity={0.7}
-              >
-                <Feather name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
-                <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
-                  {showTranslation ? "隐藏译文" : "显示译文"}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-            {text.vocabulary?.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => setShowVocab(!showVocab)}
-                style={[styles.pillBtn, { borderColor: colors.border }]}
-                activeOpacity={0.7}
-              >
-                <Feather name="book" size={13} color={colors.mutedForeground} />
-                <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
-                  词汇 ({text.vocabulary.length})
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          {showTranslation && text.translation ? (
-            <Text style={[styles.translation, { color: colors.mutedForeground, borderTopColor: colors.border }]}>
-              {text.translation}
-            </Text>
+        <SentenceArticle
+          text={text.text}
+          voice={settings.preferredVoice}
+          accentColor={colors.primary}
+        />
+
+        <View style={styles.textActions}>
+          {text.translation ? (
+            <TouchableOpacity
+              onPress={() => setShowTranslation(!showTranslation)}
+              style={[styles.pillBtn, { borderColor: colors.border }]}
+              activeOpacity={0.7}
+            >
+              <Feather name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
+              <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
+                {showTranslation ? "隐藏译文" : "显示译文"}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {text.vocabulary?.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => setShowVocab(!showVocab)}
+              style={[styles.pillBtn, { borderColor: colors.border }]}
+              activeOpacity={0.7}
+            >
+              <Feather name="book" size={13} color={colors.mutedForeground} />
+              <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
+                词汇 ({text.vocabulary.length})
+              </Text>
+            </TouchableOpacity>
           ) : null}
         </View>
+
+        {showTranslation && text.translation ? (
+          <View style={[styles.translationCard, { backgroundColor: colors.muted }]}>
+            <Text style={[styles.translationLabel, { color: colors.mutedForeground }]}>译文</Text>
+            <Text style={[styles.translation, { color: colors.foreground }]}>
+              {text.translation}
+            </Text>
+          </View>
+        ) : null}
 
         {showVocab && text.vocabulary.length > 0 && (
           <View style={[styles.vocabCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -268,24 +274,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 14,
   },
-  textCard: {
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    gap: 10,
-  },
-  textContent: {
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    lineHeight: 26,
-  },
   textActions: {
     flexDirection: "row",
     gap: 8,
     flexWrap: "wrap",
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: "transparent",
   },
   pillBtn: {
     flexDirection: "row",
@@ -300,13 +292,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_500Medium",
   },
+  translationCard: {
+    borderRadius: 14,
+    padding: 14,
+    gap: 6,
+  },
+  translationLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
   translation: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
     lineHeight: 22,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    fontStyle: "italic",
   },
   vocabCard: {
     borderRadius: 14,

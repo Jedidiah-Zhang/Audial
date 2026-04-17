@@ -23,7 +23,7 @@ export function useAudioPlayer() {
     };
   }, []);
 
-  const playTTS = useCallback(async (text: string, voice = "nova") => {
+  const playTTS = useCallback(async (text: string, voice = "nova", onEnded?: () => void) => {
     try {
       setIsLoading(true);
 
@@ -55,6 +55,7 @@ export function useAudioPlayer() {
         audio.onended = () => {
           setIsPlaying(false);
           URL.revokeObjectURL(url);
+          onEnded?.();
         };
         audio.onerror = () => {
           setIsPlaying(false);
@@ -70,8 +71,13 @@ export function useAudioPlayer() {
         expoPlayerRef.current = player;
         setIsLoading(false);
         setIsPlaying(true);
+        let didEnd = false;
         player.addListener("playbackStatusUpdate", (status: any) => {
-          if (status.didJustFinish || !status.isLoaded) {
+          if (status.didJustFinish && !didEnd) {
+            didEnd = true;
+            setIsPlaying(false);
+            onEnded?.();
+          } else if (!status.isLoaded) {
             setIsPlaying(false);
           }
         });
