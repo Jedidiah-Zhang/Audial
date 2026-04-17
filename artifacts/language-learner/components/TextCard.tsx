@@ -67,9 +67,6 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.flag} accessibilityLabel={item.targetLanguage}>
-            {getFlag(item.targetLanguage)}
-          </Text>
           <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
             <Text style={[styles.diffText, { color: diffColor }]}>
               {getDifficultyLabel(item.difficulty, lang)}
@@ -82,9 +79,14 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
             </Text>
           </View>
         </View>
-        <Text style={[styles.lang, { color: colors.mutedForeground }]}>
-          {item.targetLanguage.toUpperCase()}
-        </Text>
+        <View style={styles.headerRight}>
+          <Text style={styles.flag} accessibilityLabel={item.targetLanguage}>
+            {getFlag(item.targetLanguage)}
+          </Text>
+          <Text style={[styles.lang, { color: colors.mutedForeground }]}>
+            {item.targetLanguage.toUpperCase()}
+          </Text>
+        </View>
       </View>
 
       <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={2}>
@@ -233,10 +235,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "Inter_500Medium",
   },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   flag: {
-    fontSize: 18,
-    lineHeight: 22,
-    marginRight: 2,
+    fontSize: 16,
+    lineHeight: 20,
   },
   title: {
     fontSize: 16,
