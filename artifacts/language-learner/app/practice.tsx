@@ -77,6 +77,7 @@ export default function PracticeScreen() {
           text={text.text}
           voice={settings.preferredVoice}
           accentColor={colors.primary}
+          contentType={text.contentType}
         />
 
         <View style={styles.textActions}>

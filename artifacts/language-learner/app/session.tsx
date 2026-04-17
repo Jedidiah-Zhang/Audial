@@ -285,6 +285,7 @@ export default function SessionScreen() {
               text={text.text}
               voice={settings.preferredVoice}
               accentColor={stageColor}
+              contentType={text.contentType}
             />
             <Text style={[styles.memorizeHint, { color: colors.mutedForeground }]}>
               请认真记忆文章内容，倒计时结束后需要从记忆中背诵
@@ -298,6 +299,7 @@ export default function SessionScreen() {
               text={text.text}
               voice={settings.preferredVoice}
               accentColor={stageColor}
+              contentType={text.contentType}
             />
 
             <View style={styles.recordSection}>
@@ -334,6 +336,7 @@ export default function SessionScreen() {
               voice={settings.preferredVoice}
               accentColor={stageColor}
               visible={false}
+              contentType={text.contentType}
             />
 
             <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>

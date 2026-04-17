@@ -37,6 +37,7 @@ Format your response as JSON with these fields:
 - "text": the main text in ${targetLanguage}
 - "translation": translation in ${language}
 - "title": a short title for the text (in ${targetLanguage})
+- "contentType": one of "dialogue" | "news" | "general". Use "dialogue" if the text is a conversation between two or more speakers — in that case, format the "text" field with one turn per line as "SpeakerName: utterance". Use "news" if the text reads like a news report or article (with a lede, reporting style, or factual third-person tone) — in that case, separate paragraphs with a blank line. Otherwise use "general".
 - "vocabulary": array of 5-8 key vocabulary items, each with:
   - "word": the word in ${targetLanguage}
   - "pronunciation": IPA or romanization if applicable

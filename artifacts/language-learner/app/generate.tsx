@@ -17,7 +17,8 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES, DIFFICULTY_LABELS } from "@/types";
-import type { Difficulty, LearningText, VocabularyItem } from "@/types";
+import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
+import { detectContentType } from "@/utils/contentType";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -31,6 +32,7 @@ interface DraftPayload {
   text: string;
   translation: string;
   vocabulary: VocabularyItem[];
+  contentType: ContentType;
 }
 
 export default function GenerateScreen() {
@@ -80,11 +82,17 @@ export default function GenerateScreen() {
       const result = await response.json() as { success: boolean; data: any };
       if (!result.success) throw new Error("Generation failed");
 
+      const rawText = result.data.text ?? "";
+      const declaredType = result.data.contentType as ContentType | undefined;
       const payload: DraftPayload = {
         title: result.data.title ?? topic,
-        text: result.data.text ?? "",
+        text: rawText,
         translation: result.data.translation ?? "",
         vocabulary: result.data.vocabulary ?? [],
+        contentType:
+          declaredType && ["dialogue", "news", "general"].includes(declaredType)
+            ? declaredType
+            : detectContentType(rawText),
       };
       setDraft(payload);
       setDraftTitle(payload.title);
@@ -104,10 +112,11 @@ export default function GenerateScreen() {
       Alert.alert("提示", "标题和正文不能为空");
       return;
     }
+    const finalText = draftText.trim();
     const text: LearningText = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
       title: draftTitle.trim(),
-      text: draftText.trim(),
+      text: finalText,
       translation: draftTranslation.trim(),
       vocabulary: draft.vocabulary,
       topic,
@@ -115,6 +124,7 @@ export default function GenerateScreen() {
       targetLanguage,
       nativeLanguage,
       createdAt: Date.now(),
+      contentType: detectContentType(finalText) === "general" ? draft.contentType : detectContentType(finalText),
     };
     await addText(text);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -134,10 +144,11 @@ export default function GenerateScreen() {
       return;
     }
 
+    const finalText = manualText.trim();
     const text: LearningText = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
       title: manualTitle.trim(),
-      text: manualText.trim(),
+      text: finalText,
       translation: manualTranslation.trim(),
       vocabulary: [],
       topic: "自定义",
@@ -145,6 +156,7 @@ export default function GenerateScreen() {
       targetLanguage,
       nativeLanguage,
       createdAt: Date.now(),
+      contentType: detectContentType(finalText),
     };
 
     await addText(text);

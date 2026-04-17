@@ -11,6 +11,8 @@ export interface VocabularyItem {
   exampleTranslation?: string;
 }
 
+export type ContentType = "dialogue" | "news" | "general";
+
 export interface LearningText {
   id: string;
   title: string;
@@ -22,6 +24,7 @@ export interface LearningText {
   targetLanguage: string;
   nativeLanguage: string;
   createdAt: number;
+  contentType?: ContentType;
 }
 
 export interface SessionResult {

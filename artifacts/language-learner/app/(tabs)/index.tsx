@@ -100,11 +100,6 @@ export default function HomeScreen() {
           data={texts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}
-          ListHeaderComponent={
-            <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-              长按文章可重命名或删除
-            </Text>
-          }
           renderItem={({ item }) => (
             <TextCard
               item={item}
@@ -237,12 +232,6 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: 20,
     paddingTop: 8,
-  },
-  hint: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    marginBottom: 10,
   },
   modalOverlay: {
     flex: 1,
