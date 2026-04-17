@@ -63,6 +63,7 @@ export interface AppSettings {
   defaultDifficulty: Difficulty;
   preferredVoice: string;
   autoPlayAudio: boolean;
+  onboarded: boolean;
 }
 
 export const STAGE_PASS_SCORE = 60;

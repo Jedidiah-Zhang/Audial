@@ -7,13 +7,15 @@ import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { useT } from "@/utils/i18n";
 
 function NativeTabLayout() {
+  const t = useT();
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "book.pages", selected: "book.pages.fill" }} />
-        <Label>文章</Label>
+        <Label>{t("tab.articles")}</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -21,6 +23,7 @@ function NativeTabLayout() {
 
 function ClassicTabLayout() {
   const colors = useColors();
+  const t = useT();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
@@ -57,7 +60,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "文章",
+          title: t("tab.articles"),
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="book.pages" tintColor={color} size={24} />

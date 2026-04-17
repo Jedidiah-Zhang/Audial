@@ -17,11 +17,12 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
-  nativeLanguage: "zh",
+  nativeLanguage: "en",
   targetLanguage: "en",
   defaultDifficulty: "intermediate",
   preferredVoice: "nova",
   autoPlayAudio: true,
+  onboarded: false,
 };
 
 function defaultProgress(textId: string): UserProgress {

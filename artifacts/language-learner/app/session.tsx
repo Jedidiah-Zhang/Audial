@@ -22,6 +22,7 @@ import { ScoreCard } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import type { LearningMode } from "@/types";
+import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -37,13 +38,15 @@ type SessionPhase =
 export default function SessionScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const t = useT();
   const { id, stage: stageParam } = useLocalSearchParams<{ id: string; stage: string }>();
   const { texts, addResult, settings } = useApp();
   const { startRecording, stopRecording, isRecording } = useAudioRecorder();
+  const lang = settings.nativeLanguage;
 
   const stageIdx = parseInt(stageParam ?? "0", 10);
   const stage = STAGES[stageIdx] ?? STAGES[0];
-  const text = texts.find((t) => t.id === id);
+  const text = texts.find((x) => x.id === id);
 
   const [phase, setPhase] = useState<SessionPhase>("intro");
   const [dictationInput, setDictationInput] = useState("");
@@ -91,13 +94,13 @@ export default function SessionScreen() {
         const transcript = await transcribeAudio(blob);
         await scoreAnswer(transcript);
       } catch {
-        Alert.alert("错误", "录音转文字失败，请重试");
+        Alert.alert(t("common.error"), t("session.alert.transcribeFailed"));
         setPhase("study");
       }
     } else {
       const started = await startRecording();
       if (!started) {
-        Alert.alert("需要麦克风权限", "请在设置中允许麦克风访问");
+        Alert.alert(t("common.tip"), t("session.alert.micPermission"));
         return;
       }
       setPhase("recording");
@@ -136,14 +139,15 @@ export default function SessionScreen() {
       const details: Record<string, string | number> = {};
 
       if (stageIdx === 0 && d.mistakes?.length) {
-        details["发音错误词"] = d.mistakes.join(", ");
+        details[t("session.detail.mistakes")] = d.mistakes.join(", ");
       }
       if (stageIdx === 1 && d.wordAccuracy) {
-        details["词汇准确率"] = `${d.wordAccuracy}%`;
+        details[t("session.detail.wordAccuracy")] = `${d.wordAccuracy}%`;
       }
       if (stageIdx === 2) {
-        details["覆盖率"] = `${d.completeness ?? 0}%`;
-        details["流利度"] = { excellent: "优秀", good: "良好", fair: "一般", needs_work: "需加强" }[d.fluency as string] ?? d.fluency;
+        details[t("session.detail.coverage")] = `${d.completeness ?? 0}%`;
+        const fluencyKey = `fluency.${d.fluency}`;
+        details[t("session.detail.fluency")] = d.fluency ? t(fluencyKey) : "";
       }
 
       const score = d.score ?? 0;
@@ -166,14 +170,14 @@ export default function SessionScreen() {
       );
       setPhase("result");
     } catch {
-      Alert.alert("评分失败", "无法连接服务器，请检查网络");
+      Alert.alert(t("common.error"), t("session.alert.scoreFailed"));
       setPhase("study");
     }
   };
 
   const handleDictationSubmit = async () => {
     if (!dictationInput.trim()) {
-      Alert.alert("提示", "请先输入您听到的内容");
+      Alert.alert(t("common.tip"), t("session.alert.dictationEmpty"));
       return;
     }
     await scoreAnswer(dictationInput.trim());
@@ -192,7 +196,7 @@ export default function SessionScreen() {
   if (!text) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.foreground, padding: 20 }}>文章未找到</Text>
+        <Text style={{ color: colors.foreground, padding: 20 }}>{t("home.notFound")}</Text>
       </View>
     );
   }
@@ -208,7 +212,7 @@ export default function SessionScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerStage, { color: stageColor }]}>
-            第 {stageIdx + 1} 关 · {stage.name}
+            {t("card.stage", { n: stageIdx + 1, name: getStageName(stageIdx, lang) })}
           </Text>
           <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
             {text.title}
@@ -242,17 +246,17 @@ export default function SessionScreen() {
                 <Feather name={stage.icon as any} size={36} color={stageColor} />
               </View>
               <Text style={[styles.introLabel, { color: stageColor }]}>
-                第 {stageIdx + 1} 关
+                {t("practice.stageNum", { n: stageIdx + 1 })}
               </Text>
-              <Text style={[styles.introTitle, { color: colors.foreground }]}>{stage.name}</Text>
+              <Text style={[styles.introTitle, { color: colors.foreground }]}>{getStageName(stageIdx, lang)}</Text>
               <Text style={[styles.introDesc, { color: colors.mutedForeground }]}>
-                {stage.description}
+                {getStageDesc(stageIdx, lang)}
               </Text>
               {stage.needsScore && (
                 <View style={[styles.thresholdTag, { backgroundColor: colors.muted }]}>
                   <Feather name="target" size={12} color={colors.mutedForeground} />
                   <Text style={[styles.thresholdText, { color: colors.mutedForeground }]}>
-                    {STAGE_PASS_SCORE} 分以上即可通关
+                    {t("session.intro.passRule", { n: STAGE_PASS_SCORE })}
                   </Text>
                 </View>
               )}
@@ -261,13 +265,13 @@ export default function SessionScreen() {
                 style={[styles.startBtn, { backgroundColor: stageColor }]}
                 activeOpacity={0.85}
               >
-                <Text style={styles.startBtnText}>开始练习</Text>
+                <Text style={styles.startBtnText}>{t("session.intro.start")}</Text>
                 <Feather name="arrow-right" size={18} color="#fff" />
               </TouchableOpacity>
             </View>
 
             <View style={[styles.textPreview, { backgroundColor: colors.muted }]}>
-              <Text style={[styles.textPreviewLabel, { color: colors.mutedForeground }]}>练习文章</Text>
+              <Text style={[styles.textPreviewLabel, { color: colors.mutedForeground }]}>{t("session.intro.previewLabel")}</Text>
               <Text style={[styles.textPreviewContent, { color: colors.foreground }]} numberOfLines={5}>
                 {text.text}
               </Text>
@@ -279,7 +283,7 @@ export default function SessionScreen() {
           <View style={styles.section}>
             <View style={[styles.countdownCard, { backgroundColor: stageColor + "15", borderColor: stageColor + "40", borderWidth: 2 }]}>
               <Text style={[styles.countdownNum, { color: stageColor }]}>{memorizeCountdown}</Text>
-              <Text style={[styles.countdownLabel, { color: colors.mutedForeground }]}>秒后文章将被隐藏</Text>
+              <Text style={[styles.countdownLabel, { color: colors.mutedForeground }]}>{t("session.memorize.subtitle")}</Text>
             </View>
             <SentenceArticle
               text={text.text}
@@ -288,7 +292,7 @@ export default function SessionScreen() {
               contentType={text.contentType}
             />
             <Text style={[styles.memorizeHint, { color: colors.mutedForeground }]}>
-              请认真记忆文章内容，倒计时结束后需要从记忆中背诵
+              {t("session.memorize.hint")}
             </Text>
           </View>
         )}
@@ -314,7 +318,7 @@ export default function SessionScreen() {
                 <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
               </TouchableOpacity>
               <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
-                {isRecording ? "点击停止录音" : "听完后点击录音跟读"}
+                {isRecording ? t("session.shadow.stopHint") : t("session.shadow.recordHint")}
               </Text>
               {isRecording && <AudioWaveform isActive color="#EF4444" />}
             </View>
@@ -325,9 +329,9 @@ export default function SessionScreen() {
           <View style={styles.section}>
             <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
               <Feather name="eye-off" size={28} color={colors.mutedForeground} />
-              <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>文章已隐藏</Text>
+              <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>{t("session.dictation.hiddenTitle")}</Text>
               <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
-                反复收听后将听到的内容写在下方
+                {t("session.dictation.hiddenSub")}
               </Text>
             </View>
 
@@ -340,12 +344,12 @@ export default function SessionScreen() {
             />
 
             <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
-              <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>听写内容</Text>
+              <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>{t("session.dictation.label")}</Text>
               <TextInput
                 style={[styles.dictationInput, { color: colors.foreground }]}
                 value={dictationInput}
                 onChangeText={setDictationInput}
-                placeholder="将您听到的内容写在这里..."
+                placeholder={t("session.dictation.placeholder")}
                 placeholderTextColor={colors.mutedForeground}
                 multiline
                 textAlignVertical="top"
@@ -362,7 +366,7 @@ export default function SessionScreen() {
               activeOpacity={0.85}
             >
               <Feather name="check" size={20} color="#fff" />
-              <Text style={styles.submitBtnText}>提交答案</Text>
+              <Text style={styles.submitBtnText}>{t("session.dictation.submit")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -371,9 +375,9 @@ export default function SessionScreen() {
           <View style={styles.section}>
             <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
               <Feather name="book-open" size={28} color={colors.mutedForeground} />
-              <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>从记忆中背诵</Text>
+              <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>{t("session.recite.title")}</Text>
               <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
-                不看文章，录制您的背诵音频
+                {t("session.recite.sub")}
               </Text>
             </View>
 
@@ -389,7 +393,7 @@ export default function SessionScreen() {
                 <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
               </TouchableOpacity>
               <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
-                {isRecording ? "点击停止录音" : "点击开始背诵录音"}
+                {isRecording ? t("session.shadow.stopHint") : t("session.recite.startHint")}
               </Text>
               {isRecording && <AudioWaveform isActive color="#EF4444" />}
             </View>
@@ -406,7 +410,7 @@ export default function SessionScreen() {
             >
               <Feather name="square" size={32} color="#fff" />
             </TouchableOpacity>
-            <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>点击停止录音</Text>
+            <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>{t("session.shadow.stopHint")}</Text>
           </View>
         )}
 
@@ -414,7 +418,7 @@ export default function SessionScreen() {
           <View style={[styles.section, styles.centerSection]}>
             <ActivityIndicator size="large" color={stageColor} />
             <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
-              {phase === "transcribing" ? "正在识别语音..." : "AI 评分中..."}
+              {phase === "transcribing" ? t("session.processing.transcribing") : t("session.processing.scoring")}
             </Text>
           </View>
         )}
@@ -437,12 +441,12 @@ export default function SessionScreen() {
                   />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.passedTitle, { color: result.passed ? "#10B981" : "#EF4444" }]}>
-                      {result.passed ? "通关成功！" : "未达通关分数"}
+                      {result.passed ? t("session.result.passed") : t("session.result.failed")}
                     </Text>
                     <Text style={[styles.passedSub, { color: colors.mutedForeground }]}>
                       {result.passed
-                        ? isLastStage ? "恭喜完成全部关卡！" : "继续挑战下一关"
-                        : `需要 ${STAGE_PASS_SCORE} 分，再试一次吧`}
+                        ? isLastStage ? t("session.result.allDone") : t("session.result.continueNext")
+                        : t("session.result.needScore", { n: STAGE_PASS_SCORE })}
                     </Text>
                   </View>
                   <Text style={[styles.passedScore, { color: result.passed ? "#10B981" : "#EF4444" }]}>
@@ -460,9 +464,9 @@ export default function SessionScreen() {
               <View style={[styles.passedBanner, { backgroundColor: "#10B981" + "15", borderColor: "#10B981" }]}>
                 <Feather name="headphones" size={22} color="#10B981" />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.passedTitle, { color: "#10B981" }]}>精听完成！</Text>
+                  <Text style={[styles.passedTitle, { color: "#10B981" }]}>{t("session.result.listeningDone")}</Text>
                   <Text style={[styles.passedSub, { color: colors.mutedForeground }]}>
-                    第1关已解锁，继续进入跟读练习
+                    {t("session.result.unlockNext")}
                   </Text>
                 </View>
               </View>
@@ -472,13 +476,13 @@ export default function SessionScreen() {
               <View style={[styles.nextStageHint, { backgroundColor: colors.muted }]}>
                 <Feather name={STAGES[stageIdx + 1].icon as any} size={16} color={STAGES[stageIdx + 1].color} />
                 <Text style={[styles.nextStageText, { color: colors.foreground }]}>
-                  下一关：{STAGES[stageIdx + 1].name}
+                  {t("session.result.nextStageHint", { name: getStageName(stageIdx + 1, lang) })}
                 </Text>
               </View>
             )}
 
             <View style={[styles.originalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.originalLabel, { color: colors.mutedForeground }]}>原文</Text>
+              <Text style={[styles.originalLabel, { color: colors.mutedForeground }]}>{t("session.result.original")}</Text>
               <Text style={[styles.originalText, { color: colors.foreground }]}>{text.text}</Text>
             </View>
 
@@ -489,7 +493,7 @@ export default function SessionScreen() {
                 activeOpacity={0.85}
               >
                 <Feather name="refresh-cw" size={16} color={colors.mutedForeground} />
-                <Text style={[styles.retryBtnText, { color: colors.mutedForeground }]}>再练一次</Text>
+                <Text style={[styles.retryBtnText, { color: colors.mutedForeground }]}>{t("session.result.retry")}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -498,7 +502,7 @@ export default function SessionScreen() {
                 activeOpacity={0.85}
               >
                 <Text style={styles.doneBtnText}>
-                  {result.passed && !isLastStage ? "进入下一关" : "返回"}
+                  {result.passed && !isLastStage ? t("session.result.next") : t("session.result.return")}
                 </Text>
                 <Feather name={result.passed && !isLastStage ? "arrow-right" : "check"} size={16} color="#fff" />
               </TouchableOpacity>

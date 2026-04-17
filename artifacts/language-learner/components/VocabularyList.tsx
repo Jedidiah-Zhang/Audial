@@ -5,6 +5,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer } from "@/hooks/useAudio";
 import { useApp } from "@/context/AppContext";
 import type { VocabularyItem, LearningText } from "@/types";
+import { useT } from "@/utils/i18n";
 
 interface Props {
   text: LearningText;
@@ -18,6 +19,7 @@ const API_BASE =
 
 export function VocabularyList({ text, onUpdateVocabulary }: Props) {
   const colors = useColors();
+  const t = useT();
   const { settings } = useApp();
   const { playTTS } = useAudioPlayer();
   const [items, setItems] = useState<VocabularyItem[]>(text.vocabulary);
@@ -165,7 +167,7 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
                 color={colors.mutedForeground}
               />
               <Text style={[styles.exampleToggleText, { color: colors.mutedForeground }]}>
-                {isExpanded ? "收起例句" : v.example ? "查看例句" : "生成例句"}
+                {isExpanded ? t("vocab.expand") : v.example ? t("vocab.viewExample") : t("vocab.generate")}
               </Text>
               {isLoading ? (
                 <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 4 }} />
@@ -177,14 +179,14 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
                 {v.example ? (
                   <>
                     <View style={styles.exampleHeader}>
-                      <Text style={[styles.exampleLabel, { color: colors.mutedForeground }]}>例句</Text>
+                      <Text style={[styles.exampleLabel, { color: colors.mutedForeground }]}>{t("vocab.exampleLabel")}</Text>
                       <TouchableOpacity
                         onPress={() => handlePlayExample(v.example!, `${i}-ex`)}
                         activeOpacity={0.7}
                         style={[styles.examplePlayBtn, { borderColor: colors.border }]}
                       >
                         <Feather name="play" size={11} color={colors.primary} />
-                        <Text style={[styles.examplePlayText, { color: colors.primary }]}>朗读</Text>
+                        <Text style={[styles.examplePlayText, { color: colors.primary }]}>{t("vocab.read")}</Text>
                       </TouchableOpacity>
                     </View>
                     <Text style={[styles.exampleText, { color: colors.foreground }]}>{v.example}</Text>
@@ -195,9 +197,9 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
                     ) : null}
                   </>
                 ) : isLoading ? (
-                  <Text style={[styles.exampleText, { color: colors.mutedForeground }]}>正在生成例句...</Text>
+                  <Text style={[styles.exampleText, { color: colors.mutedForeground }]}>{t("vocab.generating")}</Text>
                 ) : (
-                  <Text style={[styles.exampleText, { color: colors.mutedForeground }]}>暂无例句</Text>
+                  <Text style={[styles.exampleText, { color: colors.mutedForeground }]}>{t("vocab.none")}</Text>
                 )}
               </View>
             )}

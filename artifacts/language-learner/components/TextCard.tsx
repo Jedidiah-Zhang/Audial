@@ -8,8 +8,10 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { LearningText } from "@/types";
-import { DIFFICULTY_LABELS, STAGES } from "@/types";
+import { STAGES } from "@/types";
 import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
+import { useT, getDifficultyLabel, getContentTypeLabel, getStageName } from "@/utils/i18n";
+import { useApp } from "@/context/AppContext";
 
 interface TextCardProps {
   item: LearningText;
@@ -28,6 +30,9 @@ const DIFF_COLORS: Record<string, string> = {
 
 export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: TextCardProps) {
   const colors = useColors();
+  const t = useT();
+  const { settings } = useApp();
+  const lang = settings.nativeLanguage;
   const [showActions, setShowActions] = useState(false);
 
   const diffColor = DIFF_COLORS[item.difficulty] ?? colors.primary;
@@ -63,13 +68,13 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
         <View style={styles.headerLeft}>
           <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
             <Text style={[styles.diffText, { color: diffColor }]}>
-              {DIFFICULTY_LABELS[item.difficulty]}
+              {getDifficultyLabel(item.difficulty, lang)}
             </Text>
           </View>
           <View style={[styles.typeBadge, { backgroundColor: colors.primary + "18" }]}>
             <Feather name={ctMeta.icon as any} size={10} color={colors.primary} />
             <Text style={[styles.typeText, { color: colors.primary }]}>
-              {ctMeta.label}
+              {getContentTypeLabel(ctype, lang)}
             </Text>
           </View>
         </View>
@@ -94,19 +99,19 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
         {allDone ? (
           <View style={[styles.progressBadge, { backgroundColor: "#10B981" + "20" }]}>
             <Feather name="star" size={11} color="#10B981" />
-            <Text style={[styles.progressText, { color: "#10B981" }]}>已掌握</Text>
+            <Text style={[styles.progressText, { color: "#10B981" }]}>{t("card.mastered")}</Text>
           </View>
         ) : hasStarted ? (
           <View style={[styles.progressBadge, { backgroundColor: currentStage.color + "20" }]}>
             <Feather name={currentStage.icon as any} size={11} color={currentStage.color} />
             <Text style={[styles.progressText, { color: currentStage.color }]}>
-              第{passedCount + 1}关 · {currentStage.name}
+              {t("card.stage", { n: passedCount + 1, name: getStageName(passedCount, lang) })}
             </Text>
           </View>
         ) : (
           <View style={[styles.progressBadge, { backgroundColor: colors.muted }]}>
             <Feather name="play" size={11} color={colors.mutedForeground} />
-            <Text style={[styles.progressText, { color: colors.mutedForeground }]}>开始学习</Text>
+            <Text style={[styles.progressText, { color: colors.mutedForeground }]}>{t("card.start")}</Text>
           </View>
         )}
       </View>
@@ -151,7 +156,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
               }}
             >
               <Feather name="edit-2" size={14} color="#fff" />
-              <Text style={styles.actionText}>重命名</Text>
+              <Text style={styles.actionText}>{t("rename.title")}</Text>
             </TouchableOpacity>
           )}
           {onDelete && (
@@ -163,7 +168,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
               }}
             >
               <Feather name="trash-2" size={14} color="#fff" />
-              <Text style={styles.actionText}>删除</Text>
+              <Text style={styles.actionText}>{t("common.delete")}</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity

@@ -8,6 +8,7 @@ import { useApp } from "@/context/AppContext";
 import { VOICE_OPTIONS } from "@/types";
 import type { ContentType } from "@/types";
 import { detectContentType, parseDialogue, parseParagraphs, CONTENT_TYPE_META } from "@/utils/contentType";
+import { useT, getContentTypeLabel } from "@/utils/i18n";
 
 interface SentenceArticleProps {
   text: string;
@@ -45,6 +46,7 @@ export function SentenceArticle({
   maxTextHeight = 320,
 }: SentenceArticleProps) {
   const colors = useColors();
+  const t = useT();
   const { settings, updateSettings } = useApp();
   const voice = voiceProp ?? settings.preferredVoice ?? "nova";
   const { playTTS, stop, isLoading, setRate } = useAudioPlayer();
@@ -231,7 +233,7 @@ export function SentenceArticle({
               <View style={[styles.contentTypeBadge, { backgroundColor: accentColor + "18" }]}>
                 <Feather name={meta.icon as any} size={10} color={accentColor} />
                 <Text style={[styles.contentTypeBadgeText, { color: accentColor }]}>
-                  {meta.label}
+                  {getContentTypeLabel(effectiveType, settings.nativeLanguage)}
                 </Text>
               </View>
             ) : null;
@@ -320,7 +322,7 @@ export function SentenceArticle({
           <View style={[styles.hintRow, { borderTopColor: colors.border }]}>
             <Feather name="info" size={11} color={colors.mutedForeground} />
             <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
-              点击任意句子单独播放（共 {playableSentences.length} 句）
+              {t("sentence.hint", { n: playableSentences.length })}
             </Text>
           </View>
         </View>
@@ -330,7 +332,7 @@ export function SentenceArticle({
         <View style={styles.controls}>
           <View style={styles.voiceSection}>
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-              音色
+              {t("sentence.voice")}
             </Text>
             <View style={styles.voiceGrid}>
               {VOICE_OPTIONS.map((opt) => {
@@ -386,7 +388,7 @@ export function SentenceArticle({
           </View>
 
           <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>语速</Text>
+            <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>{t("sentence.speed")}</Text>
             {SPEED_OPTIONS.map((opt) => {
               const active = rate === opt.value;
               return (
@@ -419,7 +421,7 @@ export function SentenceArticle({
               activeOpacity={0.85}
             >
               <Feather name="square" size={20} color="#fff" />
-              <Text style={styles.bigBtnText}>停止播放</Text>
+              <Text style={styles.bigBtnText}>{t("sentence.stop")}</Text>
               <AudioWaveform isActive color="#fff" barCount={4} />
             </TouchableOpacity>
           ) : (
@@ -438,14 +440,14 @@ export function SentenceArticle({
                 <Feather name="play-circle" size={22} color="#fff" />
               )}
               <Text style={styles.bigBtnText}>
-                {isLoading ? "加载中..." : "播放全文"}
+                {isLoading ? t("sentence.loading") : t("sentence.playAll")}
               </Text>
             </TouchableOpacity>
           )}
 
           {isSequence && activeIdx !== null && (
             <Text style={[styles.progressLabel, { color: colors.mutedForeground }]}>
-              第 {activeIdx + 1} / {playableSentences.length} 句
+              {t("sentence.progress", { i: activeIdx + 1, n: playableSentences.length })}
             </Text>
           )}
         </View>

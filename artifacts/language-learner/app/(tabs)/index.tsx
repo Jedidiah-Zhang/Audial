@@ -17,11 +17,13 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { TextCard } from "@/components/TextCard";
+import { useT } from "@/utils/i18n";
 import type { LearningText } from "@/types";
 
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const t = useT();
   const { texts, removeText, updateText, getProgressForText } = useApp();
 
   const [renameTarget, setRenameTarget] = useState<LearningText | null>(null);
@@ -68,8 +70,8 @@ export default function HomeScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 16 }]}>
         <View>
-          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>外语学习</Text>
-          <Text style={[styles.title, { color: colors.foreground }]}>我的文章</Text>
+          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>{t("home.greeting")}</Text>
+          <Text style={[styles.title, { color: colors.foreground }]}>{t("home.title")}</Text>
         </View>
         <TouchableOpacity
           onPress={() => router.push("/generate")}
@@ -83,9 +85,9 @@ export default function HomeScreen() {
       {texts.length === 0 ? (
         <View style={styles.empty}>
           <Feather name="book-open" size={48} color={colors.mutedForeground} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>还没有文章</Text>
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>{t("home.empty.title")}</Text>
           <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-            点击右上角添加按钮{"\n"}生成或输入学习文章
+            {t("home.empty.subtitle")}
           </Text>
           <TouchableOpacity
             onPress={() => router.push("/generate")}
@@ -93,7 +95,7 @@ export default function HomeScreen() {
             activeOpacity={0.85}
           >
             <Text style={[styles.startBtnText, { color: colors.primaryForeground }]}>
-              添加文章
+              {t("home.empty.cta")}
             </Text>
           </TouchableOpacity>
         </View>
@@ -132,7 +134,7 @@ export default function HomeScreen() {
           />
           <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-              重命名文章
+              {t("rename.title")}
             </Text>
             <TextInput
               value={renameValue}
@@ -146,7 +148,7 @@ export default function HomeScreen() {
                   color: colors.foreground,
                 },
               ]}
-              placeholder="新标题"
+              placeholder={t("rename.placeholder")}
               placeholderTextColor={colors.mutedForeground}
               returnKeyType="done"
               onSubmitEditing={confirmRename}
@@ -157,14 +159,14 @@ export default function HomeScreen() {
                 style={[styles.modalBtn, { backgroundColor: colors.muted }]}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.modalBtnText, { color: colors.foreground }]}>取消</Text>
+                <Text style={[styles.modalBtnText, { color: colors.foreground }]}>{t("common.cancel")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={confirmRename}
                 style={[styles.modalBtn, { backgroundColor: colors.primary }]}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>保存</Text>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t("common.save")}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -185,10 +187,10 @@ export default function HomeScreen() {
           />
           <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
             <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-              删除文章
+              {t("home.delete.title")}
             </Text>
             <Text style={{ color: colors.mutedForeground, fontSize: 14, lineHeight: 20 }}>
-              确定要删除「{deleteTarget?.title}」吗？此操作不可恢复，相关学习记录也会一并删除。
+              {t("home.delete.message", { title: deleteTarget?.title ?? "" })}
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -196,14 +198,14 @@ export default function HomeScreen() {
                 style={[styles.modalBtn, { backgroundColor: colors.muted }]}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.modalBtnText, { color: colors.foreground }]}>取消</Text>
+                <Text style={[styles.modalBtnText, { color: colors.foreground }]}>{t("common.cancel")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={confirmDelete}
                 style={[styles.modalBtn, { backgroundColor: colors.destructive }]}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.modalBtnText, { color: "#fff" }]}>删除</Text>
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>{t("common.delete")}</Text>
               </TouchableOpacity>
             </View>
           </View>

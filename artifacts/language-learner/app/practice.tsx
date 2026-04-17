@@ -15,14 +15,17 @@ import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
 import { VocabularyList } from "@/components/VocabularyList";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
+import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 
 export default function PracticeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const t = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { texts, getProgressForText, settings, addText } = useApp();
 
-  const text = texts.find((t) => t.id === id);
+  const text = texts.find((x) => x.id === id);
+  const lang = settings.nativeLanguage;
   const progress = text ? getProgressForText(text.id) : undefined;
 
   const [showVocab, setShowVocab] = useState(false);
@@ -34,7 +37,7 @@ export default function PracticeScreen() {
   if (!text) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.foreground, padding: 20 }}>文章未找到</Text>
+        <Text style={{ color: colors.foreground, padding: 20 }}>{t("home.notFound")}</Text>
       </View>
     );
   }
@@ -89,7 +92,7 @@ export default function PracticeScreen() {
             >
               <Feather name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
               <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
-                {showTranslation ? "隐藏译文" : "显示译文"}
+                {showTranslation ? t("practice.translation.hide") : t("practice.translation.show")}
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -101,7 +104,7 @@ export default function PracticeScreen() {
             >
               <Feather name="book" size={13} color={colors.mutedForeground} />
               <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
-                词汇 ({text.vocabulary.length})
+                {t("practice.vocab", { n: text.vocabulary.length })}
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -109,7 +112,7 @@ export default function PracticeScreen() {
 
         {showTranslation && text.translation ? (
           <View style={[styles.translationCard, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.translationLabel, { color: colors.mutedForeground }]}>译文</Text>
+            <Text style={[styles.translationLabel, { color: colors.mutedForeground }]}>{t("practice.translationLabel")}</Text>
             <Text style={[styles.translation, { color: colors.foreground }]}>
               {text.translation}
             </Text>
@@ -127,13 +130,13 @@ export default function PracticeScreen() {
           <View style={[styles.masteredBanner, { backgroundColor: "#10B981" + "20", borderColor: "#10B981" }]}>
             <Feather name="star" size={20} color="#10B981" />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.masteredTitle, { color: "#10B981" }]}>已掌握！</Text>
-              <Text style={[styles.masteredSub, { color: "#10B981" + "CC" }]}>综合得分 {totalScore} 分，可重练任意关卡提升分数</Text>
+              <Text style={[styles.masteredTitle, { color: "#10B981" }]}>{t("practice.mastered.title")}</Text>
+              <Text style={[styles.masteredSub, { color: "#10B981" + "CC" }]}>{t("practice.mastered.sub", { score: totalScore })}</Text>
             </View>
           </View>
         )}
 
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>学习关卡</Text>
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{t("practice.section.stages")}</Text>
 
         <View style={styles.stagesContainer}>
           {STAGES.map((stage, idx) => {
@@ -195,23 +198,23 @@ export default function PracticeScreen() {
                   <View style={styles.stageInfo}>
                     <View style={styles.stageHeader}>
                       <Text style={[styles.stageNum, { color: colors.mutedForeground }]}>
-                        第 {idx + 1} 关
+                        {t("practice.stageNum", { n: idx + 1 })}
                       </Text>
                       {current && (
                         <View style={[styles.currentTag, { backgroundColor: stage.color }]}>
-                          <Text style={styles.currentTagText}>当前</Text>
+                          <Text style={styles.currentTagText}>{t("practice.current")}</Text>
                         </View>
                       )}
                     </View>
                     <Text style={[styles.stageName, { color: locked ? colors.mutedForeground : colors.foreground }]}>
-                      {stage.name}
+                      {getStageName(idx, lang)}
                     </Text>
                     <Text style={[styles.stageDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
-                      {stage.description}
+                      {getStageDesc(idx, lang)}
                     </Text>
                     {stage.needsScore && (
                       <Text style={[styles.stageThreshold, { color: colors.mutedForeground }]}>
-                        通关要求：{STAGE_PASS_SCORE} 分
+                        {t("practice.passReq", { n: STAGE_PASS_SCORE })}
                       </Text>
                     )}
                   </View>
@@ -222,7 +225,7 @@ export default function PracticeScreen() {
                         <Text style={[styles.scoreBig, { color: passed ? stage.color : colors.mutedForeground }]}>
                           {best}
                         </Text>
-                        <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>最高</Text>
+                        <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>{t("practice.bestLabel")}</Text>
                       </View>
                     ) : locked ? null : (
                       <Feather name="chevron-right" size={20} color={stage.color} />

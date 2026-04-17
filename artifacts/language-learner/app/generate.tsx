@@ -18,16 +18,12 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { LANGUAGES, DIFFICULTY_LABELS } from "@/types";
+import { LANGUAGES } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
 import { detectContentType, isContentType } from "@/utils/contentType";
+import { useT, getDifficultyLabel, TOPIC_KEYS } from "@/utils/i18n";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
-
-const TOPICS = [
-  "日常对话", "旅行", "工作职场", "家庭生活", "饮食文化",
-  "体育运动", "科技新闻", "环境气候", "历史文化", "医疗健康",
-];
 
 interface DraftPayload {
   title: string;
@@ -40,12 +36,13 @@ interface DraftPayload {
 export default function GenerateScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const t = useT();
   const { addText, settings } = useApp();
 
+  const nativeLanguage = settings.nativeLanguage;
   const [mode, setMode] = useState<"ai" | "manual">("ai");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>(settings.defaultDifficulty);
-  const [nativeLanguage, setNativeLanguage] = useState(settings.nativeLanguage);
   const [targetLanguage, setTargetLanguage] = useState(settings.targetLanguage);
   const [manualText, setManualText] = useState("");
   const [manualTitle, setManualTitle] = useState("");
@@ -66,7 +63,7 @@ export default function GenerateScreen() {
 
   const handleGenerate = async () => {
     if (!topic.trim()) {
-      Alert.alert("提示", "请输入或选择一个话题");
+      Alert.alert(t("common.tip"), t("generate.alert.topicEmpty"));
       return;
     }
 
@@ -80,7 +77,7 @@ export default function GenerateScreen() {
         body: JSON.stringify({
           topic,
           difficulty,
-          language: LANGUAGES.find((l) => l.code === nativeLanguage)?.name ?? "中文",
+          language: LANGUAGES.find((l) => l.code === nativeLanguage)?.english ?? "English",
           targetLanguage: LANGUAGES.find((l) => l.code === targetLanguage)?.name ?? "English",
         }),
       });
@@ -103,7 +100,7 @@ export default function GenerateScreen() {
       setDraftTranslation(payload.translation);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
-      Alert.alert("错误", "生成文本失败，请检查网络后重试");
+      Alert.alert(t("common.error"), t("generate.alert.failed"));
     } finally {
       setIsGenerating(false);
     }
@@ -112,7 +109,7 @@ export default function GenerateScreen() {
   const handleConfirmDraft = async () => {
     if (!draft) return;
     if (!draftTitle.trim() || !draftText.trim()) {
-      Alert.alert("提示", "标题和正文不能为空");
+      Alert.alert(t("common.tip"), t("generate.alert.titleTextEmpty"));
       return;
     }
     const finalText = draftText.trim();
@@ -122,7 +119,7 @@ export default function GenerateScreen() {
       text: finalText,
       translation: draftTranslation.trim(),
       vocabulary: draft.vocabulary,
-      topic,
+      topic: topic || t("topic.custom"),
       difficulty,
       targetLanguage,
       nativeLanguage,
@@ -143,7 +140,7 @@ export default function GenerateScreen() {
 
   const handleManualSave = async () => {
     if (!manualTitle.trim() || !manualText.trim()) {
-      Alert.alert("提示", "请输入标题和文本内容");
+      Alert.alert(t("common.tip"), t("generate.alert.manualEmpty"));
       return;
     }
 
@@ -176,7 +173,7 @@ export default function GenerateScreen() {
       text: finalText,
       translation,
       vocabulary: [],
-      topic: "自定义",
+      topic: t("topic.custom"),
       difficulty,
       targetLanguage,
       nativeLanguage,
@@ -200,7 +197,7 @@ export default function GenerateScreen() {
           <TouchableOpacity onPress={handleDiscardDraft} style={styles.backBtn} activeOpacity={0.7}>
             <Feather name="arrow-left" size={22} color={colors.foreground} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>校对并保存</Text>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.preview.headerTitle")}</Text>
           <View style={{ width: 36 }} />
         </View>
 
@@ -212,28 +209,28 @@ export default function GenerateScreen() {
           <View style={[styles.previewBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
             <Feather name="edit-3" size={14} color={colors.primary} />
             <Text style={[styles.previewBannerText, { color: colors.primary }]}>
-              可在保存前修改文本。保存后正文将不可修改，标题随时可改。
+              {t("generate.preview.banner")}
             </Text>
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>标题</Text>
+            <Text style={[styles.label, labelStyle]}>{t("generate.label.title")}</Text>
             <TextInput
               style={[styles.input, inputStyle]}
               value={draftTitle}
               onChangeText={setDraftTitle}
-              placeholder="文章标题"
+              placeholder={t("generate.placeholder.title")}
               placeholderTextColor={colors.mutedForeground}
             />
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>正文</Text>
+            <Text style={[styles.label, labelStyle]}>{t("generate.label.body")}</Text>
             <TextInput
               style={[styles.bigTextarea, inputStyle]}
               value={draftText}
               onChangeText={setDraftText}
-              placeholder="目标语言文本..."
+              placeholder={t("generate.placeholder.text")}
               placeholderTextColor={colors.mutedForeground}
               multiline
               textAlignVertical="top"
@@ -241,12 +238,12 @@ export default function GenerateScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>翻译</Text>
+            <Text style={[styles.label, labelStyle]}>{t("generate.label.translation")}</Text>
             <TextInput
               style={[styles.textarea, inputStyle]}
               value={draftTranslation}
               onChangeText={setDraftTranslation}
-              placeholder="译文（可选）"
+              placeholder={t("generate.placeholder.translationOpt")}
               placeholderTextColor={colors.mutedForeground}
               multiline
               textAlignVertical="top"
@@ -255,7 +252,7 @@ export default function GenerateScreen() {
 
           {draft.vocabulary.length > 0 && (
             <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>词汇（{draft.vocabulary.length}）</Text>
+              <Text style={[styles.label, labelStyle]}>{t("generate.preview.vocab", { count: draft.vocabulary.length })}</Text>
               <View style={[styles.vocabPreview, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 {draft.vocabulary.map((v, i) => (
                   <View
@@ -288,7 +285,7 @@ export default function GenerateScreen() {
                 <Feather name="refresh-cw" size={16} color={colors.foreground} />
               )}
               <Text style={[styles.regenerateBtnText, { color: colors.foreground }]}>
-                {isGenerating ? "生成中..." : "重新生成"}
+                {isGenerating ? t("generate.btn.generating") : t("generate.preview.regenerate")}
               </Text>
             </TouchableOpacity>
 
@@ -298,7 +295,7 @@ export default function GenerateScreen() {
               activeOpacity={0.85}
             >
               <Feather name="check" size={18} color="#fff" />
-              <Text style={styles.confirmBtnText}>确认保存</Text>
+              <Text style={styles.confirmBtnText}>{t("generate.preview.confirm")}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -313,7 +310,7 @@ export default function GenerateScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>添加文章</Text>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.title")}</Text>
         <View style={{ width: 36 }} />
       </View>
 
@@ -339,7 +336,7 @@ export default function GenerateScreen() {
                 { color: mode === m ? "#fff" : colors.mutedForeground },
               ]}
             >
-              {m === "ai" ? "AI 生成" : "手动输入"}
+              {m === "ai" ? t("generate.tab.ai") : t("generate.tab.manual")}
             </Text>
           </TouchableOpacity>
         ))}
@@ -351,33 +348,8 @@ export default function GenerateScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.row}>
-          <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>母语</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.langScroll}>
-              {LANGUAGES.map((lang) => (
-                <TouchableOpacity
-                  key={lang.code}
-                  onPress={() => setNativeLanguage(lang.code)}
-                  style={[
-                    styles.langChip,
-                    {
-                      backgroundColor: nativeLanguage === lang.code ? colors.primary : colors.muted,
-                      borderColor: nativeLanguage === lang.code ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={{ color: nativeLanguage === lang.code ? "#fff" : colors.foreground, fontSize: 13, fontFamily: "Inter_500Medium" }}>
-                    {lang.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-
         <View style={styles.field}>
-          <Text style={[styles.label, labelStyle]}>目标语言</Text>
+          <Text style={[styles.label, labelStyle]}>{t("generate.label.targetLanguage")}</Text>
           <TouchableOpacity
             onPress={() => setTargetPickerOpen(true)}
             activeOpacity={0.85}
@@ -399,7 +371,7 @@ export default function GenerateScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={[styles.label, labelStyle]}>难度</Text>
+          <Text style={[styles.label, labelStyle]}>{t("generate.label.difficulty")}</Text>
           <View style={styles.diffRow}>
             {(["beginner", "elementary", "intermediate", "advanced"] as Difficulty[]).map((d) => (
               <TouchableOpacity
@@ -414,7 +386,7 @@ export default function GenerateScreen() {
                 ]}
               >
                 <Text style={{ color: difficulty === d ? "#fff" : colors.foreground, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center" }}>
-                  {DIFFICULTY_LABELS[d]}
+                  {getDifficultyLabel(d, nativeLanguage)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -424,37 +396,41 @@ export default function GenerateScreen() {
         {mode === "ai" ? (
           <>
             <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>话题</Text>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.topic")}</Text>
               <TextInput
                 style={[styles.input, inputStyle]}
                 value={topic}
                 onChangeText={setTopic}
-                placeholder="输入话题，如：购物、天气..."
+                placeholder={t("generate.placeholder.topic")}
                 placeholderTextColor={colors.mutedForeground}
                 returnKeyType="done"
               />
             </View>
 
             <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>快速选择</Text>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.quickPick")}</Text>
               <View style={styles.topicGrid}>
-                {TOPICS.map((t) => (
-                  <TouchableOpacity
-                    key={t}
-                    onPress={() => setTopic(t)}
-                    style={[
-                      styles.topicChip,
-                      {
-                        backgroundColor: topic === t ? colors.secondary : colors.muted,
-                        borderColor: topic === t ? colors.primary : "transparent",
-                      },
-                    ]}
-                  >
-                    <Text style={{ color: topic === t ? colors.primary : colors.foreground, fontSize: 13, fontFamily: "Inter_400Regular" }}>
-                      {t}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {TOPIC_KEYS.map((tk) => {
+                  const label = t(tk);
+                  const isActive = topic === label;
+                  return (
+                    <TouchableOpacity
+                      key={tk}
+                      onPress={() => setTopic(label)}
+                      style={[
+                        styles.topicChip,
+                        {
+                          backgroundColor: isActive ? colors.secondary : colors.muted,
+                          borderColor: isActive ? colors.primary : "transparent",
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: isActive ? colors.primary : colors.foreground, fontSize: 13, fontFamily: "Inter_400Regular" }}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
 
@@ -469,7 +445,7 @@ export default function GenerateScreen() {
               ) : (
                 <>
                   <Feather name="zap" size={18} color="#fff" />
-                  <Text style={styles.generateBtnText}>AI 生成文章</Text>
+                  <Text style={styles.generateBtnText}>{t("generate.btn.generate")}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -477,29 +453,29 @@ export default function GenerateScreen() {
         ) : (
           <>
             <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>标题</Text>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.title")}</Text>
               <TextInput
                 style={[styles.input, inputStyle]}
                 value={manualTitle}
                 onChangeText={setManualTitle}
-                placeholder="文章标题"
+                placeholder={t("generate.placeholder.title")}
                 placeholderTextColor={colors.mutedForeground}
               />
             </View>
 
             <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>目标语言文本</Text>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.text")}</Text>
               <TextInput
                 style={[styles.textarea, inputStyle]}
                 value={manualText}
                 onChangeText={setManualText}
-                placeholder="在此输入或粘贴目标语言的文本..."
+                placeholder={t("generate.placeholder.text")}
                 placeholderTextColor={colors.mutedForeground}
                 multiline
                 textAlignVertical="top"
               />
               <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: -2 }}>
-                保存时将自动翻译为{nativeLangObj.name}
+                {t("generate.translateNote", { lang: nativeLangObj.name })}
               </Text>
             </View>
 
@@ -512,12 +488,12 @@ export default function GenerateScreen() {
               {isTranslating ? (
                 <>
                   <ActivityIndicator color="#fff" />
-                  <Text style={styles.generateBtnText}>正在翻译并保存...</Text>
+                  <Text style={styles.generateBtnText}>{t("generate.btn.translatingSaving")}</Text>
                 </>
               ) : (
                 <>
                   <Feather name="save" size={18} color="#fff" />
-                  <Text style={styles.generateBtnText}>保存文章</Text>
+                  <Text style={styles.generateBtnText}>{t("generate.btn.save")}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -539,7 +515,7 @@ export default function GenerateScreen() {
           />
           <View style={[styles.pickerCard, { backgroundColor: colors.card }]}>
             <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
-              选择目标语言
+              {t("generate.picker.title")}
             </Text>
             <FlatList
               data={LANGUAGES.filter((l) => l.code !== nativeLanguage)}

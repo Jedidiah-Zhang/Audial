@@ -1,6 +1,8 @@
 import React from "react";
-import { View, Text, StyleSheet, Animated } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { useT, getModeLabel } from "@/utils/i18n";
+import { useApp } from "@/context/AppContext";
 
 interface ScoreCardProps {
   score: number;
@@ -11,6 +13,9 @@ interface ScoreCardProps {
 
 export function ScoreCard({ score, feedback, details, mode }: ScoreCardProps) {
   const colors = useColors();
+  const t = useT();
+  const { settings } = useApp();
+  const lang = settings.nativeLanguage;
 
   const getScoreColor = () => {
     if (score >= 90) return colors.success;
@@ -19,18 +24,18 @@ export function ScoreCard({ score, feedback, details, mode }: ScoreCardProps) {
   };
 
   const getScoreEmoji = () => {
-    if (score >= 90) return "优秀";
-    if (score >= 80) return "良好";
-    if (score >= 70) return "一般";
-    if (score >= 60) return "加油";
-    return "继续练习";
+    if (score >= 90) return t("score.excellent");
+    if (score >= 80) return t("score.good");
+    if (score >= 70) return t("score.fair");
+    if (score >= 60) return t("score.keep_going");
+    return t("score.keep_trying");
   };
 
-  const modeLabel = { shadowing: "跟读", dictation: "听写", recitation: "背诵" }[mode];
+  const modeLabel = t("score.modeLabel", { mode: getModeLabel(mode, lang) });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <Text style={[styles.modeLabel, { color: colors.mutedForeground }]}>{modeLabel}得分</Text>
+      <Text style={[styles.modeLabel, { color: colors.mutedForeground }]}>{modeLabel}</Text>
 
       <View style={[styles.scoreCircle, { borderColor: getScoreColor() }]}>
         <Text style={[styles.scoreText, { color: getScoreColor() }]}>{score}</Text>
@@ -83,10 +88,9 @@ const styles = StyleSheet.create({
     height: 110,
     borderRadius: 55,
     borderWidth: 4,
-    alignItems: "center",
-    justifyContent: "center",
     flexDirection: "row",
     alignItems: "baseline" as any,
+    justifyContent: "center",
   },
   scoreText: {
     fontSize: 48,
