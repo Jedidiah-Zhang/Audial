@@ -58,26 +58,42 @@ function _arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+// Module-level Web Audio context shared across plays (browser limit: ~6 contexts)
+let _audioCtx: AudioContext | null = null;
+function getAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  const Ctx = (window.AudioContext || (window as any).webkitAudioContext) as
+    | typeof AudioContext
+    | undefined;
+  if (!Ctx) return null;
+  if (!_audioCtx || _audioCtx.state === "closed") {
+    _audioCtx = new Ctx();
+  }
+  return _audioCtx;
+}
+
+// Cache decoded AudioBuffers per (voice, text) so we only decode once
+const decodedCache = new Map<string, AudioBuffer>();
+
 export function useAudioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const expoPlayerRef = useRef<any>(null);
   const currentRateRef = useRef<number>(1);
+  const playTokenRef = useRef(0);
 
   const cleanupCurrent = useCallback(() => {
-    if (audioRef.current) {
+    playTokenRef.current++;
+    if (sourceRef.current) {
       try {
-        audioRef.current.pause();
+        sourceRef.current.onended = null;
+        sourceRef.current.stop();
       } catch {}
-      audioRef.current = null;
-    }
-    if (audioUrlRef.current) {
       try {
-        URL.revokeObjectURL(audioUrlRef.current);
+        sourceRef.current.disconnect();
       } catch {}
-      audioUrlRef.current = null;
+      sourceRef.current = null;
     }
     if (expoPlayerRef.current) {
       try {
@@ -114,77 +130,54 @@ export function useAudioPlayer() {
         currentRateRef.current = playbackRate;
 
         if (Platform.OS === "web") {
-          const blob = new Blob([buffer], { type: "audio/mpeg" });
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio();
-          audio.preload = "auto";
-          (audio as any).preservesPitch = true;
-          (audio as any).mozPreservesPitch = true;
-          (audio as any).webkitPreservesPitch = true;
-          audioRef.current = audio;
-          audioUrlRef.current = url;
+          const ctx = getAudioContext();
+          if (!ctx) {
+            setIsLoading(false);
+            return;
+          }
+          // Resume context (required after user gesture if suspended)
+          if (ctx.state === "suspended") {
+            try {
+              await ctx.resume();
+            } catch {}
+          }
 
-          audio.onended = () => {
+          // Decode (cached) — copy buffer because decodeAudioData consumes it
+          let audioBuffer = decodedCache.get(key);
+          if (!audioBuffer) {
+            const copy = buffer.slice(0);
+            audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+              ctx.decodeAudioData(copy, resolve, reject);
+            });
+            decodedCache.set(key, audioBuffer);
+          }
+
+          const token = ++playTokenRef.current;
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          try {
+            source.playbackRate.value = playbackRate;
+          } catch {}
+          source.connect(ctx.destination);
+
+          sourceRef.current = source;
+          setIsLoading(false);
+          setIsPlaying(true);
+
+          source.onended = () => {
+            if (playTokenRef.current !== token) return;
             setIsPlaying(false);
-            if (audioUrlRef.current === url) {
+            if (sourceRef.current === source) {
               try {
-                URL.revokeObjectURL(url);
+                source.disconnect();
               } catch {}
-              audioUrlRef.current = null;
-              audioRef.current = null;
+              sourceRef.current = null;
             }
             onEnded?.();
           };
-          audio.onerror = () => {
-            setIsPlaying(false);
-            if (audioUrlRef.current === url) {
-              try {
-                URL.revokeObjectURL(url);
-              } catch {}
-              audioUrlRef.current = null;
-              audioRef.current = null;
-            }
-          };
 
-          // Wait until the browser has buffered enough to play through without stalling.
-          // Without this, fresh blob URLs can play partial audio and end prematurely.
-          await new Promise<void>((resolve) => {
-            let settled = false;
-            const done = () => {
-              if (settled) return;
-              settled = true;
-              resolve();
-            };
-            const onReady = () => done();
-            audio.addEventListener("canplaythrough", onReady, { once: true });
-            audio.addEventListener("loadeddata", () => {
-              // Fallback: some browsers don't fire canplaythrough for blob URLs.
-              // After loadeddata, give a tiny window for canplaythrough then proceed.
-              setTimeout(done, 150);
-            }, { once: true });
-            audio.addEventListener("error", done, { once: true });
-            // Hard cap so we never hang
-            setTimeout(done, 2000);
-            audio.src = url;
-            audio.load();
-          });
-
-          // Apply playback rate after metadata is available
-          audio.playbackRate = playbackRate;
-          setIsLoading(false);
-          if (audioRef.current !== audio) {
-            // Was replaced/cleaned up while waiting; abort and free the orphaned URL
-            try {
-              URL.revokeObjectURL(url);
-            } catch {}
-            return;
-          }
-          setIsPlaying(true);
-          try {
-            await audio.play();
-          } catch {
-            setIsPlaying(false);
-          }
+          // Start from sample 0 deterministically
+          source.start(0, 0);
         } else {
           const { createAudioPlayer } = await import("expo-audio");
           const base64 = _arrayBufferToBase64(buffer);
@@ -228,9 +221,9 @@ export function useAudioPlayer() {
 
   const setRate = useCallback((rate: number) => {
     currentRateRef.current = rate;
-    if (audioRef.current) {
+    if (sourceRef.current) {
       try {
-        audioRef.current.playbackRate = rate;
+        sourceRef.current.playbackRate.value = rate;
       } catch {}
     }
     if (expoPlayerRef.current) {
