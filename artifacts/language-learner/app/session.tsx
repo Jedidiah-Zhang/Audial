@@ -411,57 +411,37 @@ export default function SessionScreen() {
           <View style={styles.section}>
             <SpeedControl speed={speed} onChange={setSpeed} color={stageColor} colors={colors} />
 
-            <SentenceNav
-              current={currentSentIdx}
-              total={sentences.length}
+            <FullArticleView
+              sentences={sentences}
+              currentIdx={currentSentIdx}
               sentenceDone={sentenceDone}
-              onPrev={currentSentIdx > 0 ? () => goToSentence(currentSentIdx - 1) : undefined}
-              onNext={currentSentIdx < sentences.length - 1 ? () => goToSentence(currentSentIdx + 1) : undefined}
+              hideText={stageIdx === 2 || stageIdx === 3}
               color={stageColor}
               colors={colors}
+              isPlaying={isPlaying}
+              onSentencePress={goToSentence}
             />
 
-            {stageIdx !== 2 && (
-              <View
-                style={[
-                  styles.sentenceCard,
-                  { backgroundColor: colors.card, borderColor: stageColor, borderWidth: 1.5 },
-                ]}
-              >
-                {stageIdx === 3 && (
-                  <View style={[styles.hiddenBadge, { backgroundColor: stageColor + "15" }]}>
-                    <Feather name="book-open" size={12} color={stageColor} />
-                    <Text style={[styles.hiddenBadgeText, { color: stageColor }]}>从记忆中背诵</Text>
-                  </View>
-                )}
-                <Text style={[styles.sentenceText, { color: colors.foreground }]}>
-                  {stageIdx === 3 ? `第 ${currentSentIdx + 1} 句` : sentences[currentSentIdx]}
-                </Text>
-              </View>
-            )}
-
-            {stageIdx === 2 && (
-              <View style={[styles.hiddenSentenceCard, { backgroundColor: colors.muted }]}>
-                <Feather name="eye-off" size={20} color={colors.mutedForeground} />
-                <Text style={[styles.hiddenSentenceText, { color: colors.mutedForeground }]}>
-                  第 {currentSentIdx + 1} 句（文字已隐藏）
-                </Text>
-                <Text style={[styles.hiddenSentenceHint, { color: colors.mutedForeground }]}>
-                  收听音频后将您听到的内容写下来
-                </Text>
-              </View>
-            )}
-
             <View style={styles.audioRow}>
+              <TouchableOpacity
+                onPress={currentSentIdx > 0 ? () => goToSentence(currentSentIdx - 1) : undefined}
+                disabled={currentSentIdx === 0}
+                style={[
+                  styles.navIconBtn,
+                  { backgroundColor: colors.muted, opacity: currentSentIdx === 0 ? 0.3 : 1 },
+                ]}
+                activeOpacity={0.7}
+              >
+                <Feather name="chevron-left" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+
               <TouchableOpacity
                 onPress={handlePlayCurrentSentence}
                 disabled={isPlaying || ttsLoading}
                 style={[
                   styles.playBtn,
                   {
-                    backgroundColor: sentencePlayed[currentSentIdx]
-                      ? colors.muted
-                      : stageColor,
+                    backgroundColor: sentencePlayed[currentSentIdx] ? colors.muted : stageColor,
                     opacity: isPlaying || ttsLoading ? 0.6 : 1,
                   },
                 ]}
@@ -485,18 +465,39 @@ export default function SessionScreen() {
                     { color: sentencePlayed[currentSentIdx] ? stageColor : "#fff" },
                   ]}
                 >
-                  {ttsLoading ? "加载..." : isPlaying ? "播放中" : sentencePlayed[currentSentIdx] ? "再听一遍" : "播放"}
+                  {ttsLoading
+                    ? "加载..."
+                    : isPlaying
+                    ? `播放第${currentSentIdx + 1}句`
+                    : sentencePlayed[currentSentIdx]
+                    ? "再听一遍"
+                    : `播放第${currentSentIdx + 1}句`}
                 </Text>
               </TouchableOpacity>
 
-              <View style={[styles.speedBadge, { backgroundColor: colors.muted }]}>
-                <Text style={[styles.speedBadgeText, { color: stageColor }]}>{speed}×</Text>
-              </View>
+              <TouchableOpacity
+                onPress={
+                  currentSentIdx < sentences.length - 1
+                    ? () => goToSentence(currentSentIdx + 1)
+                    : undefined
+                }
+                disabled={currentSentIdx >= sentences.length - 1}
+                style={[
+                  styles.navIconBtn,
+                  {
+                    backgroundColor: colors.muted,
+                    opacity: currentSentIdx >= sentences.length - 1 ? 0.3 : 1,
+                  },
+                ]}
+                activeOpacity={0.7}
+              >
+                <Feather name="chevron-right" size={20} color={colors.foreground} />
+              </TouchableOpacity>
             </View>
 
             {isPlaying && <AudioWaveform isActive color={stageColor} barCount={7} />}
 
-            {(phase === "transcribing") && (
+            {phase === "transcribing" && (
               <View style={[styles.statusRow, { backgroundColor: colors.muted }]}>
                 <ActivityIndicator color={stageColor} size="small" />
                 <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
@@ -506,7 +507,12 @@ export default function SessionScreen() {
             )}
 
             {sentenceTranscripts[currentSentIdx] && stageIdx !== 2 && phase !== "transcribing" && (
-              <View style={[styles.transcriptBubble, { backgroundColor: stageColor + "15", borderColor: stageColor + "40" }]}>
+              <View
+                style={[
+                  styles.transcriptBubble,
+                  { backgroundColor: stageColor + "15", borderColor: stageColor + "40" },
+                ]}
+              >
                 <Feather name="check-circle" size={13} color={stageColor} />
                 <Text style={[styles.transcriptText, { color: colors.foreground }]} numberOfLines={3}>
                   {sentenceTranscripts[currentSentIdx]}
@@ -517,7 +523,10 @@ export default function SessionScreen() {
             {stageIdx === 2 && (
               <>
                 <View
-                  style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}
+                  style={[
+                    styles.dictationBox,
+                    { backgroundColor: colors.card, borderColor: stageColor },
+                  ]}
                 >
                   <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>
                     第 {currentSentIdx + 1} 句听写内容
@@ -545,10 +554,19 @@ export default function SessionScreen() {
                   ]}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.nextSentBtnText, { color: currentInput.trim() ? "#fff" : colors.mutedForeground }]}>
+                  <Text
+                    style={[
+                      styles.nextSentBtnText,
+                      { color: currentInput.trim() ? "#fff" : colors.mutedForeground },
+                    ]}
+                  >
                     {currentSentIdx < sentences.length - 1 ? "保存并下一句" : "保存"}
                   </Text>
-                  <Feather name={currentSentIdx < sentences.length - 1 ? "arrow-right" : "check"} size={16} color={currentInput.trim() ? "#fff" : colors.mutedForeground} />
+                  <Feather
+                    name={currentSentIdx < sentences.length - 1 ? "arrow-right" : "check"}
+                    size={16}
+                    color={currentInput.trim() ? "#fff" : colors.mutedForeground}
+                  />
                 </TouchableOpacity>
               </>
             )}
@@ -569,9 +587,12 @@ export default function SessionScreen() {
                   <Feather name={isRecording ? "square" : "mic"} size={28} color="#fff" />
                 </TouchableOpacity>
                 <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
-                  {isRecording ? "点击停止录音" : sentenceTranscripts[currentSentIdx] ? "重新录音" : "点击开始录音"}
+                  {isRecording
+                    ? "点击停止录音"
+                    : sentenceTranscripts[currentSentIdx]
+                    ? `重新录第 ${currentSentIdx + 1} 句`
+                    : `录第 ${currentSentIdx + 1} 句`}
                 </Text>
-                {isRecording && <AudioWaveform isActive color="#EF4444" />}
               </View>
             )}
 
@@ -585,11 +606,11 @@ export default function SessionScreen() {
                 >
                   <Feather name="square" size={28} color="#fff" />
                 </TouchableOpacity>
-                <Text style={[styles.recordHint, { color: "#EF4444" }]}>点击停止录音</Text>
+                <Text style={[styles.recordHint, { color: "#EF4444" }]}>
+                  正在录第 {currentSentIdx + 1} 句，点击停止
+                </Text>
               </View>
             )}
-
-            <SentenceDots sentences={sentences} currentIdx={currentSentIdx} sentenceDone={sentenceDone} color={stageColor} colors={colors} onDotPress={goToSentence} />
 
             {allSentencesDone && stageIdx !== 0 && (
               <TouchableOpacity
@@ -729,6 +750,127 @@ export default function SessionScreen() {
           </View>
         )}
       </ScrollView>
+    </View>
+  );
+}
+
+function FullArticleView({
+  sentences,
+  currentIdx,
+  sentenceDone,
+  hideText,
+  color,
+  colors,
+  isPlaying,
+  onSentencePress,
+}: {
+  sentences: string[];
+  currentIdx: number;
+  sentenceDone: (idx: number) => boolean;
+  hideText: boolean;
+  color: string;
+  colors: any;
+  isPlaying: boolean;
+  onSentencePress: (idx: number) => void;
+}) {
+  return (
+    <View style={[articleStyles.container, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={articleStyles.header}>
+        <Feather name={hideText ? "eye-off" : "file-text"} size={13} color={colors.mutedForeground} />
+        <Text style={[articleStyles.headerLabel, { color: colors.mutedForeground }]}>
+          {hideText ? "文章（已隐藏，凭听力/记忆作答）" : "完整文章"}
+        </Text>
+        <View style={{ flex: 1 }} />
+        <Text style={[articleStyles.headerCount, { color }]}>
+          {currentIdx + 1} / {sentences.length}
+        </Text>
+      </View>
+
+      <View style={articleStyles.body}>
+        {sentences.map((s, i) => {
+          const isCurrent = i === currentIdx;
+          const isDone = sentenceDone(i);
+          const wordCount = Math.max(3, Math.min(s.split(/\s+/).filter(Boolean).length, 12));
+
+          return (
+            <TouchableOpacity
+              key={i}
+              onPress={() => onSentencePress(i)}
+              activeOpacity={0.7}
+              style={[
+                articleStyles.sentenceRow,
+                {
+                  backgroundColor: isCurrent ? color + "1A" : "transparent",
+                  borderLeftColor: isCurrent ? color : isDone ? color + "60" : "transparent",
+                },
+              ]}
+            >
+              <View
+                style={[
+                  articleStyles.numBadge,
+                  {
+                    backgroundColor: isCurrent ? color : isDone ? color + "30" : colors.muted,
+                  },
+                ]}
+              >
+                {isDone && !isCurrent ? (
+                  <Feather name="check" size={11} color={color} />
+                ) : (
+                  <Text
+                    style={[
+                      articleStyles.numText,
+                      { color: isCurrent ? "#fff" : colors.mutedForeground },
+                    ]}
+                  >
+                    {i + 1}
+                  </Text>
+                )}
+              </View>
+
+              <View style={{ flex: 1 }}>
+                {hideText ? (
+                  <View style={articleStyles.blanksRow}>
+                    {Array.from({ length: wordCount }).map((_, w) => (
+                      <View
+                        key={w}
+                        style={[
+                          articleStyles.blank,
+                          {
+                            backgroundColor: isCurrent ? color + "40" : colors.border,
+                            width: 8 + ((w * 7) % 18),
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                ) : (
+                  <Text
+                    style={[
+                      articleStyles.sentText,
+                      {
+                        color: isCurrent
+                          ? colors.foreground
+                          : isDone
+                          ? colors.foreground
+                          : colors.mutedForeground,
+                        fontFamily: isCurrent ? "Inter_600SemiBold" : "Inter_400Regular",
+                      },
+                    ]}
+                  >
+                    {s}
+                  </Text>
+                )}
+              </View>
+
+              {isCurrent && isPlaying && (
+                <View style={articleStyles.playingDot}>
+                  <Feather name="volume-2" size={14} color={color} />
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -914,11 +1056,10 @@ const styles = StyleSheet.create({
   hiddenSentenceCard: { borderRadius: 14, padding: 20, alignItems: "center", gap: 6 },
   hiddenSentenceText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   hiddenSentenceHint: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
-  audioRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  audioRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  navIconBtn: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   playBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 14 },
   playBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  speedBadge: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, minWidth: 52, alignItems: "center" },
-  speedBadgeText: { fontSize: 14, fontFamily: "Inter_700Bold" },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12 },
   transcriptBubble: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1 },
   transcriptText: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
@@ -968,4 +1109,47 @@ const navStyles = StyleSheet.create({
 const dotsStyles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 4 },
   dot: { height: 8, borderRadius: 4 },
+});
+
+const articleStyles = StyleSheet.create({
+  container: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(0,0,0,0.06)",
+  },
+  headerLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  headerCount: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  body: { paddingVertical: 6 },
+  sentenceRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderLeftWidth: 3,
+  },
+  numBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  numText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  sentText: { fontSize: 16, lineHeight: 26 },
+  blanksRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 6,
+  },
+  blank: { height: 10, borderRadius: 5, minWidth: 14 },
+  playingDot: { paddingTop: 4 },
 });
