@@ -56,16 +56,6 @@ export const STAGE_PASS_SCORE = 60;
 export const STAGES = [
   {
     index: 0,
-    name: "精听",
-    englishName: "Listening",
-    icon: "headphones",
-    color: "#6366F1",
-    description: "跟随音频精读文章，感受语言节奏与发音",
-    needsScore: false,
-    mode: "listening" as const,
-  },
-  {
-    index: 1,
     name: "跟读",
     englishName: "Shadowing",
     icon: "mic",
@@ -75,7 +65,7 @@ export const STAGES = [
     mode: "shadowing" as LearningMode,
   },
   {
-    index: 2,
+    index: 1,
     name: "听写",
     englishName: "Dictation",
     icon: "edit-2",
@@ -85,7 +75,7 @@ export const STAGES = [
     mode: "dictation" as LearningMode,
   },
   {
-    index: 3,
+    index: 2,
     name: "背诵",
     englishName: "Recitation",
     icon: "award",

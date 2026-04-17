@@ -4,112 +4,209 @@ import { AudioModule, RecordingPresets, useAudioRecorder as useExpoAudioRecorder
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
-export function useAudioPlayer() {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const expoPlayerRef = useRef<any>(null);
+const audioCache = new Map<string, ArrayBuffer>();
+const inflight = new Map<string, Promise<ArrayBuffer>>();
 
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      if (expoPlayerRef.current) {
-        expoPlayerRef.current.remove?.();
-        expoPlayerRef.current = null;
-      }
-    };
-  }, []);
+function cacheKey(text: string, voice: string) {
+  return `${voice}::${text}`;
+}
 
-  const playTTS = useCallback(async (text: string, voice = "nova", onEnded?: () => void) => {
-    try {
-      setIsLoading(true);
+async function fetchTTS(text: string, voice: string): Promise<ArrayBuffer> {
+  const key = cacheKey(text, voice);
+  const cached = audioCache.get(key);
+  if (cached) return cached;
+  const existing = inflight.get(key);
+  if (existing) return existing;
 
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      if (expoPlayerRef.current) {
-        expoPlayerRef.current.remove?.();
-        expoPlayerRef.current = null;
-      }
-      setIsPlaying(false);
+  const promise = (async () => {
+    const response = await fetch(`${BASE_URL}/api/language/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice }),
+    });
+    if (!response.ok) throw new Error("TTS request failed");
+    const buf = await response.arrayBuffer();
+    audioCache.set(key, buf);
+    return buf;
+  })();
+  inflight.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    inflight.delete(key);
+  }
+}
 
-      const response = await fetch(`${BASE_URL}/api/language/tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice }),
-      });
-
-      if (!response.ok) throw new Error("TTS request failed");
-
-      if (Platform.OS === "web") {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        setIsLoading(false);
-        setIsPlaying(true);
-        audio.onended = () => {
-          setIsPlaying(false);
-          URL.revokeObjectURL(url);
-          onEnded?.();
-        };
-        audio.onerror = () => {
-          setIsPlaying(false);
-          URL.revokeObjectURL(url);
-        };
-        await audio.play();
-      } else {
-        const { createAudioPlayer } = await import("expo-audio");
-        const arrayBuffer = await response.arrayBuffer();
-        const base64 = _arrayBufferToBase64(arrayBuffer);
-        const uri = `data:audio/mpeg;base64,${base64}`;
-        const player = createAudioPlayer({ uri });
-        expoPlayerRef.current = player;
-        setIsLoading(false);
-        setIsPlaying(true);
-        let didEnd = false;
-        player.addListener("playbackStatusUpdate", (status: any) => {
-          if (status.didJustFinish && !didEnd) {
-            didEnd = true;
-            setIsPlaying(false);
-            onEnded?.();
-          } else if (!status.isLoaded) {
-            setIsPlaying(false);
-          }
-        });
-        player.play();
-      }
-    } catch {
-      setIsPlaying(false);
-      setIsLoading(false);
-    }
-  }, []);
-
-  const stop = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    if (expoPlayerRef.current) {
-      expoPlayerRef.current.pause?.();
-    }
-    setIsPlaying(false);
-  }, []);
-
-  return { playTTS, stop, isPlaying, isLoading };
+export async function prefetchTTS(text: string, voice: string): Promise<void> {
+  try {
+    await fetchTTS(text, voice);
+  } catch {
+    /* silent prefetch failure */
+  }
 }
 
 function _arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunk))
+    );
   }
   return btoa(binary);
+}
+
+export function useAudioPlayer() {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const expoPlayerRef = useRef<any>(null);
+  const currentRateRef = useRef<number>(1);
+
+  const cleanupCurrent = useCallback(() => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+      } catch {}
+      audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      try {
+        URL.revokeObjectURL(audioUrlRef.current);
+      } catch {}
+      audioUrlRef.current = null;
+    }
+    if (expoPlayerRef.current) {
+      try {
+        expoPlayerRef.current.pause?.();
+        expoPlayerRef.current.remove?.();
+      } catch {}
+      expoPlayerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cleanupCurrent();
+    };
+  }, [cleanupCurrent]);
+
+  const playTTS = useCallback(
+    async (
+      text: string,
+      voice = "nova",
+      onEnded?: () => void,
+      rate?: number
+    ) => {
+      try {
+        cleanupCurrent();
+        setIsPlaying(false);
+
+        const key = cacheKey(text, voice);
+        const wasCached = audioCache.has(key);
+        if (!wasCached) setIsLoading(true);
+
+        const buffer = await fetchTTS(text, voice);
+        const playbackRate = rate ?? currentRateRef.current;
+        currentRateRef.current = playbackRate;
+
+        if (Platform.OS === "web") {
+          const blob = new Blob([buffer], { type: "audio/mpeg" });
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          (audio as any).preservesPitch = true;
+          (audio as any).mozPreservesPitch = true;
+          (audio as any).webkitPreservesPitch = true;
+          audio.playbackRate = playbackRate;
+          audioRef.current = audio;
+          audioUrlRef.current = url;
+          setIsLoading(false);
+          setIsPlaying(true);
+          audio.onended = () => {
+            setIsPlaying(false);
+            if (audioUrlRef.current === url) {
+              try {
+                URL.revokeObjectURL(url);
+              } catch {}
+              audioUrlRef.current = null;
+              audioRef.current = null;
+            }
+            onEnded?.();
+          };
+          audio.onerror = () => {
+            setIsPlaying(false);
+            if (audioUrlRef.current === url) {
+              try {
+                URL.revokeObjectURL(url);
+              } catch {}
+              audioUrlRef.current = null;
+              audioRef.current = null;
+            }
+          };
+          await audio.play();
+        } else {
+          const { createAudioPlayer } = await import("expo-audio");
+          const base64 = _arrayBufferToBase64(buffer);
+          const uri = `data:audio/mpeg;base64,${base64}`;
+          const player = createAudioPlayer({ uri });
+          expoPlayerRef.current = player;
+          try {
+            if (typeof player.setPlaybackRate === "function") {
+              player.setPlaybackRate(playbackRate, "high");
+            } else {
+              player.playbackRate = playbackRate;
+            }
+            player.shouldCorrectPitch = true;
+          } catch {}
+          setIsLoading(false);
+          setIsPlaying(true);
+          let didEnd = false;
+          player.addListener("playbackStatusUpdate", (status: any) => {
+            if (status.didJustFinish && !didEnd) {
+              didEnd = true;
+              setIsPlaying(false);
+              onEnded?.();
+            } else if (!status.isLoaded) {
+              setIsPlaying(false);
+            }
+          });
+          player.play();
+        }
+      } catch {
+        setIsPlaying(false);
+        setIsLoading(false);
+      }
+    },
+    [cleanupCurrent]
+  );
+
+  const stop = useCallback(() => {
+    cleanupCurrent();
+    setIsPlaying(false);
+  }, [cleanupCurrent]);
+
+  const setRate = useCallback((rate: number) => {
+    currentRateRef.current = rate;
+    if (audioRef.current) {
+      try {
+        audioRef.current.playbackRate = rate;
+      } catch {}
+    }
+    if (expoPlayerRef.current) {
+      try {
+        if (typeof expoPlayerRef.current.setPlaybackRate === "function") {
+          expoPlayerRef.current.setPlaybackRate(rate, "high");
+        } else {
+          expoPlayerRef.current.playbackRate = rate;
+        }
+      } catch {}
+    }
+  }, []);
+
+  return { playTTS, stop, isPlaying, isLoading, setRate };
 }
 
 export function useAudioRecorder() {

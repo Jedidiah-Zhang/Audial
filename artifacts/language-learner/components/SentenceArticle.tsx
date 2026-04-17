@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
-import { useAudioPlayer } from "@/hooks/useAudio";
+import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
 
 interface SentenceArticleProps {
@@ -14,13 +14,17 @@ interface SentenceArticleProps {
   onPlay?: () => void;
 }
 
+const SPEED_OPTIONS: { label: string; value: number }[] = [
+  { label: "0.5x", value: 0.5 },
+  { label: "0.75x", value: 0.75 },
+  { label: "1x", value: 1.0 },
+];
+
 function splitSentences(text: string): string[] {
   if (!text) return [];
-  const parts = text
-    .split(/(?<=[.!?。！？؟])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return parts.length > 0 ? parts : [text];
+  const matches = text.match(/[^.!?。！？؟\n]+[.!?。！？؟]+["'”’」』）)]*|[^.!?。！？؟\n]+/g);
+  if (!matches) return [text];
+  return matches.map((s) => s.trim()).filter(Boolean);
 }
 
 export function SentenceArticle({
@@ -32,12 +36,26 @@ export function SentenceArticle({
   onPlay,
 }: SentenceArticleProps) {
   const colors = useColors();
-  const { playTTS, stop, isLoading } = useAudioPlayer();
+  const { playTTS, stop, isLoading, setRate } = useAudioPlayer();
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [isSequence, setIsSequence] = useState(false);
+  const [rate, setRateState] = useState<number>(1);
   const sequenceCancelRef = useRef(false);
 
   const sentences = useMemo(() => splitSentences(text), [text]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const s of sentences) {
+        if (cancelled) return;
+        await prefetchTTS(s, voice);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sentences, voice]);
 
   useEffect(() => {
     return () => {
@@ -53,11 +71,16 @@ export function SentenceArticle({
       stop();
       setActiveIdx(idx);
       onPlay?.();
-      await playTTS(sentences[idx], voice, () => {
-        setActiveIdx(null);
-      });
+      await playTTS(
+        sentences[idx],
+        voice,
+        () => {
+          setActiveIdx((cur) => (cur === idx ? null : cur));
+        },
+        rate
+      );
     },
-    [sentences, voice, playTTS, stop, onPlay]
+    [sentences, voice, playTTS, stop, onPlay, rate]
   );
 
   const playSequence = useCallback(
@@ -73,14 +96,22 @@ export function SentenceArticle({
           return;
         }
         setActiveIdx(i);
-        playTTS(sentences[i], voice, () => {
-          if (sequenceCancelRef.current) return;
-          setTimeout(() => playFrom(i + 1), 250);
-        });
+        if (i + 1 < sentences.length) {
+          prefetchTTS(sentences[i + 1], voice);
+        }
+        playTTS(
+          sentences[i],
+          voice,
+          () => {
+            if (sequenceCancelRef.current) return;
+            setTimeout(() => playFrom(i + 1), 350);
+          },
+          rate
+        );
       };
       playFrom(startIdx);
     },
-    [sentences, voice, playTTS, onPlay]
+    [sentences, voice, playTTS, onPlay, rate]
   );
 
   const stopAll = useCallback(() => {
@@ -89,6 +120,14 @@ export function SentenceArticle({
     setActiveIdx(null);
     stop();
   }, [stop]);
+
+  const handleSelectRate = useCallback(
+    (newRate: number) => {
+      setRateState(newRate);
+      setRate(newRate);
+    },
+    [setRate]
+  );
 
   const isAnyPlaying = activeIdx !== null;
 
@@ -130,6 +169,33 @@ export function SentenceArticle({
 
       {showPlayAll && (
         <View style={styles.controls}>
+          <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
+            <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>语速</Text>
+            {SPEED_OPTIONS.map((opt) => {
+              const active = rate === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  onPress={() => handleSelectRate(opt.value)}
+                  activeOpacity={0.8}
+                  style={[
+                    styles.speedBtn,
+                    active && { backgroundColor: accentColor },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.speedBtnText,
+                      { color: active ? "#fff" : colors.foreground },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           {isAnyPlaying ? (
             <TouchableOpacity
               onPress={stopAll}
@@ -156,7 +222,7 @@ export function SentenceArticle({
                 <Feather name="play-circle" size={22} color="#fff" />
               )}
               <Text style={styles.bigBtnText}>
-                {isLoading ? "加载中..." : isSequence ? "继续播放" : "播放全文"}
+                {isLoading ? "加载中..." : "播放全文"}
               </Text>
             </TouchableOpacity>
           )}
@@ -203,8 +269,33 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
   },
   controls: {
-    gap: 6,
+    gap: 8,
     alignItems: "center",
+  },
+  speedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: "center",
+  },
+  speedLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    marginRight: 4,
+  },
+  speedBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
+    minWidth: 44,
+    alignItems: "center",
+  },
+  speedBtnText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
   },
   bigBtn: {
     flexDirection: "row",

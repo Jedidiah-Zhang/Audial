@@ -44,7 +44,6 @@ interface AppContextValue {
   addText: (text: LearningText) => Promise<void>;
   removeText: (id: string) => Promise<void>;
   addResult: (result: SessionResult) => Promise<void>;
-  completeListeningStage: (textId: string) => Promise<void>;
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
   getProgressForText: (textId: string) => UserProgress | undefined;
   isLoading: boolean;
@@ -77,11 +76,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const raw = JSON.parse(progressRaw) as Record<string, any>;
         const migrated: Record<string, UserProgress> = {};
         for (const [k, v] of Object.entries(raw)) {
+          let bests: number[] = v.stageBests ?? STAGES.map(() => 0);
+          let passed: boolean[] = v.stagePassed ?? STAGES.map(() => false);
+          if (bests.length > STAGES.length) {
+            bests = bests.slice(bests.length - STAGES.length);
+          }
+          if (passed.length > STAGES.length) {
+            passed = passed.slice(passed.length - STAGES.length);
+          }
+          while (bests.length < STAGES.length) bests.push(0);
+          while (passed.length < STAGES.length) passed.push(false);
           migrated[k] = {
             ...defaultProgress(k),
             ...v,
-            stageBests: v.stageBests ?? STAGES.map(() => 0),
-            stagePassed: v.stagePassed ?? STAGES.map(() => false),
+            stageBests: bests,
+            stagePassed: passed,
           };
         }
         setProgress(migrated);
@@ -104,26 +113,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTexts((prev) => {
       const next = prev.filter((t) => t.id !== id);
       AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(next));
-      return next;
-    });
-  }, []);
-
-  const completeListeningStage = useCallback(async (textId: string) => {
-    setProgress((prev) => {
-      const existing = prev[textId] ?? defaultProgress(textId);
-      const stagePassed = [...existing.stagePassed];
-      stagePassed[0] = true;
-      const stageBests = [...existing.stageBests];
-      stageBests[0] = 100;
-      const updated: UserProgress = {
-        ...existing,
-        stagePassed,
-        stageBests,
-        lastStudied: Date.now(),
-        totalSessions: existing.totalSessions + 1,
-      };
-      const next = { ...prev, [textId]: updated };
-      AsyncStorage.setItem(STORAGE_KEYS.PROGRESS, JSON.stringify(next));
       return next;
     });
   }, []);
@@ -194,7 +183,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addText,
         removeText,
         addResult,
-        completeListeningStage,
         updateSettings,
         getProgressForText,
         isLoading,

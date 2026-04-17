@@ -27,7 +27,6 @@ const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
 type SessionPhase =
   | "intro"
-  | "listening"
   | "study"
   | "memorize"
   | "recording"
@@ -39,7 +38,7 @@ export default function SessionScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { id, stage: stageParam } = useLocalSearchParams<{ id: string; stage: string }>();
-  const { texts, addResult, completeListeningStage, settings } = useApp();
+  const { texts, addResult, settings } = useApp();
   const { startRecording, stopRecording, isRecording } = useAudioRecorder();
 
   const stageIdx = parseInt(stageParam ?? "0", 10);
@@ -50,7 +49,6 @@ export default function SessionScreen() {
   const [dictationInput, setDictationInput] = useState("");
   const [result, setResult] = useState<{ score: number; feedback: string; details: Record<string, string | number>; passed: boolean } | null>(null);
   const [memorizeCountdown, setMemorizeCountdown] = useState(30);
-  const [hasListened, setHasListened] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -63,9 +61,7 @@ export default function SessionScreen() {
   }, []);
 
   const handleBeginPractice = () => {
-    if (stageIdx === 0) {
-      setPhase("listening");
-    } else if (stageIdx === 3) {
+    if (stageIdx === 2) {
       setPhase("memorize");
       setMemorizeCountdown(30);
       countdownRef.current = setInterval(() => {
@@ -81,14 +77,6 @@ export default function SessionScreen() {
     } else {
       setPhase("study");
     }
-  };
-
-  const handleCompleteListening = async () => {
-    if (!text) return;
-    await completeListeningStage(text.id);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setResult({ score: 100, feedback: "很好！完成精听练习，进入下一关继续学习。", details: {}, passed: true });
-    setPhase("result");
   };
 
   const handleRecord = async () => {
@@ -122,16 +110,16 @@ export default function SessionScreen() {
     setPhase("scoring");
 
     try {
-      const mode = stage.mode as LearningMode | "listening";
+      const mode = stage.mode as LearningMode;
       const endpoint =
-        stageIdx === 1
+        stageIdx === 0
           ? "/api/language/score-pronunciation"
-          : stageIdx === 2
+          : stageIdx === 1
           ? "/api/language/score-dictation"
           : "/api/language/score-recitation";
 
       const body =
-        stageIdx === 2
+        stageIdx === 1
           ? { targetText: text.text, userText: transcribedOrTyped, language: text.targetLanguage }
           : { targetText: text.text, transcribedText: transcribedOrTyped, language: text.targetLanguage };
 
@@ -147,13 +135,13 @@ export default function SessionScreen() {
       const d = json.data;
       const details: Record<string, string | number> = {};
 
-      if (stageIdx === 1 && d.mistakes?.length) {
+      if (stageIdx === 0 && d.mistakes?.length) {
         details["发音错误词"] = d.mistakes.join(", ");
       }
-      if (stageIdx === 2 && d.wordAccuracy) {
+      if (stageIdx === 1 && d.wordAccuracy) {
         details["词汇准确率"] = `${d.wordAccuracy}%`;
       }
-      if (stageIdx === 3) {
+      if (stageIdx === 2) {
         details["覆盖率"] = `${d.completeness ?? 0}%`;
         details["流利度"] = { excellent: "优秀", good: "良好", fair: "一般", needs_work: "需加强" }[d.fluency as string] ?? d.fluency;
       }
@@ -194,7 +182,6 @@ export default function SessionScreen() {
   const handleRetry = () => {
     setResult(null);
     setDictationInput("");
-    setHasListened(false);
     setPhase("intro");
   };
 
@@ -288,33 +275,7 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {phase === "listening" && stageIdx === 0 && (
-          <View style={styles.section}>
-            <SentenceArticle
-              text={text.text}
-              voice={settings.preferredVoice}
-              accentColor={stageColor}
-              onPlay={() => setHasListened(true)}
-            />
-
-            <TouchableOpacity
-              onPress={handleCompleteListening}
-              disabled={!hasListened}
-              style={[styles.completeBtn, {
-                backgroundColor: hasListened ? stageColor : colors.muted,
-                opacity: hasListened ? 1 : 0.5,
-              }]}
-              activeOpacity={0.85}
-            >
-              <Feather name="check-circle" size={20} color={hasListened ? "#fff" : colors.mutedForeground} />
-              <Text style={[styles.completeBtnText, { color: hasListened ? "#fff" : colors.mutedForeground }]}>
-                {hasListened ? "完成本关，进入下一关" : "请先播放音频"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {phase === "memorize" && stageIdx === 3 && (
+        {phase === "memorize" && stageIdx === 2 && (
           <View style={styles.section}>
             <View style={[styles.countdownCard, { backgroundColor: stageColor + "15", borderColor: stageColor + "40", borderWidth: 2 }]}>
               <Text style={[styles.countdownNum, { color: stageColor }]}>{memorizeCountdown}</Text>
@@ -331,7 +292,7 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {phase === "study" && stageIdx === 1 && (
+        {phase === "study" && stageIdx === 0 && (
           <View style={styles.section}>
             <SentenceArticle
               text={text.text}
@@ -358,7 +319,7 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {phase === "study" && stageIdx === 2 && (
+        {phase === "study" && stageIdx === 1 && (
           <View style={styles.section}>
             <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
               <Feather name="eye-off" size={28} color={colors.mutedForeground} />
@@ -403,7 +364,7 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {phase === "study" && stageIdx === 3 && (
+        {phase === "study" && stageIdx === 2 && (
           <View style={styles.section}>
             <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
               <Feather name="book-open" size={28} color={colors.mutedForeground} />
