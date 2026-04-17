@@ -9,6 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { LearningText } from "@/types";
 import { DIFFICULTY_LABELS, STAGES } from "@/types";
+import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 
 interface TextCardProps {
   item: LearningText;
@@ -35,6 +36,8 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
   const allDone = passedCount === totalStages;
   const hasStarted = passedCount > 0;
   const currentStage = stagesPassed ? STAGES[passedCount] : STAGES[0];
+  const ctype = item.contentType ?? detectContentType(item.text);
+  const ctMeta = CONTENT_TYPE_META[ctype];
 
   return (
     <TouchableOpacity
@@ -57,10 +60,18 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
       ]}
     >
       <View style={styles.header}>
-        <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
-          <Text style={[styles.diffText, { color: diffColor }]}>
-            {DIFFICULTY_LABELS[item.difficulty]}
-          </Text>
+        <View style={styles.headerLeft}>
+          <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
+            <Text style={[styles.diffText, { color: diffColor }]}>
+              {DIFFICULTY_LABELS[item.difficulty]}
+            </Text>
+          </View>
+          <View style={[styles.typeBadge, { backgroundColor: colors.primary + "18" }]}>
+            <Feather name={ctMeta.icon as any} size={10} color={colors.primary} />
+            <Text style={[styles.typeText, { color: colors.primary }]}>
+              {ctMeta.label}
+            </Text>
+          </View>
         </View>
         <Text style={[styles.lang, { color: colors.mutedForeground }]}>
           {item.targetLanguage.toUpperCase()}
@@ -182,12 +193,30 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+  },
   diffBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
   },
   diffText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+  },
+  typeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  typeText: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
   },

@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Modal,
+  FlatList,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -47,8 +49,12 @@ export default function GenerateScreen() {
   const [targetLanguage, setTargetLanguage] = useState(settings.targetLanguage);
   const [manualText, setManualText] = useState("");
   const [manualTitle, setManualTitle] = useState("");
-  const [manualTranslation, setManualTranslation] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [targetPickerOpen, setTargetPickerOpen] = useState(false);
+
+  const targetLangObj = LANGUAGES.find((l) => l.code === targetLanguage) ?? LANGUAGES[1];
+  const nativeLangObj = LANGUAGES.find((l) => l.code === nativeLanguage) ?? LANGUAGES[0];
 
   // Preview/edit phase
   const [draft, setDraft] = useState<DraftPayload | null>(null);
@@ -142,11 +148,33 @@ export default function GenerateScreen() {
     }
 
     const finalText = manualText.trim();
+    setIsTranslating(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    let translation = "";
+    try {
+      const resp = await fetch(`${BASE_URL}/api/language/translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: finalText,
+          fromLanguage: targetLangObj.english,
+          toLanguage: nativeLangObj.english,
+        }),
+      });
+      const result = (await resp.json()) as { success: boolean; data?: { translation?: string } };
+      if (result.success) translation = result.data?.translation ?? "";
+    } catch {
+      // proceed without translation if network fails
+    } finally {
+      setIsTranslating(false);
+    }
+
     const text: LearningText = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
       title: manualTitle.trim(),
       text: finalText,
-      translation: manualTranslation.trim(),
+      translation,
       vocabulary: [],
       topic: "自定义",
       difficulty,
@@ -350,25 +378,24 @@ export default function GenerateScreen() {
 
         <View style={styles.field}>
           <Text style={[styles.label, labelStyle]}>目标语言</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.langScroll}>
-            {LANGUAGES.filter((l) => l.code !== nativeLanguage).map((lang) => (
-              <TouchableOpacity
-                key={lang.code}
-                onPress={() => setTargetLanguage(lang.code)}
-                style={[
-                  styles.langChip,
-                  {
-                    backgroundColor: targetLanguage === lang.code ? colors.primary : colors.muted,
-                    borderColor: targetLanguage === lang.code ? colors.primary : colors.border,
-                  },
-                ]}
-              >
-                <Text style={{ color: targetLanguage === lang.code ? "#fff" : colors.foreground, fontSize: 13, fontFamily: "Inter_500Medium" }}>
-                  {lang.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          <TouchableOpacity
+            onPress={() => setTargetPickerOpen(true)}
+            activeOpacity={0.85}
+            style={[
+              styles.dropdown,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.foreground, fontSize: 15, fontFamily: "Inter_600SemiBold" }}>
+                {targetLangObj.name}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>
+                {targetLangObj.english}
+              </Text>
+            </View>
+            <Feather name="chevron-down" size={18} color={colors.mutedForeground} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.field}>
@@ -471,32 +498,90 @@ export default function GenerateScreen() {
                 multiline
                 textAlignVertical="top"
               />
-            </View>
-
-            <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>翻译（可选）</Text>
-              <TextInput
-                style={[styles.textarea, inputStyle]}
-                value={manualTranslation}
-                onChangeText={setManualTranslation}
-                placeholder="中文翻译（可选）"
-                placeholderTextColor={colors.mutedForeground}
-                multiline
-                textAlignVertical="top"
-              />
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: -2 }}>
+                保存时将自动翻译为{nativeLangObj.name}
+              </Text>
             </View>
 
             <TouchableOpacity
               onPress={handleManualSave}
-              style={[styles.generateBtn, { backgroundColor: colors.primary }]}
+              disabled={isTranslating}
+              style={[styles.generateBtn, { backgroundColor: colors.primary, opacity: isTranslating ? 0.7 : 1 }]}
               activeOpacity={0.85}
             >
-              <Feather name="save" size={18} color="#fff" />
-              <Text style={styles.generateBtnText}>保存文章</Text>
+              {isTranslating ? (
+                <>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.generateBtnText}>正在翻译并保存...</Text>
+                </>
+              ) : (
+                <>
+                  <Feather name="save" size={18} color="#fff" />
+                  <Text style={styles.generateBtnText}>保存文章</Text>
+                </>
+              )}
             </TouchableOpacity>
           </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={targetPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTargetPickerOpen(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <TouchableOpacity
+            style={styles.pickerBackdrop}
+            activeOpacity={1}
+            onPress={() => setTargetPickerOpen(false)}
+          />
+          <View style={[styles.pickerCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
+              选择目标语言
+            </Text>
+            <FlatList
+              data={LANGUAGES.filter((l) => l.code !== nativeLanguage)}
+              keyExtractor={(l) => l.code}
+              style={{ maxHeight: 380 }}
+              renderItem={({ item: lang }) => {
+                const selected = lang.code === targetLanguage;
+                return (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setTargetLanguage(lang.code);
+                      setTargetPickerOpen(false);
+                    }}
+                    style={[
+                      styles.pickerRow,
+                      { borderBottomColor: colors.border },
+                      selected && { backgroundColor: colors.primary + "15" },
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        color: selected ? colors.primary : colors.foreground,
+                        fontSize: 15,
+                        fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium",
+                      }}>
+                        {lang.name}
+                      </Text>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
+                        {lang.english}
+                      </Text>
+                    </View>
+                    {selected && (
+                      <Feather name="check" size={18} color={colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -557,6 +642,46 @@ const styles = StyleSheet.create({
   },
   langScroll: {
     flexGrow: 0,
+  },
+  dropdown: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  pickerOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  pickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  pickerCard: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   langChip: {
     paddingHorizontal: 12,

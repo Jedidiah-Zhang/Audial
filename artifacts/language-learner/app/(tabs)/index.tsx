@@ -26,17 +26,19 @@ export default function HomeScreen() {
 
   const [renameTarget, setRenameTarget] = useState<LearningText | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<LearningText | null>(null);
 
   const getStagesPassed = (text: LearningText) => {
     const p = getProgressForText(text.id);
     return p?.stagePassed;
   };
 
-  const handleDelete = (id: string) => {
-    Alert.alert("删除文本", "确定要删除这篇文章吗？", [
-      { text: "取消", style: "cancel" },
-      { text: "删除", style: "destructive", onPress: () => removeText(id) },
-    ]);
+  const openDelete = (item: LearningText) => setDeleteTarget(item);
+  const closeDelete = () => setDeleteTarget(null);
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await removeText(deleteTarget.id);
+    closeDelete();
   };
 
   const openRename = (item: LearningText) => {
@@ -104,7 +106,7 @@ export default function HomeScreen() {
             <TextCard
               item={item}
               onPress={() => router.push({ pathname: "/practice", params: { id: item.id } })}
-              onDelete={() => handleDelete(item.id)}
+              onDelete={() => openDelete(item)}
               onRename={() => openRename(item)}
               stagesPassed={getStagesPassed(item)}
             />
@@ -167,6 +169,45 @@ export default function HomeScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={!!deleteTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDelete}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeDelete}
+          />
+          <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+              删除文章
+            </Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 14, lineHeight: 20 }}>
+              确定要删除「{deleteTarget?.title}」吗？此操作不可恢复，相关学习记录也会一并删除。
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                onPress={closeDelete}
+                style={[styles.modalBtn, { backgroundColor: colors.muted }]}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modalBtnText, { color: colors.foreground }]}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmDelete}
+                style={[styles.modalBtn, { backgroundColor: colors.destructive }]}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>删除</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );

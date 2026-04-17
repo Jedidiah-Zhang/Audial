@@ -7,6 +7,7 @@ import type {
   AppSettings,
 } from "@/types";
 import { STAGE_PASS_SCORE, STAGES } from "@/types";
+import { detectContentType } from "@/utils/contentType";
 
 const STORAGE_KEYS = {
   TEXTS: "ll_texts",
@@ -71,7 +72,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(STORAGE_KEYS.PROGRESS),
         AsyncStorage.getItem(STORAGE_KEYS.SETTINGS),
       ]);
-      if (textsRaw) setTexts(JSON.parse(textsRaw));
+      if (textsRaw) {
+        const parsed = JSON.parse(textsRaw) as LearningText[];
+        let mutated = false;
+        const migrated = parsed.map((t) => {
+          if (!t.contentType) {
+            mutated = true;
+            return { ...t, contentType: detectContentType(t.text) };
+          }
+          return t;
+        });
+        setTexts(migrated);
+        if (mutated) {
+          AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(migrated));
+        }
+      }
       if (resultsRaw) setResults(JSON.parse(resultsRaw));
       if (progressRaw) {
         const raw = JSON.parse(progressRaw) as Record<string, any>;
