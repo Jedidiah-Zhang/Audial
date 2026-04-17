@@ -1,0 +1,124 @@
+Library
+Apps
+外语学习助手
+外语学习助手Mobile
+Images
+generated_image
+generated_imageImage
+Preview on your phone
+Test on a mobile device to experience touch gestures and native features.
+1
+Download Expo Go
+A free app that lets you run your project instantly.
+iOS
+Android
+2
+Scan the QR code
+Use your camera to scan the code and launch Expo Go.
+Shake your device to open Expo Go's menu, then tap Reload to see your changes.
+Ready to publish to App Store?Go live with your app and landing page, then submit to App Store.
+Add ability to edit generated text and its title before saving
+Mobile
+
+制作一个外语学习手机app：针对一个文本，生成符合母语者表达的语音，循序渐进的让用户跟读，听写，背诵。并根据用户的录音等表现打分。文本由用户指定话题和难度，通过ai在网络上找合适的文本，或由用户自行输入。
+2 hours ago
+外语学习助手Mobile
+
+外语学习助手已完成！以下是这款应用的功能介绍：
+
+核心功能：
+
+    文章获取 — 通过 AI 根据指定话题（旅行、职场、日常等）和难度（入门/初级/中级/高级）自动生成母语者风格的地道文章；或手动粘贴自己的文本
+
+    三种练习模式：
+        跟读 — 收听 AI 生成的母语者语音，录音跟读后 AI 评估发音准确度
+        听写 — 反复收听音频，将听到的内容用文字记录，AI 评判正确率
+        背诵 — 30 秒记忆文章后隐藏文本，录音背诵，AI 评估覆盖率和流利度
+
+    AI 评分 — 每次练习后获得 0-100 分的详细评分和反馈，并记录历史最高分
+
+    多语言支持 — 支持英语、日语、韩语、法语、西班牙语等 11 种语言，母语与目标语言自由组合
+
+    词汇表 — AI 生成文章时自动提供关键词汇和发音注音
+
+技术说明： 本应用使用 Replit AI 集成提供 OpenAI 服务，无需您提供任何 API 密钥，费用按 Replit 积分结算。
+
+Next, I can add a progress statistics screen showing historical scores, practice streaks, and vocabulary retention charts. Would you like me to do that?
+
+播放语音时有错误，请修正
+2 hours ago
+
+我希望跟读听写等功能按照课程闯关模式，而不是让用户选择。难度曲线符合语言学习
+1 hour ago
+
+这个改动很好！让我先了解现有代码结构，然后重新设计成课程闯关模式。
+
+Now I have a complete picture. Let me redesign the entire flow into a 4-stage 闯关 (level-clearing) system that follows language learning science:
+
+课程设计:
+
+    第1关 · 精听 — 带文本收听，熟悉发音语调（直接完成，无需评分）
+    第2关 · 跟读 — 模仿朗读，AI评分 ≥60 过关
+    第3关 · 听写 — 只闻其声不见文字，听写全文，AI评分 ≥60 过关
+    第4关 · 背诵 — 记忆30秒后默写，AI评分 ≥60 过关
+
+每关解锁需前一关通过，完整体现"输入→理解→产出→内化"的习得曲线。
+
+Now update the AppContext, practice screen, and session screen in parallel:
+
+API server needs a restart. Let me do that and write the new session screen in parallel:
+
+Now let me update the home screen to show stage progress instead of just scores:
+
+Now update the TextCard and home screen to show stage progress:
+
+Now update the home screen to pass stage info to TextCard:
+
+Let me check for any type errors and take a screenshot:
+
+Two quick type fixes:
+
+The app went blank due to the big code changes. Let me restart it:
+
+App is back and working. The redesign is complete.
+
+闯关模式的设计逻辑（符合语言学习科学）：
+关卡	名称	目的	通关条件
+第1关	精听	输入阶段：熟悉语音、语调、节奏	播放并完成即通关
+第2关	跟读	模仿阶段：复现发音模式	AI评分 ≥60
+第3关	听写	理解阶段：只听声音不看文字，测试真实听力	AI评分 ≥60
+第4关	背诵	内化阶段：30秒记忆后从脑中提取	AI评分 ≥60
+
+界面改动：
+
+    文章列表：每张卡片底部有彩色进度条，显示"第X关·名称"徽章，全通关显示"已掌握"
+    闯关地图：4个关卡竖向排列，已过关✓、当前高亮显示、未解锁灰色锁定
+    学习界面：顶部显示"第X关·名称"和全局进度条（4格），结果页区分"通关成功/未达分数"
+
+Next, I can add a spaced repetition reminder system that suggests which article to review based on forgetting curves — articles you haven't practiced in a while get surfaced first. Would you like me to do that?
+Rolled back to 'Organize learning content into a stage-based progression system'
+Finished40 minutes ago
+
+I've finished reverting, what should I do now?
+
+我希望界面显示整篇文章的基础上，播放哪句话给哪句话高亮。并让用户可以选择播放哪句话
+39 minutes ago
+Publish
+Domain
+Available
+.replit.app
+Mobile app name & icon
+外语学习助手
+
+既然在文章界面就可以听，那么不需要精听的页面了。
+音频播放时有时会吞词，而且每次播放都要加载一下有些影响体验，希望改进
+然后我希望播放时可以调整语速，从很慢到正常语速。
+28 minutes ago
+
+我希望能够让用户选择音频生成的音色，比如男女，英音美音等
+16 minutes ago
+
+音色选择后三个在界面外选不到。词汇栏中，我希望可以播放词汇读音，并像字典一样给出例句
+10 minutes ago
+
+在生成文本的时候，提供让用户修改的功能。在用户确定后，文本将不能更改。文本标题可以随时更改。
