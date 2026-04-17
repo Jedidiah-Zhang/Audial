@@ -42,6 +42,7 @@ interface AppContextValue {
   progress: Record<string, UserProgress>;
   settings: AppSettings;
   addText: (text: LearningText) => Promise<void>;
+  updateText: (id: string, partial: Partial<LearningText>) => Promise<void>;
   removeText: (id: string) => Promise<void>;
   addResult: (result: SessionResult) => Promise<void>;
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
@@ -104,6 +105,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addText = useCallback(async (text: LearningText) => {
     setTexts((prev) => {
       const next = [text, ...prev.filter((t) => t.id !== text.id)];
+      AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const updateText = useCallback(async (id: string, partial: Partial<LearningText>) => {
+    setTexts((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, ...partial } : t));
       AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(next));
       return next;
     });
@@ -181,6 +190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         progress,
         settings,
         addText,
+        updateText,
         removeText,
         addResult,
         updateSettings,

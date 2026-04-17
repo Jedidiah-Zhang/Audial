@@ -17,7 +17,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES, DIFFICULTY_LABELS } from "@/types";
-import type { Difficulty, LearningText } from "@/types";
+import type { Difficulty, LearningText, VocabularyItem } from "@/types";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -25,6 +25,13 @@ const TOPICS = [
   "日常对话", "旅行", "工作职场", "家庭生活", "饮食文化",
   "体育运动", "科技新闻", "环境气候", "历史文化", "医疗健康",
 ];
+
+interface DraftPayload {
+  title: string;
+  text: string;
+  translation: string;
+  vocabulary: VocabularyItem[];
+}
 
 export default function GenerateScreen() {
   const colors = useColors();
@@ -40,6 +47,12 @@ export default function GenerateScreen() {
   const [manualTitle, setManualTitle] = useState("");
   const [manualTranslation, setManualTranslation] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Preview/edit phase
+  const [draft, setDraft] = useState<DraftPayload | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftText, setDraftText] = useState("");
+  const [draftTranslation, setDraftTranslation] = useState("");
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -67,27 +80,52 @@ export default function GenerateScreen() {
       const result = await response.json() as { success: boolean; data: any };
       if (!result.success) throw new Error("Generation failed");
 
-      const text: LearningText = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+      const payload: DraftPayload = {
         title: result.data.title ?? topic,
         text: result.data.text ?? "",
         translation: result.data.translation ?? "",
         vocabulary: result.data.vocabulary ?? [],
-        topic,
-        difficulty,
-        targetLanguage,
-        nativeLanguage,
-        createdAt: Date.now(),
       };
-
-      await addText(text);
+      setDraft(payload);
+      setDraftTitle(payload.title);
+      setDraftText(payload.text);
+      setDraftTranslation(payload.translation);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
     } catch {
       Alert.alert("错误", "生成文本失败，请检查网络后重试");
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleConfirmDraft = async () => {
+    if (!draft) return;
+    if (!draftTitle.trim() || !draftText.trim()) {
+      Alert.alert("提示", "标题和正文不能为空");
+      return;
+    }
+    const text: LearningText = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+      title: draftTitle.trim(),
+      text: draftText.trim(),
+      translation: draftTranslation.trim(),
+      vocabulary: draft.vocabulary,
+      topic,
+      difficulty,
+      targetLanguage,
+      nativeLanguage,
+      createdAt: Date.now(),
+    };
+    await addText(text);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    router.back();
+  };
+
+  const handleDiscardDraft = () => {
+    setDraft(null);
+    setDraftTitle("");
+    setDraftText("");
+    setDraftTranslation("");
   };
 
   const handleManualSave = async () => {
@@ -117,6 +155,121 @@ export default function GenerateScreen() {
   const inputStyle = { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground };
   const labelStyle = { color: colors.mutedForeground };
 
+  // ============ DRAFT PREVIEW MODE ============
+  if (draft) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+          <TouchableOpacity onPress={handleDiscardDraft} style={styles.backBtn} activeOpacity={0.7}>
+            <Feather name="arrow-left" size={22} color={colors.foreground} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]}>校对并保存</Text>
+          <View style={{ width: 36 }} />
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.content, { paddingBottom: Platform.OS === "web" ? 50 : insets.bottom + 40 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={[styles.previewBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
+            <Feather name="edit-3" size={14} color={colors.primary} />
+            <Text style={[styles.previewBannerText, { color: colors.primary }]}>
+              可在保存前修改文本。保存后正文将不可修改，标题随时可改。
+            </Text>
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, labelStyle]}>标题</Text>
+            <TextInput
+              style={[styles.input, inputStyle]}
+              value={draftTitle}
+              onChangeText={setDraftTitle}
+              placeholder="文章标题"
+              placeholderTextColor={colors.mutedForeground}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, labelStyle]}>正文</Text>
+            <TextInput
+              style={[styles.bigTextarea, inputStyle]}
+              value={draftText}
+              onChangeText={setDraftText}
+              placeholder="目标语言文本..."
+              placeholderTextColor={colors.mutedForeground}
+              multiline
+              textAlignVertical="top"
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, labelStyle]}>翻译</Text>
+            <TextInput
+              style={[styles.textarea, inputStyle]}
+              value={draftTranslation}
+              onChangeText={setDraftTranslation}
+              placeholder="译文（可选）"
+              placeholderTextColor={colors.mutedForeground}
+              multiline
+              textAlignVertical="top"
+            />
+          </View>
+
+          {draft.vocabulary.length > 0 && (
+            <View style={styles.field}>
+              <Text style={[styles.label, labelStyle]}>词汇（{draft.vocabulary.length}）</Text>
+              <View style={[styles.vocabPreview, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                {draft.vocabulary.map((v, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.vocabRow,
+                      i > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
+                    ]}
+                  >
+                    <Text style={[styles.vocabWord, { color: colors.foreground }]}>{v.word}</Text>
+                    <Text style={[styles.vocabMeaning, { color: colors.mutedForeground }]} numberOfLines={1}>
+                      {v.meaning}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              onPress={handleGenerate}
+              disabled={isGenerating}
+              style={[styles.regenerateBtn, { borderColor: colors.border, opacity: isGenerating ? 0.6 : 1 }]}
+              activeOpacity={0.85}
+            >
+              {isGenerating ? (
+                <ActivityIndicator size="small" color={colors.foreground} />
+              ) : (
+                <Feather name="refresh-cw" size={16} color={colors.foreground} />
+              )}
+              <Text style={[styles.regenerateBtnText, { color: colors.foreground }]}>
+                {isGenerating ? "生成中..." : "重新生成"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleConfirmDraft}
+              style={[styles.confirmBtn, { backgroundColor: colors.primary }]}
+              activeOpacity={0.85}
+            >
+              <Feather name="check" size={18} color="#fff" />
+              <Text style={styles.confirmBtnText}>确认保存</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ============ FORM MODE (AI / MANUAL) ============
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -429,6 +582,16 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     minHeight: 120,
   },
+  bigTextarea: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    minHeight: 200,
+    lineHeight: 22,
+  },
   topicGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -450,6 +613,75 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   generateBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
+  previewBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  previewBannerText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    flex: 1,
+    lineHeight: 17,
+  },
+  vocabPreview: {
+    borderWidth: 1,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  vocabRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 10,
+    gap: 10,
+  },
+  vocabWord: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+  vocabMeaning: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    flex: 1,
+    textAlign: "right",
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  regenerateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  regenerateBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+  confirmBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  confirmBtnText: {
     color: "#fff",
     fontSize: 16,
     fontFamily: "Inter_600SemiBold",

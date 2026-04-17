@@ -14,6 +14,7 @@ interface TextCardProps {
   item: LearningText;
   onPress: () => void;
   onDelete?: () => void;
+  onRename?: () => void;
   stagesPassed?: boolean[];
 }
 
@@ -24,9 +25,9 @@ const DIFF_COLORS: Record<string, string> = {
   advanced: "#ef4444",
 };
 
-export function TextCard({ item, onPress, onDelete, stagesPassed }: TextCardProps) {
+export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: TextCardProps) {
   const colors = useColors();
-  const [showDelete, setShowDelete] = useState(false);
+  const [showActions, setShowActions] = useState(false);
 
   const diffColor = DIFF_COLORS[item.difficulty] ?? colors.primary;
   const passedCount = stagesPassed ? stagesPassed.filter(Boolean).length : 0;
@@ -37,8 +38,14 @@ export function TextCard({ item, onPress, onDelete, stagesPassed }: TextCardProp
 
   return (
     <TouchableOpacity
-      onPress={onPress}
-      onLongPress={() => setShowDelete(true)}
+      onPress={() => {
+        if (showActions) {
+          setShowActions(false);
+          return;
+        }
+        onPress();
+      }}
+      onLongPress={() => setShowActions(true)}
       activeOpacity={0.85}
       style={[
         styles.card,
@@ -122,17 +129,39 @@ export function TextCard({ item, onPress, onDelete, stagesPassed }: TextCardProp
         </View>
       )}
 
-      {showDelete && onDelete && (
-        <TouchableOpacity
-          style={[styles.deleteBtn, { backgroundColor: colors.destructive }]}
-          onPress={() => {
-            setShowDelete(false);
-            onDelete();
-          }}
-        >
-          <Feather name="trash-2" size={16} color="#fff" />
-          <Text style={styles.deleteText}>删除</Text>
-        </TouchableOpacity>
+      {showActions && (
+        <View style={styles.actionsBar}>
+          {onRename && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+              onPress={() => {
+                setShowActions(false);
+                onRename();
+              }}
+            >
+              <Feather name="edit-2" size={14} color="#fff" />
+              <Text style={styles.actionText}>重命名</Text>
+            </TouchableOpacity>
+          )}
+          {onDelete && (
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.destructive }]}
+              onPress={() => {
+                setShowActions(false);
+                onDelete();
+              }}
+            >
+              <Feather name="trash-2" size={14} color="#fff" />
+              <Text style={styles.actionText}>删除</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: colors.muted }]}
+            onPress={() => setShowActions(false)}
+          >
+            <Feather name="x" size={14} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -211,20 +240,24 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
-  deleteBtn: {
+  actionsBar: {
     position: "absolute",
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: 80,
+    right: 8,
+    top: 8,
+    flexDirection: "row",
+    gap: 6,
+  },
+  actionBtn: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
-  deleteText: {
+  actionText: {
     color: "#fff",
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
   },
 });

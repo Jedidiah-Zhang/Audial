@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,7 +22,10 @@ import type { LearningText } from "@/types";
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { texts, removeText, getProgressForText } = useApp();
+  const { texts, removeText, updateText, getProgressForText } = useApp();
+
+  const [renameTarget, setRenameTarget] = useState<LearningText | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const getStagesPassed = (text: LearningText) => {
     const p = getProgressForText(text.id);
@@ -31,6 +37,26 @@ export default function HomeScreen() {
       { text: "取消", style: "cancel" },
       { text: "删除", style: "destructive", onPress: () => removeText(id) },
     ]);
+  };
+
+  const openRename = (item: LearningText) => {
+    setRenameTarget(item);
+    setRenameValue(item.title);
+  };
+
+  const closeRename = () => {
+    setRenameTarget(null);
+    setRenameValue("");
+  };
+
+  const confirmRename = async () => {
+    const v = renameValue.trim();
+    if (!v || !renameTarget) {
+      closeRename();
+      return;
+    }
+    await updateText(renameTarget.id, { title: v });
+    closeRename();
   };
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -74,17 +100,79 @@ export default function HomeScreen() {
           data={texts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}
+          ListHeaderComponent={
+            <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+              长按文章可重命名或删除
+            </Text>
+          }
           renderItem={({ item }) => (
             <TextCard
               item={item}
               onPress={() => router.push({ pathname: "/practice", params: { id: item.id } })}
               onDelete={() => handleDelete(item.id)}
+              onRename={() => openRename(item)}
               stagesPassed={getStagesPassed(item)}
             />
           )}
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <Modal
+        visible={!!renameTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={closeRename}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.modalOverlay}
+        >
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeRename}
+          />
+          <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+              重命名文章
+            </Text>
+            <TextInput
+              value={renameValue}
+              onChangeText={setRenameValue}
+              autoFocus
+              style={[
+                styles.modalInput,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.border,
+                  color: colors.foreground,
+                },
+              ]}
+              placeholder="新标题"
+              placeholderTextColor={colors.mutedForeground}
+              returnKeyType="done"
+              onSubmitEditing={confirmRename}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                onPress={closeRename}
+                style={[styles.modalBtn, { backgroundColor: colors.muted }]}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modalBtnText, { color: colors.foreground }]}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmRename}
+                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.modalBtnText, { color: "#fff" }]}>保存</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -149,5 +237,54 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: 20,
     paddingTop: 8,
+  },
+  hint: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 16,
+    padding: 20,
+    gap: 14,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+  },
+  modalBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  modalBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
   },
 });
