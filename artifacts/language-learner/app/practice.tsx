@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -12,20 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import type { LearningMode } from "@/types";
-import { MODE_LABELS } from "@/types";
-
-const MODE_DESCRIPTIONS: Record<LearningMode, string> = {
-  shadowing: "听原声跟读，AI 评估发音与准确度",
-  dictation: "听原声，将听到的内容写下来",
-  recitation: "看文章后，不看文本从记忆中背诵",
-};
-
-const MODE_ICONS: Record<LearningMode, string> = {
-  shadowing: "mic",
-  dictation: "edit-2",
-  recitation: "award",
-};
+import { STAGES, STAGE_PASS_SCORE } from "@/types";
 
 export default function PracticeScreen() {
   const colors = useColors();
@@ -36,8 +23,8 @@ export default function PracticeScreen() {
   const text = texts.find((t) => t.id === id);
   const progress = text ? getProgressForText(text.id) : undefined;
 
-  const [showTranslation, setShowTranslation] = useState(false);
   const [showVocab, setShowVocab] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
@@ -50,13 +37,21 @@ export default function PracticeScreen() {
     );
   }
 
-  const getBestScore = (mode: LearningMode) => {
-    if (!progress) return 0;
-    return mode === "shadowing"
-      ? progress.shadowingBest
-      : mode === "dictation"
-      ? progress.dictationBest
-      : progress.recitationBest;
+  const stagePassed = progress?.stagePassed ?? STAGES.map(() => false);
+  const stageBests = progress?.stageBests ?? STAGES.map(() => 0);
+
+  const isUnlocked = (idx: number) => idx === 0 || stagePassed[idx - 1];
+  const isPassed = (idx: number) => stagePassed[idx];
+  const isCurrent = (idx: number) => isUnlocked(idx) && !isPassed(idx);
+
+  const allPassed = STAGES.every((_, i) => stagePassed[i]);
+  const totalScore = stageBests.filter((s) => s > 0).length > 0
+    ? Math.round(stageBests.reduce((a, b) => a + b, 0) / STAGES.length)
+    : 0;
+
+  const handleStartStage = (stageIdx: number) => {
+    if (!isUnlocked(stageIdx)) return;
+    router.push({ pathname: "/session", params: { id: text.id, stage: stageIdx.toString() } });
   };
 
   return (
@@ -80,46 +75,38 @@ export default function PracticeScreen() {
           <Text style={[styles.textContent, { color: colors.foreground }]}>
             {text.text}
           </Text>
-
-          <TouchableOpacity
-            onPress={() => setShowTranslation(!showTranslation)}
-            style={[styles.toggleBtn, { borderColor: colors.border }]}
-            activeOpacity={0.7}
-          >
-            <Feather
-              name={showTranslation ? "eye-off" : "eye"}
-              size={14}
-              color={colors.mutedForeground}
-            />
-            <Text style={[styles.toggleText, { color: colors.mutedForeground }]}>
-              {showTranslation ? "隐藏翻译" : "显示翻译"}
-            </Text>
-          </TouchableOpacity>
-
+          <View style={styles.textActions}>
+            {text.translation ? (
+              <TouchableOpacity
+                onPress={() => setShowTranslation(!showTranslation)}
+                style={[styles.pillBtn, { borderColor: colors.border }]}
+                activeOpacity={0.7}
+              >
+                <Feather name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
+                <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
+                  {showTranslation ? "隐藏译文" : "显示译文"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {text.vocabulary?.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setShowVocab(!showVocab)}
+                style={[styles.pillBtn, { borderColor: colors.border }]}
+                activeOpacity={0.7}
+              >
+                <Feather name="book" size={13} color={colors.mutedForeground} />
+                <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
+                  词汇 ({text.vocabulary.length})
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
           {showTranslation && text.translation ? (
             <Text style={[styles.translation, { color: colors.mutedForeground, borderTopColor: colors.border }]}>
               {text.translation}
             </Text>
           ) : null}
         </View>
-
-        {text.vocabulary && text.vocabulary.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setShowVocab(!showVocab)}
-            style={[styles.vocabToggle, { backgroundColor: colors.muted }]}
-            activeOpacity={0.8}
-          >
-            <Feather name="book" size={14} color={colors.primary} />
-            <Text style={[styles.vocabToggleText, { color: colors.primary }]}>
-              词汇 ({text.vocabulary.length})
-            </Text>
-            <Feather
-              name={showVocab ? "chevron-up" : "chevron-down"}
-              size={14}
-              color={colors.primary}
-            />
-          </TouchableOpacity>
-        )}
 
         {showVocab && text.vocabulary.length > 0 && (
           <View style={[styles.vocabCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -131,53 +118,125 @@ export default function PracticeScreen() {
                 <View style={styles.vocabLeft}>
                   <Text style={[styles.vocabWord, { color: colors.foreground }]}>{v.word}</Text>
                   {v.pronunciation ? (
-                    <Text style={[styles.vocabPron, { color: colors.mutedForeground }]}>
-                      {v.pronunciation}
-                    </Text>
+                    <Text style={[styles.vocabPron, { color: colors.mutedForeground }]}>{v.pronunciation}</Text>
                   ) : null}
                 </View>
-                <Text style={[styles.vocabMeaning, { color: colors.mutedForeground }]}>
-                  {v.meaning}
-                </Text>
+                <Text style={[styles.vocabMeaning, { color: colors.mutedForeground }]}>{v.meaning}</Text>
               </View>
             ))}
           </View>
         )}
 
-        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>选择练习模式</Text>
+        {allPassed && (
+          <View style={[styles.masteredBanner, { backgroundColor: "#10B981" + "20", borderColor: "#10B981" }]}>
+            <Feather name="star" size={20} color="#10B981" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.masteredTitle, { color: "#10B981" }]}>已掌握！</Text>
+              <Text style={[styles.masteredSub, { color: "#10B981" + "CC" }]}>综合得分 {totalScore} 分，可重练任意关卡提升分数</Text>
+            </View>
+          </View>
+        )}
 
-        {(["shadowing", "dictation", "recitation"] as LearningMode[]).map((mode) => {
-          const best = getBestScore(mode);
-          const hasScore = best > 0;
-          return (
-            <TouchableOpacity
-              key={mode}
-              onPress={() =>
-                router.push({ pathname: "/session", params: { id: text.id, mode } })
-              }
-              activeOpacity={0.85}
-              style={[styles.modeCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-            >
-              <View style={[styles.modeIcon, { backgroundColor: colors.secondary }]}>
-                <Feather name={MODE_ICONS[mode] as any} size={22} color={colors.primary} />
-              </View>
-              <View style={styles.modeInfo}>
-                <Text style={[styles.modeName, { color: colors.foreground }]}>
-                  {MODE_LABELS[mode]}
-                </Text>
-                <Text style={[styles.modeDesc, { color: colors.mutedForeground }]}>
-                  {MODE_DESCRIPTIONS[mode]}
-                </Text>
-              </View>
-              <View style={styles.modeRight}>
-                {hasScore && (
-                  <Text style={[styles.modeScore, { color: colors.primary }]}>{best}</Text>
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>学习关卡</Text>
+
+        <View style={styles.stagesContainer}>
+          {STAGES.map((stage, idx) => {
+            const locked = !isUnlocked(idx);
+            const passed = isPassed(idx);
+            const current = isCurrent(idx);
+            const best = stageBests[idx];
+
+            return (
+              <View key={idx} style={styles.stageRow}>
+                {idx < STAGES.length - 1 && (
+                  <View
+                    style={[
+                      styles.stageLine,
+                      { backgroundColor: passed ? stage.color : colors.border },
+                    ]}
+                  />
                 )}
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+
+                <TouchableOpacity
+                  onPress={() => handleStartStage(idx)}
+                  disabled={locked}
+                  activeOpacity={locked ? 1 : 0.85}
+                  style={[
+                    styles.stageCard,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: current
+                        ? stage.color
+                        : passed
+                        ? stage.color + "60"
+                        : colors.border,
+                      borderWidth: current ? 2 : 1,
+                      opacity: locked ? 0.45 : 1,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.stageBadge,
+                      {
+                        backgroundColor: passed
+                          ? stage.color
+                          : current
+                          ? stage.color + "20"
+                          : colors.muted,
+                      },
+                    ]}
+                  >
+                    {passed ? (
+                      <Feather name="check" size={20} color="#fff" />
+                    ) : locked ? (
+                      <Feather name="lock" size={18} color={colors.mutedForeground} />
+                    ) : (
+                      <Feather name={stage.icon as any} size={20} color={stage.color} />
+                    )}
+                  </View>
+
+                  <View style={styles.stageInfo}>
+                    <View style={styles.stageHeader}>
+                      <Text style={[styles.stageNum, { color: colors.mutedForeground }]}>
+                        第 {idx + 1} 关
+                      </Text>
+                      {current && (
+                        <View style={[styles.currentTag, { backgroundColor: stage.color }]}>
+                          <Text style={styles.currentTagText}>当前</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.stageName, { color: locked ? colors.mutedForeground : colors.foreground }]}>
+                      {stage.name}
+                    </Text>
+                    <Text style={[styles.stageDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
+                      {stage.description}
+                    </Text>
+                    {stage.needsScore && (
+                      <Text style={[styles.stageThreshold, { color: colors.mutedForeground }]}>
+                        通关要求：{STAGE_PASS_SCORE} 分
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={styles.stageRight}>
+                    {best > 0 ? (
+                      <View style={styles.scoreBlock}>
+                        <Text style={[styles.scoreBig, { color: passed ? stage.color : colors.mutedForeground }]}>
+                          {best}
+                        </Text>
+                        <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>最高</Text>
+                      </View>
+                    ) : locked ? null : (
+                      <Feather name="chevron-right" size={20} color={stage.color} />
+                    )}
+                  </View>
+                </TouchableOpacity>
               </View>
-            </TouchableOpacity>
-          );
-        })}
+            );
+          })}
+        </View>
       </ScrollView>
     </View>
   );
@@ -207,49 +266,47 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    gap: 12,
+    gap: 14,
   },
   textCard: {
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    gap: 12,
+    gap: 10,
   },
   textContent: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: "Inter_400Regular",
     lineHeight: 26,
   },
-  toggleBtn: {
+  textActions: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: "transparent",
+  },
+  pillBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingTop: 8,
-    borderTopWidth: 1,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
   },
-  toggleText: {
-    fontSize: 13,
+  pillBtnText: {
+    fontSize: 12,
     fontFamily: "Inter_500Medium",
   },
   translation: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
     lineHeight: 22,
-    paddingTop: 8,
+    paddingTop: 10,
     borderTopWidth: 1,
-  },
-  vocabToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  vocabToggleText: {
-    flex: 1,
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
+    fontStyle: "italic",
   },
   vocabCard: {
     borderRadius: 14,
@@ -279,43 +336,113 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "right",
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontFamily: "Inter_600SemiBold",
-    marginTop: 8,
-  },
-  modeCard: {
+  masteredBanner: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    gap: 14,
-  },
-  modeIcon: {
-    width: 48,
-    height: 48,
+    gap: 12,
+    padding: 14,
     borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1.5,
   },
-  modeInfo: { flex: 1 },
-  modeName: {
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    marginBottom: 3,
+  masteredTitle: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
   },
-  modeDesc: {
+  masteredSub: {
     fontSize: 12,
     fontFamily: "Inter_400Regular",
-    lineHeight: 16,
+    marginTop: 2,
   },
-  modeRight: {
-    alignItems: "flex-end",
-    gap: 4,
+  sectionLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: -4,
   },
-  modeScore: {
-    fontSize: 18,
+  stagesContainer: {
+    gap: 0,
+    paddingBottom: 8,
+  },
+  stageRow: {
+    position: "relative",
+  },
+  stageLine: {
+    position: "absolute",
+    left: 28,
+    bottom: 0,
+    width: 2,
+    height: 18,
+    zIndex: 0,
+  },
+  stageCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 18,
+    padding: 16,
+    gap: 14,
+    marginBottom: 10,
+    zIndex: 1,
+  },
+  stageBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  stageInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  stageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  stageNum: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+  },
+  currentTag: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  currentTagText: {
+    color: "#fff",
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+  },
+  stageName: {
+    fontSize: 17,
     fontFamily: "Inter_700Bold",
+  },
+  stageDesc: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 17,
+  },
+  stageThreshold: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    marginTop: 2,
+  },
+  stageRight: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 40,
+  },
+  scoreBlock: {
+    alignItems: "center",
+  },
+  scoreBig: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+  },
+  scoreLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
   },
 });

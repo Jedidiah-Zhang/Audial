@@ -21,12 +21,9 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { texts, removeText, getProgressForText } = useApp();
 
-  const getBestScore = (text: LearningText) => {
+  const getStagesPassed = (text: LearningText) => {
     const p = getProgressForText(text.id);
-    if (!p) return undefined;
-    const scores = [p.shadowingBest, p.dictationBest, p.recitationBest].filter((s) => s > 0);
-    if (scores.length === 0) return undefined;
-    return Math.max(...scores);
+    return p?.stagePassed;
   };
 
   const handleDelete = (id: string) => {
@@ -82,7 +79,7 @@ export default function HomeScreen() {
               item={item}
               onPress={() => router.push({ pathname: "/practice", params: { id: item.id } })}
               onDelete={() => handleDelete(item.id)}
-              bestScore={getBestScore(item)}
+              stagesPassed={getStagesPassed(item)}
             />
           )}
           showsVerticalScrollIndicator={false}

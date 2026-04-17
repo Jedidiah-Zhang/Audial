@@ -179,7 +179,7 @@ export function useAudioRecorder() {
 
         const FileSystem = await import("expo-file-system");
         const base64 = await FileSystem.default.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: "base64" as any,
         });
         const byteArray = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
         return new Blob([byteArray], { type: "audio/wav" });

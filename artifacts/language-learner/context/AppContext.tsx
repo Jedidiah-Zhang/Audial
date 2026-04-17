@@ -5,8 +5,8 @@ import type {
   SessionResult,
   UserProgress,
   AppSettings,
-  Difficulty,
 } from "@/types";
+import { STAGE_PASS_SCORE, STAGES } from "@/types";
 
 const STORAGE_KEYS = {
   TEXTS: "ll_texts",
@@ -23,6 +23,19 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoPlayAudio: true,
 };
 
+function defaultProgress(textId: string): UserProgress {
+  return {
+    textId,
+    stageBests: STAGES.map(() => 0),
+    stagePassed: STAGES.map(() => false),
+    lastStudied: Date.now(),
+    totalSessions: 0,
+    shadowingBest: 0,
+    dictationBest: 0,
+    recitationBest: 0,
+  };
+}
+
 interface AppContextValue {
   texts: LearningText[];
   results: SessionResult[];
@@ -31,6 +44,7 @@ interface AppContextValue {
   addText: (text: LearningText) => Promise<void>;
   removeText: (id: string) => Promise<void>;
   addResult: (result: SessionResult) => Promise<void>;
+  completeListeningStage: (textId: string) => Promise<void>;
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
   getProgressForText: (textId: string) => UserProgress | undefined;
   isLoading: boolean;
@@ -59,7 +73,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ]);
       if (textsRaw) setTexts(JSON.parse(textsRaw));
       if (resultsRaw) setResults(JSON.parse(resultsRaw));
-      if (progressRaw) setProgress(JSON.parse(progressRaw));
+      if (progressRaw) {
+        const raw = JSON.parse(progressRaw) as Record<string, any>;
+        const migrated: Record<string, UserProgress> = {};
+        for (const [k, v] of Object.entries(raw)) {
+          migrated[k] = {
+            ...defaultProgress(k),
+            ...v,
+            stageBests: v.stageBests ?? STAGES.map(() => 0),
+            stagePassed: v.stagePassed ?? STAGES.map(() => false),
+          };
+        }
+        setProgress(migrated);
+      }
       if (settingsRaw) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(settingsRaw) });
     } finally {
       setIsLoading(false);
@@ -82,6 +108,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const completeListeningStage = useCallback(async (textId: string) => {
+    setProgress((prev) => {
+      const existing = prev[textId] ?? defaultProgress(textId);
+      const stagePassed = [...existing.stagePassed];
+      stagePassed[0] = true;
+      const stageBests = [...existing.stageBests];
+      stageBests[0] = 100;
+      const updated: UserProgress = {
+        ...existing,
+        stagePassed,
+        stageBests,
+        lastStudied: Date.now(),
+        totalSessions: existing.totalSessions + 1,
+      };
+      const next = { ...prev, [textId]: updated };
+      AsyncStorage.setItem(STORAGE_KEYS.PROGRESS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   const addResult = useCallback(async (result: SessionResult) => {
     setResults((prev) => {
       const next = [result, ...prev].slice(0, 200);
@@ -90,20 +136,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     setProgress((prev) => {
-      const existing = prev[result.textId];
+      const existing = prev[result.textId] ?? defaultProgress(result.textId);
+      const stageBests = [...existing.stageBests];
+      const stagePassed = [...existing.stagePassed];
+
+      const stageIdx = result.stage;
+      if (stageIdx >= 0 && stageIdx < STAGES.length) {
+        stageBests[stageIdx] = Math.max(result.score, stageBests[stageIdx]);
+        const stage = STAGES[stageIdx];
+        if (!stage.needsScore || result.score >= STAGE_PASS_SCORE) {
+          stagePassed[stageIdx] = true;
+        }
+      }
+
       const updated: UserProgress = {
-        textId: result.textId,
+        ...existing,
+        stageBests,
+        stagePassed,
         shadowingBest: result.mode === "shadowing"
-          ? Math.max(result.score, existing?.shadowingBest ?? 0)
-          : (existing?.shadowingBest ?? 0),
+          ? Math.max(result.score, existing.shadowingBest)
+          : existing.shadowingBest,
         dictationBest: result.mode === "dictation"
-          ? Math.max(result.score, existing?.dictationBest ?? 0)
-          : (existing?.dictationBest ?? 0),
+          ? Math.max(result.score, existing.dictationBest)
+          : existing.dictationBest,
         recitationBest: result.mode === "recitation"
-          ? Math.max(result.score, existing?.recitationBest ?? 0)
-          : (existing?.recitationBest ?? 0),
+          ? Math.max(result.score, existing.recitationBest)
+          : existing.recitationBest,
         lastStudied: Date.now(),
-        totalSessions: (existing?.totalSessions ?? 0) + 1,
+        totalSessions: existing.totalSessions + 1,
       };
       const next = { ...prev, [result.textId]: updated };
       AsyncStorage.setItem(STORAGE_KEYS.PROGRESS, JSON.stringify(next));
@@ -134,6 +194,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addText,
         removeText,
         addResult,
+        completeListeningStage,
         updateSettings,
         getProgressForText,
         isLoading,

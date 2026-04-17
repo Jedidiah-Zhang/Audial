@@ -24,7 +24,8 @@ export interface LearningText {
 export interface SessionResult {
   id: string;
   textId: string;
-  mode: LearningMode;
+  mode: LearningMode | "listening";
+  stage: number;
   score: number;
   feedback: string;
   createdAt: number;
@@ -33,11 +34,13 @@ export interface SessionResult {
 
 export interface UserProgress {
   textId: string;
+  stageBests: number[];
+  stagePassed: boolean[];
+  lastStudied: number;
+  totalSessions: number;
   shadowingBest: number;
   dictationBest: number;
   recitationBest: number;
-  lastStudied: number;
-  totalSessions: number;
 }
 
 export interface AppSettings {
@@ -47,6 +50,51 @@ export interface AppSettings {
   preferredVoice: string;
   autoPlayAudio: boolean;
 }
+
+export const STAGE_PASS_SCORE = 60;
+
+export const STAGES = [
+  {
+    index: 0,
+    name: "精听",
+    englishName: "Listening",
+    icon: "headphones",
+    color: "#6366F1",
+    description: "跟随音频精读文章，感受语言节奏与发音",
+    needsScore: false,
+    mode: "listening" as const,
+  },
+  {
+    index: 1,
+    name: "跟读",
+    englishName: "Shadowing",
+    icon: "mic",
+    color: "#8B5CF6",
+    description: "模仿母语者发音，AI评估准确度与流利度",
+    needsScore: true,
+    mode: "shadowing" as LearningMode,
+  },
+  {
+    index: 2,
+    name: "听写",
+    englishName: "Dictation",
+    icon: "edit-2",
+    color: "#EC4899",
+    description: "只听声音不看文字，将听到的内容写下来",
+    needsScore: true,
+    mode: "dictation" as LearningMode,
+  },
+  {
+    index: 3,
+    name: "背诵",
+    englishName: "Recitation",
+    icon: "award",
+    color: "#F59E0B",
+    description: "记忆全文后从记忆中完整背诵",
+    needsScore: true,
+    mode: "recitation" as LearningMode,
+  },
+] as const;
 
 export const LANGUAGES = [
   { code: "zh", name: "中文" },
