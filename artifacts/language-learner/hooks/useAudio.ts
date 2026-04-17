@@ -23,7 +23,7 @@ export function useAudioPlayer() {
     };
   }, []);
 
-  const playTTS = useCallback(async (text: string, voice = "nova", speed = 1.0) => {
+  const playTTS = useCallback(async (text: string, voice = "nova") => {
     try {
       setIsLoading(true);
 
@@ -49,7 +49,6 @@ export function useAudioPlayer() {
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
-        audio.playbackRate = speed;
         audioRef.current = audio;
         setIsLoading(false);
         setIsPlaying(true);

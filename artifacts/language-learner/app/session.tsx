@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -24,26 +24,15 @@ import type { LearningMode } from "@/types";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
-const SPEEDS = [0.75, 1.0, 1.25, 1.5] as const;
-type Speed = typeof SPEEDS[number];
-
 type SessionPhase =
   | "intro"
-  | "practice"
+  | "listening"
+  | "study"
   | "memorize"
   | "recording"
   | "transcribing"
   | "scoring"
   | "result";
-
-function splitSentences(text: string): string[] {
-  if (!text) return [];
-  const parts = text
-    .split(/(?<=[.!?。！？；;…])\s*/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  return parts.length > 1 ? parts : [text];
-}
 
 export default function SessionScreen() {
   const colors = useColors();
@@ -56,37 +45,16 @@ export default function SessionScreen() {
   const stageIdx = parseInt(stageParam ?? "0", 10);
   const stage = STAGES[stageIdx] ?? STAGES[0];
   const text = texts.find((t) => t.id === id);
-  const sentences = useMemo(() => (text ? splitSentences(text.text) : []), [text]);
 
   const [phase, setPhase] = useState<SessionPhase>("intro");
-  const [speed, setSpeed] = useState<Speed>(1.0);
-  const [currentSentIdx, setCurrentSentIdx] = useState(0);
-  const [sentencePlayed, setSentencePlayed] = useState<boolean[]>([]);
-  const [sentenceInputs, setSentenceInputs] = useState<string[]>([]);
-  const [sentenceTranscripts, setSentenceTranscripts] = useState<string[]>([]);
-  const [currentInput, setCurrentInput] = useState("");
+  const [dictationInput, setDictationInput] = useState("");
+  const [result, setResult] = useState<{ score: number; feedback: string; details: Record<string, string | number>; passed: boolean } | null>(null);
   const [memorizeCountdown, setMemorizeCountdown] = useState(30);
-  const [result, setResult] = useState<{
-    score: number;
-    feedback: string;
-    details: Record<string, string | number>;
-    passed: boolean;
-  } | null>(null);
-
+  const [hasListened, setHasListened] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
-  const stageColor = stage.color;
-  const isLastStage = stageIdx === STAGES.length - 1;
-
-  const allSentencesPlayed = sentencePlayed.length === sentences.length && sentencePlayed.every(Boolean);
-  const allSentencesDone = useMemo(() => {
-    if (stageIdx === 0) return allSentencesPlayed;
-    if (stageIdx === 2) return sentenceInputs.length === sentences.length && sentenceInputs.every((s) => s.trim().length > 0);
-    return sentenceTranscripts.length === sentences.length && sentenceTranscripts.every((s) => s.trim().length > 0);
-  }, [stageIdx, allSentencesPlayed, sentenceInputs, sentenceTranscripts, sentences.length]);
 
   useEffect(() => {
     return () => {
@@ -95,53 +63,41 @@ export default function SessionScreen() {
     };
   }, []);
 
-  const handlePlayCurrentSentence = useCallback(async () => {
+  const handlePlayAudio = useCallback(async () => {
     if (!text) return;
-    const sentence = sentences[currentSentIdx] ?? text.text;
-    await playTTS(sentence, settings.preferredVoice, speed);
-    setSentencePlayed((prev) => {
-      const next = [...prev];
-      next[currentSentIdx] = true;
-      return next;
-    });
-  }, [sentences, currentSentIdx, playTTS, settings.preferredVoice, speed, text]);
-
-  const goToSentence = useCallback(
-    (idx: number) => {
-      stop();
-      setCurrentSentIdx(idx);
-      setCurrentInput(sentenceInputs[idx] ?? "");
-      scrollRef.current?.scrollTo({ y: 0, animated: true });
-    },
-    [sentenceInputs, stop]
-  );
+    setHasListened(true);
+    await playTTS(text.text, settings.preferredVoice);
+  }, [text, playTTS, settings.preferredVoice]);
 
   const handleBeginPractice = () => {
-    if (stageIdx === 3) {
+    if (stageIdx === 0) {
+      setPhase("listening");
+      setTimeout(() => handlePlayAudio(), 300);
+    } else if (stageIdx === 3) {
       setPhase("memorize");
       setMemorizeCountdown(30);
       countdownRef.current = setInterval(() => {
         setMemorizeCountdown((n) => {
           if (n <= 1) {
             clearInterval(countdownRef.current!);
-            setPhase("practice");
-            setCurrentSentIdx(0);
+            setPhase("study");
             return 0;
           }
           return n - 1;
         });
       }, 1000);
     } else {
-      setPhase("practice");
-      setCurrentSentIdx(0);
-      setSentencePlayed([]);
-      setSentenceInputs([]);
-      setSentenceTranscripts([]);
-      setCurrentInput("");
-      if (stageIdx === 0 || (stageIdx !== 2 && settings.autoPlayAudio)) {
-        setTimeout(() => handlePlayCurrentSentence(), 400);
-      }
+      setPhase("study");
+      if (settings.autoPlayAudio) setTimeout(() => handlePlayAudio(), 400);
     }
+  };
+
+  const handleCompleteListening = async () => {
+    if (!text) return;
+    await completeListeningStage(text.id);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setResult({ score: 100, feedback: "很好！完成精听练习，进入下一关继续学习。", details: {}, passed: true });
+    setPhase("result");
   };
 
   const handleRecord = async () => {
@@ -149,21 +105,15 @@ export default function SessionScreen() {
       setPhase("transcribing");
       const blob = await stopRecording();
       if (!blob) {
-        setPhase("practice");
+        setPhase("study");
         return;
       }
       try {
         const transcript = await transcribeAudio(blob);
-        setSentenceTranscripts((prev) => {
-          const next = [...prev];
-          next[currentSentIdx] = transcript;
-          return next;
-        });
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setPhase("practice");
+        await scoreAnswer(transcript);
       } catch {
         Alert.alert("错误", "录音转文字失败，请重试");
-        setPhase("practice");
+        setPhase("study");
       }
     } else {
       const started = await startRecording();
@@ -176,39 +126,12 @@ export default function SessionScreen() {
     }
   };
 
-  const handleSaveDictationAndNext = () => {
-    const trimmed = currentInput.trim();
-    if (!trimmed) {
-      Alert.alert("提示", "请先输入您听到的内容");
-      return;
-    }
-    setSentenceInputs((prev) => {
-      const next = [...prev];
-      next[currentSentIdx] = trimmed;
-      return next;
-    });
-    if (currentSentIdx < sentences.length - 1) {
-      const nextIdx = currentSentIdx + 1;
-      setCurrentSentIdx(nextIdx);
-      setCurrentInput(sentenceInputs[nextIdx] ?? "");
-    } else {
-      setCurrentInput(trimmed);
-    }
-  };
-
-  const handleCompleteListening = async () => {
-    if (!text) return;
-    await completeListeningStage(text.id);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setResult({ score: 100, feedback: "很好！完成精听练习，进入下一关继续学习。", details: {}, passed: true });
-    setPhase("result");
-  };
-
-  const handleSubmitForScoring = async () => {
+  const scoreAnswer = async (transcribedOrTyped: string) => {
     if (!text) return;
     setPhase("scoring");
 
     try {
+      const mode = stage.mode as LearningMode | "listening";
       const endpoint =
         stageIdx === 1
           ? "/api/language/score-pronunciation"
@@ -216,15 +139,10 @@ export default function SessionScreen() {
           ? "/api/language/score-dictation"
           : "/api/language/score-recitation";
 
-      const userAnswer =
-        stageIdx === 2
-          ? sentenceInputs.join(" ")
-          : sentenceTranscripts.join(" ");
-
       const body =
         stageIdx === 2
-          ? { targetText: text.text, userText: userAnswer, language: text.targetLanguage }
-          : { targetText: text.text, transcribedText: userAnswer, language: text.targetLanguage };
+          ? { targetText: text.text, userText: transcribedOrTyped, language: text.targetLanguage }
+          : { targetText: text.text, transcribedText: transcribedOrTyped, language: text.targetLanguage };
 
       const response = await fetch(`${BASE_URL}${endpoint}`, {
         method: "POST",
@@ -232,7 +150,7 @@ export default function SessionScreen() {
         body: JSON.stringify(body),
       });
 
-      const json = (await response.json()) as { success: boolean; data: any };
+      const json = await response.json() as { success: boolean; data: any };
       if (!json.success) throw new Error("Scoring failed");
 
       const d = json.data;
@@ -246,10 +164,7 @@ export default function SessionScreen() {
       }
       if (stageIdx === 3) {
         details["覆盖率"] = `${d.completeness ?? 0}%`;
-        details["流利度"] =
-          { excellent: "优秀", good: "良好", fair: "一般", needs_work: "需加强" }[
-            d.fluency as string
-          ] ?? d.fluency;
+        details["流利度"] = { excellent: "优秀", good: "良好", fair: "一般", needs_work: "需加强" }[d.fluency as string] ?? d.fluency;
       }
 
       const score = d.score ?? 0;
@@ -258,7 +173,7 @@ export default function SessionScreen() {
       await addResult({
         id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
         textId: text.id,
-        mode: stage.mode as LearningMode,
+        mode: mode as LearningMode,
         stage: stageIdx,
         score,
         feedback: d.feedback ?? "",
@@ -273,18 +188,27 @@ export default function SessionScreen() {
       setPhase("result");
     } catch {
       Alert.alert("评分失败", "无法连接服务器，请检查网络");
-      setPhase("practice");
+      setPhase("study");
     }
+  };
+
+  const handleDictationSubmit = async () => {
+    if (!dictationInput.trim()) {
+      Alert.alert("提示", "请先输入您听到的内容");
+      return;
+    }
+    await scoreAnswer(dictationInput.trim());
   };
 
   const handleRetry = () => {
     setResult(null);
-    setCurrentSentIdx(0);
-    setSentencePlayed([]);
-    setSentenceInputs([]);
-    setSentenceTranscripts([]);
-    setCurrentInput("");
+    setDictationInput("");
+    setHasListened(false);
     setPhase("intro");
+  };
+
+  const handleNextStage = () => {
+    router.back();
   };
 
   if (!text) {
@@ -295,11 +219,8 @@ export default function SessionScreen() {
     );
   }
 
-  const sentenceDone = (idx: number) => {
-    if (stageIdx === 0) return sentencePlayed[idx] === true;
-    if (stageIdx === 2) return (sentenceInputs[idx] ?? "").trim().length > 0;
-    return (sentenceTranscripts[idx] ?? "").trim().length > 0;
-  };
+  const stageColor = stage.color;
+  const isLastStage = stageIdx === STAGES.length - 1;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -322,13 +243,15 @@ export default function SessionScreen() {
         <View
           style={[
             styles.progressFill,
-            { backgroundColor: stageColor, width: `${((stageIdx + 1) / STAGES.length) * 100}%` },
+            {
+              backgroundColor: stageColor,
+              width: `${((stageIdx + 1) / STAGES.length) * 100}%`,
+            },
           ]}
         />
       </View>
 
       <ScrollView
-        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
@@ -336,26 +259,17 @@ export default function SessionScreen() {
       >
         {phase === "intro" && (
           <View style={styles.section}>
-            <View
-              style={[
-                styles.introCard,
-                { backgroundColor: colors.card, borderColor: stageColor + "40", borderWidth: 2 },
-              ]}
-            >
+            <View style={[styles.introCard, { backgroundColor: colors.card, borderColor: stageColor + "40", borderWidth: 2 }]}>
               <View style={[styles.introBadge, { backgroundColor: stageColor + "20" }]}>
                 <Feather name={stage.icon as any} size={36} color={stageColor} />
               </View>
-              <Text style={[styles.introLabel, { color: stageColor }]}>第 {stageIdx + 1} 关</Text>
+              <Text style={[styles.introLabel, { color: stageColor }]}>
+                第 {stageIdx + 1} 关
+              </Text>
               <Text style={[styles.introTitle, { color: colors.foreground }]}>{stage.name}</Text>
               <Text style={[styles.introDesc, { color: colors.mutedForeground }]}>
                 {stage.description}
               </Text>
-              <View style={[styles.sentenceCountTag, { backgroundColor: colors.muted }]}>
-                <Feather name="align-left" size={12} color={colors.mutedForeground} />
-                <Text style={[styles.sentenceCountText, { color: colors.mutedForeground }]}>
-                  共 {sentences.length} 句，逐句练习
-                </Text>
-              </View>
               {stage.needsScore && (
                 <View style={[styles.thresholdTag, { backgroundColor: colors.muted }]}>
                   <Feather name="target" size={12} color={colors.mutedForeground} />
@@ -375,9 +289,7 @@ export default function SessionScreen() {
             </View>
 
             <View style={[styles.textPreview, { backgroundColor: colors.muted }]}>
-              <Text style={[styles.textPreviewLabel, { color: colors.mutedForeground }]}>
-                练习文章（{sentences.length} 句）
-              </Text>
+              <Text style={[styles.textPreviewLabel, { color: colors.mutedForeground }]}>练习文章</Text>
               <Text style={[styles.textPreviewContent, { color: colors.foreground }]} numberOfLines={5}>
                 {text.text}
               </Text>
@@ -385,156 +297,121 @@ export default function SessionScreen() {
           </View>
         )}
 
+        {phase === "listening" && stageIdx === 0 && (
+          <View style={styles.section}>
+            <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.textContent, { color: colors.foreground }]}>{text.text}</Text>
+            </View>
+
+            <View style={styles.audioSection}>
+              <TouchableOpacity
+                onPress={handlePlayAudio}
+                disabled={isPlaying || ttsLoading}
+                style={[styles.bigAudioBtn, {
+                  backgroundColor: stageColor,
+                  opacity: isPlaying || ttsLoading ? 0.65 : 1,
+                }]}
+                activeOpacity={0.85}
+              >
+                {ttsLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Feather name={isPlaying ? "volume-2" : "play-circle"} size={26} color="#fff" />
+                )}
+                <Text style={styles.bigAudioBtnText}>
+                  {ttsLoading ? "加载中..." : isPlaying ? "播放中..." : hasListened ? "再次播放" : "播放音频"}
+                </Text>
+              </TouchableOpacity>
+              {isPlaying && <AudioWaveform isActive color={stageColor} barCount={9} />}
+            </View>
+
+            <TouchableOpacity
+              onPress={handleCompleteListening}
+              disabled={!hasListened}
+              style={[styles.completeBtn, {
+                backgroundColor: hasListened ? stageColor : colors.muted,
+                opacity: hasListened ? 1 : 0.5,
+              }]}
+              activeOpacity={0.85}
+            >
+              <Feather name="check-circle" size={20} color={hasListened ? "#fff" : colors.mutedForeground} />
+              <Text style={[styles.completeBtnText, { color: hasListened ? "#fff" : colors.mutedForeground }]}>
+                {hasListened ? "完成本关，进入下一关" : "请先播放音频"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {phase === "memorize" && stageIdx === 3 && (
           <View style={styles.section}>
-            <View
-              style={[
-                styles.countdownCard,
-                { backgroundColor: stageColor + "15", borderColor: stageColor + "40", borderWidth: 2 },
-              ]}
-            >
+            <View style={[styles.countdownCard, { backgroundColor: stageColor + "15", borderColor: stageColor + "40", borderWidth: 2 }]}>
               <Text style={[styles.countdownNum, { color: stageColor }]}>{memorizeCountdown}</Text>
-              <Text style={[styles.countdownLabel, { color: colors.mutedForeground }]}>
-                秒后将开始逐句背诵
-              </Text>
+              <Text style={[styles.countdownLabel, { color: colors.mutedForeground }]}>秒后文章将被隐藏</Text>
             </View>
             <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.textContent, { color: colors.foreground }]}>{text.text}</Text>
             </View>
             <Text style={[styles.memorizeHint, { color: colors.mutedForeground }]}>
-              请认真记忆文章内容，计时结束后逐句背诵
+              请认真记忆文章内容，倒计时结束后需要从记忆中背诵
             </Text>
           </View>
         )}
 
-        {(phase === "practice" || phase === "recording" || phase === "transcribing") && (
+        {phase === "study" && stageIdx !== 0 && (
           <View style={styles.section}>
-            <SpeedControl speed={speed} onChange={setSpeed} color={stageColor} colors={colors} />
+            {stageIdx === 2 ? (
+              <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
+                <Feather name="eye-off" size={28} color={colors.mutedForeground} />
+                <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>文章已隐藏</Text>
+                <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
+                  反复收听音频，将您听到的内容写在下方
+                </Text>
+              </View>
+            ) : stageIdx === 3 ? (
+              <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
+                <Feather name="book-open" size={28} color={colors.mutedForeground} />
+                <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>从记忆中背诵</Text>
+                <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
+                  不看文章，录制您的背诵音频
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.textContent, { color: colors.foreground }]}>{text.text}</Text>
+              </View>
+            )}
 
-            <FullArticleView
-              sentences={sentences}
-              currentIdx={currentSentIdx}
-              sentenceDone={sentenceDone}
-              hideText={stageIdx === 2 || stageIdx === 3}
-              color={stageColor}
-              colors={colors}
-              isPlaying={isPlaying}
-              onSentencePress={goToSentence}
-            />
-
-            <View style={styles.audioRow}>
+            {stageIdx !== 3 && (
               <TouchableOpacity
-                onPress={currentSentIdx > 0 ? () => goToSentence(currentSentIdx - 1) : undefined}
-                disabled={currentSentIdx === 0}
-                style={[
-                  styles.navIconBtn,
-                  { backgroundColor: colors.muted, opacity: currentSentIdx === 0 ? 0.3 : 1 },
-                ]}
-                activeOpacity={0.7}
-              >
-                <Feather name="chevron-left" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handlePlayCurrentSentence}
+                onPress={handlePlayAudio}
                 disabled={isPlaying || ttsLoading}
-                style={[
-                  styles.playBtn,
-                  {
-                    backgroundColor: sentencePlayed[currentSentIdx] ? colors.muted : stageColor,
-                    opacity: isPlaying || ttsLoading ? 0.6 : 1,
-                  },
-                ]}
+                style={[styles.bigAudioBtn, {
+                  backgroundColor: isPlaying || ttsLoading ? colors.muted : stageColor + "20",
+                  opacity: isPlaying || ttsLoading ? 0.65 : 1,
+                }]}
                 activeOpacity={0.85}
               >
                 {ttsLoading ? (
-                  <ActivityIndicator
-                    color={sentencePlayed[currentSentIdx] ? stageColor : "#fff"}
-                    size="small"
-                  />
+                  <ActivityIndicator color={stageColor} size="small" />
                 ) : (
-                  <Feather
-                    name={isPlaying ? "volume-2" : "play"}
-                    size={18}
-                    color={sentencePlayed[currentSentIdx] ? stageColor : "#fff"}
-                  />
+                  <Feather name="volume-2" size={22} color={stageColor} />
                 )}
-                <Text
-                  style={[
-                    styles.playBtnText,
-                    { color: sentencePlayed[currentSentIdx] ? stageColor : "#fff" },
-                  ]}
-                >
-                  {ttsLoading
-                    ? "加载..."
-                    : isPlaying
-                    ? `播放第${currentSentIdx + 1}句`
-                    : sentencePlayed[currentSentIdx]
-                    ? "再听一遍"
-                    : `播放第${currentSentIdx + 1}句`}
+                <Text style={[styles.bigAudioBtnText, { color: stageColor }]}>
+                  {ttsLoading ? "加载中..." : isPlaying ? "播放中..." : "播放音频"}
                 </Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={
-                  currentSentIdx < sentences.length - 1
-                    ? () => goToSentence(currentSentIdx + 1)
-                    : undefined
-                }
-                disabled={currentSentIdx >= sentences.length - 1}
-                style={[
-                  styles.navIconBtn,
-                  {
-                    backgroundColor: colors.muted,
-                    opacity: currentSentIdx >= sentences.length - 1 ? 0.3 : 1,
-                  },
-                ]}
-                activeOpacity={0.7}
-              >
-                <Feather name="chevron-right" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            {isPlaying && <AudioWaveform isActive color={stageColor} barCount={7} />}
-
-            {phase === "transcribing" && (
-              <View style={[styles.statusRow, { backgroundColor: colors.muted }]}>
-                <ActivityIndicator color={stageColor} size="small" />
-                <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
-                  正在识别语音...
-                </Text>
-              </View>
             )}
 
-            {sentenceTranscripts[currentSentIdx] && stageIdx !== 2 && phase !== "transcribing" && (
-              <View
-                style={[
-                  styles.transcriptBubble,
-                  { backgroundColor: stageColor + "15", borderColor: stageColor + "40" },
-                ]}
-              >
-                <Feather name="check-circle" size={13} color={stageColor} />
-                <Text style={[styles.transcriptText, { color: colors.foreground }]} numberOfLines={3}>
-                  {sentenceTranscripts[currentSentIdx]}
-                </Text>
-              </View>
-            )}
+            {isPlaying && <AudioWaveform isActive color={stageColor} barCount={9} />}
 
-            {stageIdx === 2 && (
+            {stageIdx === 2 ? (
               <>
-                <View
-                  style={[
-                    styles.dictationBox,
-                    { backgroundColor: colors.card, borderColor: stageColor },
-                  ]}
-                >
-                  <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>
-                    第 {currentSentIdx + 1} 句听写内容
-                  </Text>
+                <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
+                  <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>听写内容</Text>
                   <TextInput
                     style={[styles.dictationInput, { color: colors.foreground }]}
-                    value={currentInput}
-                    onChangeText={setCurrentInput}
+                    value={dictationInput}
+                    onChangeText={setDictationInput}
                     placeholder="将您听到的内容写在这里..."
                     placeholderTextColor={colors.mutedForeground}
                     multiline
@@ -543,103 +420,59 @@ export default function SessionScreen() {
                   />
                 </View>
                 <TouchableOpacity
-                  onPress={handleSaveDictationAndNext}
-                  disabled={!currentInput.trim()}
-                  style={[
-                    styles.nextSentBtn,
-                    {
-                      backgroundColor: currentInput.trim() ? stageColor : colors.muted,
-                      opacity: currentInput.trim() ? 1 : 0.5,
-                    },
-                  ]}
+                  onPress={handleDictationSubmit}
+                  disabled={!dictationInput.trim()}
+                  style={[styles.submitBtn, {
+                    backgroundColor: stageColor,
+                    opacity: dictationInput.trim() ? 1 : 0.4,
+                  }]}
                   activeOpacity={0.85}
                 >
-                  <Text
-                    style={[
-                      styles.nextSentBtnText,
-                      { color: currentInput.trim() ? "#fff" : colors.mutedForeground },
-                    ]}
-                  >
-                    {currentSentIdx < sentences.length - 1 ? "保存并下一句" : "保存"}
-                  </Text>
-                  <Feather
-                    name={currentSentIdx < sentences.length - 1 ? "arrow-right" : "check"}
-                    size={16}
-                    color={currentInput.trim() ? "#fff" : colors.mutedForeground}
-                  />
+                  <Feather name="check" size={20} color="#fff" />
+                  <Text style={styles.submitBtnText}>提交答案</Text>
                 </TouchableOpacity>
               </>
-            )}
-
-            {stageIdx !== 2 && stageIdx !== 0 && phase !== "recording" && phase !== "transcribing" && (
-              <View style={styles.recordRow}>
+            ) : (
+              <View style={styles.recordSection}>
                 <TouchableOpacity
                   onPress={handleRecord}
-                  style={[
-                    styles.recordBtn,
-                    {
-                      backgroundColor: isRecording ? "#EF4444" : stageColor,
-                      shadowColor: isRecording ? "#EF4444" : stageColor,
-                    },
-                  ]}
+                  style={[styles.recordBtn, {
+                    backgroundColor: isRecording ? "#EF4444" : stageColor,
+                    shadowColor: isRecording ? "#EF4444" : stageColor,
+                  }]}
                   activeOpacity={0.85}
                 >
-                  <Feather name={isRecording ? "square" : "mic"} size={28} color="#fff" />
+                  <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
                 </TouchableOpacity>
                 <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
-                  {isRecording
-                    ? "点击停止录音"
-                    : sentenceTranscripts[currentSentIdx]
-                    ? `重新录第 ${currentSentIdx + 1} 句`
-                    : `录第 ${currentSentIdx + 1} 句`}
+                  {isRecording ? "点击停止录音" : "点击开始录音"}
                 </Text>
+                {isRecording && <AudioWaveform isActive color="#EF4444" />}
               </View>
-            )}
-
-            {phase === "recording" && (
-              <View style={[styles.recordingBanner, { backgroundColor: "#EF4444" + "15" }]}>
-                <AudioWaveform isActive color="#EF4444" barCount={9} />
-                <TouchableOpacity
-                  onPress={handleRecord}
-                  style={[styles.recordBtn, { backgroundColor: "#EF4444", shadowColor: "#EF4444" }]}
-                  activeOpacity={0.85}
-                >
-                  <Feather name="square" size={28} color="#fff" />
-                </TouchableOpacity>
-                <Text style={[styles.recordHint, { color: "#EF4444" }]}>
-                  正在录第 {currentSentIdx + 1} 句，点击停止
-                </Text>
-              </View>
-            )}
-
-            {allSentencesDone && stageIdx !== 0 && (
-              <TouchableOpacity
-                onPress={handleSubmitForScoring}
-                style={[styles.submitAllBtn, { backgroundColor: stageColor }]}
-                activeOpacity={0.85}
-              >
-                <Feather name="send" size={18} color="#fff" />
-                <Text style={styles.submitAllBtnText}>提交评分</Text>
-              </TouchableOpacity>
-            )}
-
-            {allSentencesDone && stageIdx === 0 && (
-              <TouchableOpacity
-                onPress={handleCompleteListening}
-                style={[styles.submitAllBtn, { backgroundColor: stageColor }]}
-                activeOpacity={0.85}
-              >
-                <Feather name="check-circle" size={18} color="#fff" />
-                <Text style={styles.submitAllBtnText}>完成精听，进入下一关</Text>
-              </TouchableOpacity>
             )}
           </View>
         )}
 
-        {phase === "scoring" && (
+        {phase === "recording" && (
+          <View style={[styles.section, styles.centerSection]}>
+            <AudioWaveform isActive color="#EF4444" barCount={9} />
+            <TouchableOpacity
+              onPress={handleRecord}
+              style={[styles.recordBtn, { backgroundColor: "#EF4444", shadowColor: "#EF4444" }]}
+              activeOpacity={0.85}
+            >
+              <Feather name="square" size={32} color="#fff" />
+            </TouchableOpacity>
+            <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>点击停止录音</Text>
+          </View>
+        )}
+
+        {(phase === "transcribing" || phase === "scoring") && (
           <View style={[styles.section, styles.centerSection]}>
             <ActivityIndicator size="large" color={stageColor} />
-            <Text style={[styles.statusText, { color: colors.mutedForeground }]}>AI 评分中...</Text>
+            <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
+              {phase === "transcribing" ? "正在识别语音..." : "AI 评分中..."}
+            </Text>
           </View>
         )}
 
@@ -647,15 +480,13 @@ export default function SessionScreen() {
           <View style={styles.section}>
             {stage.needsScore ? (
               <>
-                <View
-                  style={[
-                    styles.passedBanner,
-                    {
-                      backgroundColor: result.passed ? "#10B981" + "15" : "#EF4444" + "15",
-                      borderColor: result.passed ? "#10B981" : "#EF4444",
-                    },
-                  ]}
-                >
+                <View style={[
+                  styles.passedBanner,
+                  {
+                    backgroundColor: result.passed ? "#10B981" + "15" : "#EF4444" + "15",
+                    borderColor: result.passed ? "#10B981" : "#EF4444",
+                  },
+                ]}>
                   <Feather
                     name={result.passed ? "check-circle" : "x-circle"}
                     size={22}
@@ -667,9 +498,7 @@ export default function SessionScreen() {
                     </Text>
                     <Text style={[styles.passedSub, { color: colors.mutedForeground }]}>
                       {result.passed
-                        ? isLastStage
-                          ? "恭喜完成全部关卡！"
-                          : "继续挑战下一关"
+                        ? isLastStage ? "恭喜完成全部关卡！" : "继续挑战下一关"
                         : `需要 ${STAGE_PASS_SCORE} 分，再试一次吧`}
                     </Text>
                   </View>
@@ -685,17 +514,12 @@ export default function SessionScreen() {
                 />
               </>
             ) : (
-              <View
-                style={[
-                  styles.passedBanner,
-                  { backgroundColor: "#10B981" + "15", borderColor: "#10B981" },
-                ]}
-              >
+              <View style={[styles.passedBanner, { backgroundColor: "#10B981" + "15", borderColor: "#10B981" }]}>
                 <Feather name="headphones" size={22} color="#10B981" />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.passedTitle, { color: "#10B981" }]}>精听完成！</Text>
                   <Text style={[styles.passedSub, { color: colors.mutedForeground }]}>
-                    已听完全部 {sentences.length} 句，第2关已解锁
+                    第1关已解锁，继续进入跟读练习
                   </Text>
                 </View>
               </View>
@@ -712,14 +536,7 @@ export default function SessionScreen() {
 
             <View style={[styles.originalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.originalLabel, { color: colors.mutedForeground }]}>原文</Text>
-              {sentences.map((s, i) => (
-                <Text key={i} style={[styles.originalSentence, { color: colors.foreground }]}>
-                  <Text style={{ color: stageColor, fontFamily: "Inter_600SemiBold" }}>
-                    {i + 1}.{" "}
-                  </Text>
-                  {s}
-                </Text>
-              ))}
+              <Text style={[styles.originalText, { color: colors.foreground }]}>{text.text}</Text>
             </View>
 
             <View style={styles.resultActions}>
@@ -733,273 +550,19 @@ export default function SessionScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => router.back()}
+                onPress={handleNextStage}
                 style={[styles.doneBtn, { backgroundColor: stageColor }]}
                 activeOpacity={0.85}
               >
                 <Text style={styles.doneBtnText}>
                   {result.passed && !isLastStage ? "进入下一关" : "返回"}
                 </Text>
-                <Feather
-                  name={result.passed && !isLastStage ? "arrow-right" : "check"}
-                  size={16}
-                  color="#fff"
-                />
+                <Feather name={result.passed && !isLastStage ? "arrow-right" : "check"} size={16} color="#fff" />
               </TouchableOpacity>
             </View>
           </View>
         )}
       </ScrollView>
-    </View>
-  );
-}
-
-function FullArticleView({
-  sentences,
-  currentIdx,
-  sentenceDone,
-  hideText,
-  color,
-  colors,
-  isPlaying,
-  onSentencePress,
-}: {
-  sentences: string[];
-  currentIdx: number;
-  sentenceDone: (idx: number) => boolean;
-  hideText: boolean;
-  color: string;
-  colors: any;
-  isPlaying: boolean;
-  onSentencePress: (idx: number) => void;
-}) {
-  return (
-    <View style={[articleStyles.container, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={articleStyles.header}>
-        <Feather name={hideText ? "eye-off" : "file-text"} size={13} color={colors.mutedForeground} />
-        <Text style={[articleStyles.headerLabel, { color: colors.mutedForeground }]}>
-          {hideText ? "文章（已隐藏，凭听力/记忆作答）" : "完整文章"}
-        </Text>
-        <View style={{ flex: 1 }} />
-        <Text style={[articleStyles.headerCount, { color }]}>
-          {currentIdx + 1} / {sentences.length}
-        </Text>
-      </View>
-
-      <View style={articleStyles.body}>
-        {sentences.map((s, i) => {
-          const isCurrent = i === currentIdx;
-          const isDone = sentenceDone(i);
-          const wordCount = Math.max(3, Math.min(s.split(/\s+/).filter(Boolean).length, 12));
-
-          return (
-            <TouchableOpacity
-              key={i}
-              onPress={() => onSentencePress(i)}
-              activeOpacity={0.7}
-              style={[
-                articleStyles.sentenceRow,
-                {
-                  backgroundColor: isCurrent ? color + "1A" : "transparent",
-                  borderLeftColor: isCurrent ? color : isDone ? color + "60" : "transparent",
-                },
-              ]}
-            >
-              <View
-                style={[
-                  articleStyles.numBadge,
-                  {
-                    backgroundColor: isCurrent ? color : isDone ? color + "30" : colors.muted,
-                  },
-                ]}
-              >
-                {isDone && !isCurrent ? (
-                  <Feather name="check" size={11} color={color} />
-                ) : (
-                  <Text
-                    style={[
-                      articleStyles.numText,
-                      { color: isCurrent ? "#fff" : colors.mutedForeground },
-                    ]}
-                  >
-                    {i + 1}
-                  </Text>
-                )}
-              </View>
-
-              <View style={{ flex: 1 }}>
-                {hideText ? (
-                  <View style={articleStyles.blanksRow}>
-                    {Array.from({ length: wordCount }).map((_, w) => (
-                      <View
-                        key={w}
-                        style={[
-                          articleStyles.blank,
-                          {
-                            backgroundColor: isCurrent ? color + "40" : colors.border,
-                            width: 8 + ((w * 7) % 18),
-                          },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                ) : (
-                  <Text
-                    style={[
-                      articleStyles.sentText,
-                      {
-                        color: isCurrent
-                          ? colors.foreground
-                          : isDone
-                          ? colors.foreground
-                          : colors.mutedForeground,
-                        fontFamily: isCurrent ? "Inter_600SemiBold" : "Inter_400Regular",
-                      },
-                    ]}
-                  >
-                    {s}
-                  </Text>
-                )}
-              </View>
-
-              {isCurrent && isPlaying && (
-                <View style={articleStyles.playingDot}>
-                  <Feather name="volume-2" size={14} color={color} />
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-function SpeedControl({
-  speed,
-  onChange,
-  color,
-  colors,
-}: {
-  speed: Speed;
-  onChange: (s: Speed) => void;
-  color: string;
-  colors: any;
-}) {
-  return (
-    <View style={[speedStyles.row, { backgroundColor: colors.muted }]}>
-      <Feather name="clock" size={13} color={colors.mutedForeground} />
-      <Text style={[speedStyles.label, { color: colors.mutedForeground }]}>语速</Text>
-      {SPEEDS.map((s) => (
-        <TouchableOpacity
-          key={s}
-          onPress={() => onChange(s)}
-          style={[
-            speedStyles.btn,
-            { backgroundColor: speed === s ? color : "transparent" },
-          ]}
-          activeOpacity={0.7}
-        >
-          <Text
-            style={[
-              speedStyles.btnText,
-              { color: speed === s ? "#fff" : colors.mutedForeground },
-            ]}
-          >
-            {s}×
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-}
-
-function SentenceNav({
-  current,
-  total,
-  sentenceDone,
-  onPrev,
-  onNext,
-  color,
-  colors,
-}: {
-  current: number;
-  total: number;
-  sentenceDone: (idx: number) => boolean;
-  onPrev?: () => void;
-  onNext?: () => void;
-  color: string;
-  colors: any;
-}) {
-  return (
-    <View style={navStyles.row}>
-      <TouchableOpacity
-        onPress={onPrev}
-        disabled={!onPrev}
-        style={[navStyles.arrow, { opacity: onPrev ? 1 : 0.3 }]}
-        activeOpacity={0.7}
-      >
-        <Feather name="chevron-left" size={22} color={colors.foreground} />
-      </TouchableOpacity>
-
-      <View style={navStyles.center}>
-        <Text style={[navStyles.counter, { color: colors.foreground }]}>
-          第 <Text style={{ color, fontFamily: "Inter_700Bold" }}>{current + 1}</Text> / {total} 句
-        </Text>
-        {sentenceDone(current) && (
-          <View style={[navStyles.doneBadge, { backgroundColor: color + "20" }]}>
-            <Feather name="check" size={10} color={color} />
-            <Text style={[navStyles.doneText, { color }]}>已完成</Text>
-          </View>
-        )}
-      </View>
-
-      <TouchableOpacity
-        onPress={onNext}
-        disabled={!onNext}
-        style={[navStyles.arrow, { opacity: onNext ? 1 : 0.3 }]}
-        activeOpacity={0.7}
-      >
-        <Feather name="chevron-right" size={22} color={colors.foreground} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function SentenceDots({
-  sentences,
-  currentIdx,
-  sentenceDone,
-  color,
-  colors,
-  onDotPress,
-}: {
-  sentences: string[];
-  currentIdx: number;
-  sentenceDone: (idx: number) => boolean;
-  color: string;
-  colors: any;
-  onDotPress: (idx: number) => void;
-}) {
-  return (
-    <View style={dotsStyles.row}>
-      {sentences.map((_, i) => (
-        <TouchableOpacity key={i} onPress={() => onDotPress(i)} activeOpacity={0.7}>
-          <View
-            style={[
-              dotsStyles.dot,
-              {
-                backgroundColor: sentenceDone(i)
-                  ? color
-                  : i === currentIdx
-                  ? color + "60"
-                  : colors.border,
-                width: i === currentIdx ? 20 : 8,
-              },
-            ]}
-          />
-        </TouchableOpacity>
-      ))}
     </View>
   );
 }
@@ -1013,14 +576,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 8,
   },
-  backBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  backBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerCenter: { flex: 1, alignItems: "center" },
-  headerStage: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
-  headerTitle: { fontSize: 14, fontFamily: "Inter_400Regular", marginTop: 1 },
-  progressBar: { height: 3 },
-  progressFill: { height: 3, borderRadius: 2 },
-  content: { paddingHorizontal: 20, paddingTop: 16, gap: 14 },
-  section: { gap: 12 },
+  headerStage: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+  },
+  headerTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    marginTop: 1,
+  },
+  progressBar: {
+    height: 3,
+    marginHorizontal: 0,
+  },
+  progressFill: {
+    height: 3,
+    borderRadius: 2,
+  },
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 14,
+  },
+  section: { gap: 14 },
   centerSection: {
     flex: 1,
     alignItems: "center",
@@ -1028,128 +614,289 @@ const styles = StyleSheet.create({
     minHeight: 300,
     gap: 16,
   },
-  statusText: { fontSize: 15, fontFamily: "Inter_400Regular" },
-  introCard: { borderRadius: 20, padding: 24, alignItems: "center", gap: 10 },
-  introBadge: { width: 72, height: 72, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  introLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", letterSpacing: 1, textTransform: "uppercase" },
-  introTitle: { fontSize: 24, fontFamily: "Inter_700Bold" },
-  introDesc: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22, textAlign: "center" },
-  sentenceCountTag: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  sentenceCountText: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  thresholdTag: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  thresholdText: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  startBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 14, marginTop: 6 },
-  startBtnText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  textPreview: { borderRadius: 14, padding: 14, gap: 6 },
-  textPreviewLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.8 },
-  textPreviewContent: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  textCard: { borderRadius: 16, padding: 16, borderWidth: 1 },
-  textContent: { fontSize: 16, fontFamily: "Inter_400Regular", lineHeight: 28 },
-  countdownCard: { borderRadius: 16, padding: 24, alignItems: "center", gap: 4 },
-  countdownNum: { fontSize: 56, fontFamily: "Inter_700Bold" },
-  countdownLabel: { fontSize: 14, fontFamily: "Inter_400Regular" },
-  memorizeHint: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
-  sentenceCard: { borderRadius: 16, padding: 16, gap: 8 },
-  hiddenBadge: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-  hiddenBadgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  sentenceText: { fontSize: 18, fontFamily: "Inter_500Medium", lineHeight: 30 },
-  hiddenSentenceCard: { borderRadius: 14, padding: 20, alignItems: "center", gap: 6 },
-  hiddenSentenceText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  hiddenSentenceHint: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
-  audioRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  navIconBtn: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  playBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 14 },
-  playBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12 },
-  transcriptBubble: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1 },
-  transcriptText: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
-  recordRow: { alignItems: "center", gap: 10 },
-  recordBtn: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 8 },
-  recordHint: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  recordingBanner: { alignItems: "center", gap: 12, padding: 20, borderRadius: 16 },
-  dictationBox: { borderRadius: 14, borderWidth: 2, padding: 14, gap: 8 },
-  dictationLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  dictationInput: { fontSize: 15, fontFamily: "Inter_400Regular", lineHeight: 24, minHeight: 80 },
-  nextSentBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 14 },
-  nextSentBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  submitAllBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 16, borderRadius: 16 },
-  submitAllBtnText: { color: "#fff", fontSize: 16, fontFamily: "Inter_700Bold" },
-  passedBanner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 14, borderWidth: 1.5 },
-  passedTitle: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  passedSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
-  passedScore: { fontSize: 32, fontFamily: "Inter_700Bold" },
-  nextStageHint: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 10 },
-  nextStageText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  originalCard: { borderRadius: 14, padding: 14, borderWidth: 1, gap: 8 },
-  originalLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.8 },
-  originalSentence: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  resultActions: { flexDirection: "row", gap: 10 },
-  retryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 14, paddingHorizontal: 18, borderRadius: 14, borderWidth: 1, flex: 1 },
-  retryBtnText: { fontSize: 14, fontFamily: "Inter_500Medium" },
-  doneBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, paddingHorizontal: 20, borderRadius: 14, flex: 2 },
-  doneBtnText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
-});
-
-const speedStyles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: 6, padding: 6, borderRadius: 12 },
-  label: { fontSize: 12, fontFamily: "Inter_500Medium", marginRight: 2 },
-  btn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  btnText: { fontSize: 12, fontFamily: "Inter_700Bold" },
-});
-
-const navStyles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center" },
-  arrow: { padding: 6 },
-  center: { flex: 1, alignItems: "center", gap: 4 },
-  counter: { fontSize: 15, fontFamily: "Inter_500Medium" },
-  doneBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  doneText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-});
-
-const dotsStyles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 4 },
-  dot: { height: 8, borderRadius: 4 },
-});
-
-const articleStyles = StyleSheet.create({
-  container: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
-  header: {
-    flexDirection: "row",
+  statusText: {
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+  },
+  introCard: {
+    borderRadius: 20,
+    padding: 28,
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(0,0,0,0.06)",
-  },
-  headerLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  headerCount: { fontSize: 13, fontFamily: "Inter_700Bold" },
-  body: { paddingVertical: 6 },
-  sentenceRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
     gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderLeftWidth: 3,
   },
-  numBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  introBadge: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 2,
+    marginBottom: 4,
   },
-  numText: { fontSize: 11, fontFamily: "Inter_700Bold" },
-  sentText: { fontSize: 16, lineHeight: 26 },
-  blanksRow: {
+  introLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  introTitle: {
+    fontSize: 26,
+    fontFamily: "Inter_700Bold",
+  },
+  introDesc: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  thresholdTag: {
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
     gap: 5,
+    paddingHorizontal: 12,
     paddingVertical: 6,
+    borderRadius: 20,
   },
-  blank: { height: 10, borderRadius: 5, minWidth: 14 },
-  playingDot: { paddingTop: 4 },
+  thresholdText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
+  startBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 6,
+  },
+  startBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
+  textPreview: {
+    borderRadius: 14,
+    padding: 14,
+    gap: 6,
+  },
+  textPreviewLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  textPreviewContent: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 22,
+  },
+  textCard: {
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+  },
+  textContent: {
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 28,
+  },
+  audioSection: {
+    gap: 10,
+    alignItems: "center",
+  },
+  bigAudioBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    width: "100%",
+  },
+  bigAudioBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
+  completeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 16,
+  },
+  completeBtnText: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
+  countdownCard: {
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    gap: 4,
+  },
+  countdownNum: {
+    fontSize: 56,
+    fontFamily: "Inter_700Bold",
+  },
+  countdownLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+  },
+  memorizeHint: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  hiddenCard: {
+    borderRadius: 16,
+    padding: 28,
+    alignItems: "center",
+    gap: 8,
+  },
+  hiddenTitle: {
+    fontSize: 18,
+    fontFamily: "Inter_600SemiBold",
+  },
+  hiddenSubtitle: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  recordSection: {
+    alignItems: "center",
+    gap: 16,
+    paddingVertical: 20,
+  },
+  recordBtn: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  recordHint: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+  },
+  dictationBox: {
+    borderRadius: 14,
+    borderWidth: 2,
+    padding: 14,
+    gap: 8,
+  },
+  dictationLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
+  dictationInput: {
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 26,
+    minHeight: 120,
+  },
+  submitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 14,
+  },
+  submitBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+  },
+  passedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  passedTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+  },
+  passedSub: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    marginTop: 2,
+  },
+  passedScore: {
+    fontSize: 32,
+    fontFamily: "Inter_700Bold",
+  },
+  nextStageHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 10,
+  },
+  nextStageText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+  },
+  originalCard: {
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    gap: 6,
+  },
+  originalLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  originalText: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 24,
+  },
+  resultActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+  },
+  retryBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+  },
+  doneBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    flex: 2,
+  },
+  doneBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
 });
