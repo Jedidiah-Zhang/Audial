@@ -76,41 +76,6 @@ Make the text feel like something a real native speaker would say - not textbook
   }
 });
 
-router.post("/language/translate", async (req, res) => {
-  try {
-    const { text, sourceLanguage, targetLanguage } = req.body as {
-      text: string;
-      sourceLanguage: string;
-      targetLanguage: string;
-    };
-
-    if (!text || !text.trim()) {
-      res.json({ success: true, data: { translation: "" } });
-      return;
-    }
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_completion_tokens: 1024,
-      messages: [
-        {
-          role: "system",
-          content: `You are a professional translator. Translate the user's ${sourceLanguage} text into natural, fluent ${targetLanguage}. Preserve line breaks and any "Speaker: utterance" dialogue formatting. Return JSON with a single field "translation" containing only the translated text — no commentary.`,
-        },
-        { role: "user", content: text },
-      ],
-      response_format: { type: "json_object" },
-    });
-
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
-    res.json({ success: true, data });
-  } catch (err) {
-    req.log.error({ err }, "Translate failed");
-    res.status(500).json({ success: false, error: "Translation failed" });
-  }
-});
-
 router.post("/language/word-detail", async (req, res) => {
   try {
     const { word, targetLanguage, language } = req.body as {
