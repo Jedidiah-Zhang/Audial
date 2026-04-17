@@ -406,11 +406,25 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {(phase === "recording" || phase === "transcribing" || phase === "scoring") && (
+        {phase === "recording" && (
+          <View style={[styles.section, styles.centerSection]}>
+            <AudioWaveform isActive color={colors.destructive} barCount={9} />
+            <TouchableOpacity
+              onPress={handleRecord}
+              style={[styles.recordBtn, { backgroundColor: colors.destructive, shadowColor: colors.destructive }]}
+              activeOpacity={0.85}
+            >
+              <Feather name="square" size={32} color="#fff" />
+            </TouchableOpacity>
+            <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>点击停止录音</Text>
+          </View>
+        )}
+
+        {(phase === "transcribing" || phase === "scoring") && (
           <View style={[styles.section, styles.centerSection]}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
-              {phase === "recording" ? "录音中..." : phase === "transcribing" ? "正在转录语音..." : "AI 评分中..."}
+              {phase === "transcribing" ? "正在转录语音..." : "AI 评分中..."}
             </Text>
           </View>
         )}
