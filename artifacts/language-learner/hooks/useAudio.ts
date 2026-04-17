@@ -116,15 +116,14 @@ export function useAudioPlayer() {
         if (Platform.OS === "web") {
           const blob = new Blob([buffer], { type: "audio/mpeg" });
           const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
+          const audio = new Audio();
+          audio.preload = "auto";
           (audio as any).preservesPitch = true;
           (audio as any).mozPreservesPitch = true;
           (audio as any).webkitPreservesPitch = true;
-          audio.playbackRate = playbackRate;
           audioRef.current = audio;
           audioUrlRef.current = url;
-          setIsLoading(false);
-          setIsPlaying(true);
+
           audio.onended = () => {
             setIsPlaying(false);
             if (audioUrlRef.current === url) {
@@ -146,7 +145,46 @@ export function useAudioPlayer() {
               audioRef.current = null;
             }
           };
-          await audio.play();
+
+          // Wait until the browser has buffered enough to play through without stalling.
+          // Without this, fresh blob URLs can play partial audio and end prematurely.
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const done = () => {
+              if (settled) return;
+              settled = true;
+              resolve();
+            };
+            const onReady = () => done();
+            audio.addEventListener("canplaythrough", onReady, { once: true });
+            audio.addEventListener("loadeddata", () => {
+              // Fallback: some browsers don't fire canplaythrough for blob URLs.
+              // After loadeddata, give a tiny window for canplaythrough then proceed.
+              setTimeout(done, 150);
+            }, { once: true });
+            audio.addEventListener("error", done, { once: true });
+            // Hard cap so we never hang
+            setTimeout(done, 2000);
+            audio.src = url;
+            audio.load();
+          });
+
+          // Apply playback rate after metadata is available
+          audio.playbackRate = playbackRate;
+          setIsLoading(false);
+          if (audioRef.current !== audio) {
+            // Was replaced/cleaned up while waiting; abort and free the orphaned URL
+            try {
+              URL.revokeObjectURL(url);
+            } catch {}
+            return;
+          }
+          setIsPlaying(true);
+          try {
+            await audio.play();
+          } catch {
+            setIsPlaying(false);
+          }
         } else {
           const { createAudioPlayer } = await import("expo-audio");
           const base64 = _arrayBufferToBase64(buffer);
