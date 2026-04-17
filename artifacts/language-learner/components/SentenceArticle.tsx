@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
+import { useApp } from "@/context/AppContext";
+import { VOICE_OPTIONS } from "@/types";
 
 interface SentenceArticleProps {
   text: string;
@@ -29,13 +31,15 @@ function splitSentences(text: string): string[] {
 
 export function SentenceArticle({
   text,
-  voice = "nova",
+  voice: voiceProp,
   accentColor,
   showPlayAll = true,
   visible = true,
   onPlay,
 }: SentenceArticleProps) {
   const colors = useColors();
+  const { settings, updateSettings } = useApp();
+  const voice = voiceProp ?? settings.preferredVoice ?? "nova";
   const { playTTS, stop, isLoading, setRate } = useAudioPlayer();
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [isSequence, setIsSequence] = useState(false);
@@ -129,6 +133,17 @@ export function SentenceArticle({
     [setRate]
   );
 
+  const handleSelectVoice = useCallback(
+    (newVoice: string) => {
+      sequenceCancelRef.current = true;
+      setIsSequence(false);
+      setActiveIdx(null);
+      stop();
+      updateSettings({ preferredVoice: newVoice });
+    },
+    [stop, updateSettings]
+  );
+
   const isAnyPlaying = activeIdx !== null;
 
   return (
@@ -169,6 +184,61 @@ export function SentenceArticle({
 
       {showPlayAll && (
         <View style={styles.controls}>
+          <View style={styles.voiceSection}>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+              音色
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.voiceRowContent}
+            >
+              {VOICE_OPTIONS.map((opt) => {
+                const active = voice === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    onPress={() => handleSelectVoice(opt.id)}
+                    activeOpacity={0.85}
+                    style={[
+                      styles.voiceChip,
+                      {
+                        backgroundColor: active ? accentColor : colors.muted,
+                        borderColor: active ? accentColor : colors.border,
+                      },
+                    ]}
+                  >
+                    <Feather
+                      name={opt.gender === "female" ? "user" : "user"}
+                      size={11}
+                      color={active ? "#fff" : colors.mutedForeground}
+                    />
+                    <View style={styles.voiceChipTextWrap}>
+                      <Text
+                        style={[
+                          styles.voiceChipName,
+                          { color: active ? "#fff" : colors.foreground },
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.voiceChipDesc,
+                          {
+                            color: active ? "rgba(255,255,255,0.85)" : colors.mutedForeground,
+                          },
+                        ]}
+                      >
+                        {opt.description}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
           <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
             <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>语速</Text>
             {SPEED_OPTIONS.map((opt) => {
@@ -269,8 +339,43 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
   },
   controls: {
+    gap: 10,
+    alignItems: "stretch",
+  },
+  voiceSection: {
+    gap: 6,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    paddingHorizontal: 2,
+  },
+  voiceRowContent: {
     gap: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
+  },
+  voiceChip: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: 110,
+  },
+  voiceChipTextWrap: {
+    flex: 1,
+  },
+  voiceChipName: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  voiceChipDesc: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    marginTop: 1,
   },
   speedRow: {
     flexDirection: "row",
@@ -315,5 +420,6 @@ const styles = StyleSheet.create({
   progressLabel: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
+    alignSelf: "center",
   },
 });
