@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
 import { getAmbientDataUri, getAmbientWav } from "@/utils/ambient";
 
@@ -85,5 +85,7 @@ export function useAmbientPlayer() {
     return () => stop();
   }, [stop]);
 
-  return { play, stop };
+  // Stable object reference so consumers can safely include it in
+  // dependency arrays without re-running effects every render.
+  return useMemo(() => ({ play, stop }), [play, stop]);
 }

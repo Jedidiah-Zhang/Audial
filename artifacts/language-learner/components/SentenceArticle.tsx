@@ -112,9 +112,11 @@ export function SentenceArticle({
     return () => {
       sequenceCancelRef.current = true;
       stop();
-      ambient.stop();
+      // Note: `ambient` cleans itself up on unmount via its own effect,
+      // so we deliberately don't depend on it here to avoid re-running
+      // this effect on every render and aborting in-flight playback.
     };
-  }, [stop, ambient]);
+  }, [stop]);
 
   const playOne = useCallback(
     async (idx: number) => {
