@@ -37,7 +37,13 @@ Format your response as JSON with these fields:
 - "text": the main text in ${targetLanguage}
 - "translation": translation in ${language}
 - "title": a short title for the text (in ${targetLanguage})
-- "vocabulary": array of 5-8 key vocabulary items, each with "word", "pronunciation" (romanization if applicable), and "meaning" (in ${language})
+- "vocabulary": array of 5-8 key vocabulary items, each with:
+  - "word": the word in ${targetLanguage}
+  - "pronunciation": IPA or romanization if applicable
+  - "partOfSpeech": short tag like "n.", "v.", "adj.", "adv.", "phrase" (in English)
+  - "meaning": the meaning in ${language}
+  - "example": a NEW natural example sentence in ${targetLanguage} that uses this word (different from the main text)
+  - "exampleTranslation": translation of the example sentence in ${language}
 
 Make the text feel like something a real native speaker would say - not textbook language. Use natural expressions and colloquialisms appropriate for the level.`;
 
@@ -57,6 +63,41 @@ Make the text feel like something a real native speaker would say - not textbook
   } catch (err) {
     req.log.error({ err }, "Failed to generate text");
     res.status(500).json({ success: false, error: "Failed to generate text" });
+  }
+});
+
+router.post("/language/word-detail", async (req, res) => {
+  try {
+    const { word, targetLanguage, language } = req.body as {
+      word: string;
+      targetLanguage: string;
+      language: string;
+    };
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      max_completion_tokens: 400,
+      messages: [
+        {
+          role: "system",
+          content: `You are a bilingual dictionary. For the given ${targetLanguage} word, return JSON with:
+- "pronunciation": IPA or romanization
+- "partOfSpeech": short tag like "n.", "v.", "adj.", "adv.", "phrase"
+- "meaning": concise definition in ${language}
+- "example": one natural example sentence using the word in ${targetLanguage}
+- "exampleTranslation": translation of the example in ${language}`,
+        },
+        { role: "user", content: `Word: "${word}"` },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content ?? "{}";
+    const data = JSON.parse(content);
+    res.json({ success: true, data });
+  } catch (err) {
+    req.log.error({ err }, "Word detail failed");
+    res.status(500).json({ success: false, error: "Lookup failed" });
   }
 });
 

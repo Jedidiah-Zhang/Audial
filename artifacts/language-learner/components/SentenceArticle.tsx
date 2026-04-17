@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
@@ -188,13 +188,11 @@ export function SentenceArticle({
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
               音色
             </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.voiceRowContent}
-            >
+            <View style={styles.voiceGrid}>
               {VOICE_OPTIONS.map((opt) => {
                 const active = voice === opt.id;
+                const genderLabel =
+                  opt.gender === "female" ? "♀" : opt.gender === "male" ? "♂" : "·";
                 return (
                   <TouchableOpacity
                     key={opt.id}
@@ -208,11 +206,14 @@ export function SentenceArticle({
                       },
                     ]}
                   >
-                    <Feather
-                      name={opt.gender === "female" ? "user" : "user"}
-                      size={11}
-                      color={active ? "#fff" : colors.mutedForeground}
-                    />
+                    <Text
+                      style={[
+                        styles.voiceChipGender,
+                        { color: active ? "#fff" : colors.mutedForeground },
+                      ]}
+                    >
+                      {genderLabel}
+                    </Text>
                     <View style={styles.voiceChipTextWrap}>
                       <Text
                         style={[
@@ -223,6 +224,7 @@ export function SentenceArticle({
                         {opt.label}
                       </Text>
                       <Text
+                        numberOfLines={1}
                         style={[
                           styles.voiceChipDesc,
                           {
@@ -236,7 +238,7 @@ export function SentenceArticle({
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </View>
           </View>
 
           <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
@@ -350,23 +352,32 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     paddingHorizontal: 2,
   },
-  voiceRowContent: {
-    gap: 8,
-    paddingVertical: 2,
-    paddingHorizontal: 2,
+  voiceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
   },
   voiceChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
-    minWidth: 110,
+    flexBasis: "32%",
+    flexGrow: 1,
+    minWidth: 0,
+  },
+  voiceChipGender: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    width: 12,
+    textAlign: "center",
   },
   voiceChipTextWrap: {
     flex: 1,
+    minWidth: 0,
   },
   voiceChipName: {
     fontSize: 12,

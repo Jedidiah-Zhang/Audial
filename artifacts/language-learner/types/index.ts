@@ -6,6 +6,9 @@ export interface VocabularyItem {
   word: string;
   pronunciation?: string;
   meaning: string;
+  partOfSpeech?: string;
+  example?: string;
+  exampleTranslation?: string;
 }
 
 export interface LearningText {

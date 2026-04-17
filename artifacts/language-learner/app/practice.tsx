@@ -13,13 +13,14 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
+import { VocabularyList } from "@/components/VocabularyList";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 
 export default function PracticeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { texts, getProgressForText, settings } = useApp();
+  const { texts, getProgressForText, settings, addText } = useApp();
 
   const text = texts.find((t) => t.id === id);
   const progress = text ? getProgressForText(text.id) : undefined;
@@ -115,22 +116,10 @@ export default function PracticeScreen() {
         ) : null}
 
         {showVocab && text.vocabulary.length > 0 && (
-          <View style={[styles.vocabCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {text.vocabulary.map((v, i) => (
-              <View
-                key={i}
-                style={[styles.vocabRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}
-              >
-                <View style={styles.vocabLeft}>
-                  <Text style={[styles.vocabWord, { color: colors.foreground }]}>{v.word}</Text>
-                  {v.pronunciation ? (
-                    <Text style={[styles.vocabPron, { color: colors.mutedForeground }]}>{v.pronunciation}</Text>
-                  ) : null}
-                </View>
-                <Text style={[styles.vocabMeaning, { color: colors.mutedForeground }]}>{v.meaning}</Text>
-              </View>
-            ))}
-          </View>
+          <VocabularyList
+            text={text}
+            onUpdateVocabulary={(vocab) => addText({ ...text, vocabulary: vocab })}
+          />
         )}
 
         {allPassed && (
