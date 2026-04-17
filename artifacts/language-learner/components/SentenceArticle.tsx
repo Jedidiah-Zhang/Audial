@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
 import { useAmbientPlayer } from "@/hooks/useAmbient";
+import { detectAmbientScene } from "@/utils/sceneDetect";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { useApp } from "@/context/AppContext";
 import { VOICE_OPTIONS } from "@/types";
@@ -62,6 +63,8 @@ export function SentenceArticle({
     () => contentType ?? detectContentType(text),
     [contentType, text]
   );
+
+  const ambientScene = useMemo(() => detectAmbientScene(text), [text]);
 
   // Build the layout. For dialogue, the speaker labels are NOT part of the
   // playable sentences (we don't read names aloud). For paragraph-based types
@@ -145,7 +148,7 @@ export function SentenceArticle({
       onPlay?.();
 
       if (ambientEnabled && effectiveType === "dialogue") {
-        ambient.play(0.3);
+        ambient.play(ambientScene, 0.3);
       }
 
       const playFrom = (i: number) => {
@@ -171,7 +174,7 @@ export function SentenceArticle({
       };
       playFrom(startIdx);
     },
-    [playableSentences, voice, playTTS, onPlay, rate, ambient, ambientEnabled, effectiveType]
+    [playableSentences, voice, playTTS, onPlay, rate, ambient, ambientEnabled, effectiveType, ambientScene]
   );
 
   const stopAll = useCallback(() => {

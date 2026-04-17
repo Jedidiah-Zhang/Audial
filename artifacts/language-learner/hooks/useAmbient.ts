@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
 import { getAmbientDataUri, getAmbientWav } from "@/utils/ambient";
+import type { AmbientScene } from "@/utils/sceneDetect";
 
 export function useAmbientPlayer() {
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -32,12 +33,21 @@ export function useAmbientPlayer() {
     }
   }, []);
 
-  const play = useCallback(async (volume = 0.35) => {
+  const play = useCallback(async (
+    sceneOrVolume: AmbientScene | number = "generic",
+    maybeVolume?: number,
+  ) => {
+    const scene: AmbientScene =
+      typeof sceneOrVolume === "string" ? sceneOrVolume : "generic";
+    const volume =
+      typeof sceneOrVolume === "number"
+        ? sceneOrVolume
+        : maybeVolume ?? 0.35;
     stop();
     const token = ++playTokenRef.current;
     try {
       if (Platform.OS === "web") {
-        const buf = getAmbientWav();
+        const buf = getAmbientWav(scene);
         const blob = new Blob([buf], { type: "audio/wav" });
         const url = URL.createObjectURL(blob);
         if (token !== playTokenRef.current) {
@@ -62,7 +72,7 @@ export function useAmbientPlayer() {
       } else {
         const { createAudioPlayer } = await import("expo-audio");
         if (token !== playTokenRef.current) return;
-        const player = createAudioPlayer({ uri: getAmbientDataUri() });
+        const player = createAudioPlayer({ uri: getAmbientDataUri(scene) });
         if (token !== playTokenRef.current) {
           try { player.remove?.(); } catch {}
           return;
