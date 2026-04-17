@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
-  TextInput,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,8 +27,6 @@ export default function PracticeScreen() {
 
   const [showVocab, setShowVocab] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
@@ -59,66 +56,15 @@ export default function PracticeScreen() {
     router.push({ pathname: "/session", params: { id: text.id, stage: stageIdx.toString() } });
   };
 
-  const beginEditTitle = () => {
-    setTitleDraft(text.title);
-    setIsEditingTitle(true);
-  };
-
-  const commitTitle = () => {
-    const next = titleDraft.trim();
-    if (next && next !== text.title) {
-      addText({ ...text, title: next });
-    }
-    setIsEditingTitle(false);
-  };
-
-  const cancelEditTitle = () => {
-    setIsEditingTitle(false);
-    setTitleDraft("");
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        {isEditingTitle ? (
-          <View style={styles.titleEditWrap}>
-            <TextInput
-              value={titleDraft}
-              onChangeText={setTitleDraft}
-              onSubmitEditing={commitTitle}
-              onBlur={commitTitle}
-              autoFocus
-              returnKeyType="done"
-              style={[
-                styles.titleInput,
-                {
-                  color: colors.foreground,
-                  borderColor: colors.primary,
-                  backgroundColor: colors.card,
-                },
-              ]}
-              placeholder="文章标题"
-              placeholderTextColor={colors.mutedForeground}
-            />
-            <TouchableOpacity onPress={cancelEditTitle} style={styles.iconBtn} activeOpacity={0.7}>
-              <Feather name="x" size={18} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity
-            onPress={beginEditTitle}
-            activeOpacity={0.7}
-            style={styles.titleDisplayWrap}
-          >
-            <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
-              {text.title}
-            </Text>
-            <Feather name="edit-2" size={13} color={colors.mutedForeground} />
-          </TouchableOpacity>
-        )}
+        <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
+          {text.title}
+        </Text>
         <View style={{ width: 36 }} />
       </View>
 
@@ -309,38 +255,9 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontFamily: "Inter_600SemiBold",
+    flex: 1,
     textAlign: "center",
-    flexShrink: 1,
-  },
-  titleDisplayWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
     marginHorizontal: 8,
-  },
-  titleEditWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginHorizontal: 8,
-  },
-  titleInput: {
-    flex: 1,
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  iconBtn: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
   },
   content: {
     paddingHorizontal: 20,
