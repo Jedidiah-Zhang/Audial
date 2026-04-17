@@ -48,11 +48,11 @@ export function useAudioPlayer() {
       if (Platform.OS === "web") {
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.playbackRate = speed;
+        const audio = new Audio();
+        audio.preload = "auto";
+        audio.src = url;
         audioRef.current = audio;
-        setIsLoading(false);
-        setIsPlaying(true);
+
         audio.onended = () => {
           setIsPlaying(false);
           URL.revokeObjectURL(url);
@@ -61,6 +61,36 @@ export function useAudioPlayer() {
           setIsPlaying(false);
           URL.revokeObjectURL(url);
         };
+
+        await new Promise<void>((resolve, reject) => {
+          const onReady = () => {
+            audio.removeEventListener("canplaythrough", onReady);
+            audio.removeEventListener("error", onErr);
+            resolve();
+          };
+          const onErr = () => {
+            audio.removeEventListener("canplaythrough", onReady);
+            audio.removeEventListener("error", onErr);
+            reject(new Error("audio load error"));
+          };
+          if (audio.readyState >= 4) {
+            resolve();
+          } else {
+            audio.addEventListener("canplaythrough", onReady, { once: true });
+            audio.addEventListener("error", onErr, { once: true });
+            audio.load();
+          }
+        });
+
+        if (audioRef.current !== audio) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        audio.playbackRate = speed;
+        audio.currentTime = 0;
+        setIsLoading(false);
+        setIsPlaying(true);
         await audio.play();
       } else {
         const { createAudioPlayer } = await import("expo-audio");
