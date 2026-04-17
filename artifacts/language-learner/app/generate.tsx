@@ -17,7 +17,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES, DIFFICULTY_LABELS } from "@/types";
-import type { Difficulty, LearningText, VocabularyItem } from "@/types";
+import type { Difficulty, LearningText } from "@/types";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -26,14 +26,11 @@ const TOPICS = [
   "体育运动", "科技新闻", "环境气候", "历史文化", "医疗健康",
 ];
 
-type Phase = "form" | "preview";
-
 export default function GenerateScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { addText, settings } = useApp();
 
-  const [phase, setPhase] = useState<Phase>("form");
   const [mode, setMode] = useState<"ai" | "manual">("ai");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>(settings.defaultDifficulty);
@@ -43,11 +40,6 @@ export default function GenerateScreen() {
   const [manualTitle, setManualTitle] = useState("");
   const [manualTranslation, setManualTranslation] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftText, setDraftText] = useState("");
-  const [draftTranslation, setDraftTranslation] = useState("");
-  const [draftVocab, setDraftVocab] = useState<VocabularyItem[]>([]);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -75,12 +67,22 @@ export default function GenerateScreen() {
       const result = await response.json() as { success: boolean; data: any };
       if (!result.success) throw new Error("Generation failed");
 
-      setDraftTitle(result.data.title ?? topic);
-      setDraftText(result.data.text ?? "");
-      setDraftTranslation(result.data.translation ?? "");
-      setDraftVocab(result.data.vocabulary ?? []);
-      setPhase("preview");
+      const text: LearningText = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+        title: result.data.title ?? topic,
+        text: result.data.text ?? "",
+        translation: result.data.translation ?? "",
+        vocabulary: result.data.vocabulary ?? [],
+        topic,
+        difficulty,
+        targetLanguage,
+        nativeLanguage,
+        createdAt: Date.now(),
+      };
+
+      await addText(text);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.back();
     } catch {
       Alert.alert("错误", "生成文本失败，请检查网络后重试");
     } finally {
@@ -112,163 +114,8 @@ export default function GenerateScreen() {
     router.back();
   };
 
-  const handleConfirmDraft = async () => {
-    if (!draftText.trim() || !draftTitle.trim()) {
-      Alert.alert("提示", "标题和正文不能为空");
-      return;
-    }
-    const text: LearningText = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
-      title: draftTitle.trim(),
-      text: draftText.trim(),
-      translation: draftTranslation.trim(),
-      vocabulary: draftVocab,
-      topic,
-      difficulty,
-      targetLanguage,
-      nativeLanguage,
-      createdAt: Date.now(),
-    };
-    await addText(text);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
-  };
-
-  const handleRegenerate = async () => {
-    setPhase("form");
-    await handleGenerate();
-  };
-
-  const handleUpdateVocab = (idx: number, patch: Partial<VocabularyItem>) => {
-    setDraftVocab((prev) => prev.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
-  };
-
-  const handleRemoveVocab = (idx: number) => {
-    setDraftVocab((prev) => prev.filter((_, i) => i !== idx));
-  };
-
   const inputStyle = { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground };
   const labelStyle = { color: colors.mutedForeground };
-
-  if (phase === "preview") {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-          <TouchableOpacity onPress={() => setPhase("form")} style={styles.backBtn} activeOpacity={0.7}>
-            <Feather name="arrow-left" size={22} color={colors.foreground} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>预览与编辑</Text>
-          <TouchableOpacity
-            onPress={handleRegenerate}
-            disabled={isGenerating}
-            style={styles.backBtn}
-            activeOpacity={0.7}
-          >
-            {isGenerating ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Feather name="refresh-cw" size={20} color={colors.primary} />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[styles.content, { paddingBottom: Platform.OS === "web" ? 50 : insets.bottom + 40 }]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={[styles.tipBox, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
-            <Feather name="info" size={14} color={colors.primary} />
-            <Text style={[styles.tipText, { color: colors.primary }]}>
-              确认前可任意修改。保存后正文与词汇将不可再改，标题始终可改。
-            </Text>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>标题</Text>
-            <TextInput
-              style={[styles.input, inputStyle]}
-              value={draftTitle}
-              onChangeText={setDraftTitle}
-              placeholderTextColor={colors.mutedForeground}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>正文</Text>
-            <TextInput
-              style={[styles.textarea, inputStyle, { minHeight: 160 }]}
-              value={draftText}
-              onChangeText={setDraftText}
-              multiline
-              textAlignVertical="top"
-              placeholderTextColor={colors.mutedForeground}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>翻译</Text>
-            <TextInput
-              style={[styles.textarea, inputStyle]}
-              value={draftTranslation}
-              onChangeText={setDraftTranslation}
-              multiline
-              textAlignVertical="top"
-              placeholderTextColor={colors.mutedForeground}
-            />
-          </View>
-
-          {draftVocab.length > 0 && (
-            <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>词汇 ({draftVocab.length})</Text>
-              <View style={{ gap: 10 }}>
-                {draftVocab.map((v, i) => (
-                  <View
-                    key={i}
-                    style={[styles.vocabEdit, { backgroundColor: colors.card, borderColor: colors.border }]}
-                  >
-                    <View style={styles.vocabEditRow}>
-                      <TextInput
-                        style={[styles.vocabInput, inputStyle, { flex: 1 }]}
-                        value={v.word}
-                        onChangeText={(t) => handleUpdateVocab(i, { word: t })}
-                        placeholder="单词"
-                        placeholderTextColor={colors.mutedForeground}
-                      />
-                      <TouchableOpacity
-                        onPress={() => handleRemoveVocab(i)}
-                        style={[styles.vocabRemove, { borderColor: colors.border }]}
-                        activeOpacity={0.7}
-                      >
-                        <Feather name="x" size={14} color={colors.destructive} />
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={[styles.vocabInput, inputStyle]}
-                      value={v.meaning}
-                      onChangeText={(t) => handleUpdateVocab(i, { meaning: t })}
-                      placeholder="释义"
-                      placeholderTextColor={colors.mutedForeground}
-                    />
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          <TouchableOpacity
-            onPress={handleConfirmDraft}
-            style={[styles.generateBtn, { backgroundColor: colors.primary }]}
-            activeOpacity={0.85}
-          >
-            <Feather name="check" size={18} color="#fff" />
-            <Text style={styles.generateBtnText}>确认保存</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-    );
-  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -606,46 +453,5 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontFamily: "Inter_600SemiBold",
-  },
-  tipBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  tipText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-    lineHeight: 17,
-  },
-  vocabEdit: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
-    gap: 8,
-  },
-  vocabEditRow: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-  },
-  vocabInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-  },
-  vocabRemove: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });
