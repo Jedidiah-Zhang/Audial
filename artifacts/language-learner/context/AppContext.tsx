@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAuth } from "@clerk/expo";
 import type {
   LearningText,
   SessionResult,
@@ -9,12 +10,27 @@ import type {
 import { STAGE_PASS_SCORE, STAGES } from "@/types";
 import { detectContentType } from "@/utils/contentType";
 
-const STORAGE_KEYS = {
+const GUEST_USER_ID = "guest";
+
+// Legacy unscoped keys (used before per-account isolation was introduced).
+// We keep reading from them once for the guest scope so existing users don't
+// lose their data when they update.
+const LEGACY_KEYS = {
   TEXTS: "ll_texts",
   RESULTS: "ll_results",
   PROGRESS: "ll_progress",
   SETTINGS: "ll_settings",
-};
+} as const;
+
+function keysFor(userId: string) {
+  const prefix = `ll:${userId}:`;
+  return {
+    TEXTS: `${prefix}texts`,
+    RESULTS: `${prefix}results`,
+    PROGRESS: `${prefix}progress`,
+    SETTINGS: `${prefix}settings`,
+  };
+}
 
 const DEFAULT_SETTINGS: AppSettings = {
   nativeLanguage: "en",
@@ -51,11 +67,21 @@ interface AppContextValue {
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
   getProgressForText: (textId: string) => UserProgress | undefined;
   isLoading: boolean;
+  userId: string;
+  isGuest: boolean;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { isLoaded: authLoaded, userId: clerkUserId } = useAuth();
+  const userId = clerkUserId ?? GUEST_USER_ID;
+  const isGuest = !clerkUserId;
+  // Source of truth for the active user that all async ops compare against
+  // before committing state or writes. Updated synchronously on user change.
+  const currentUserRef = useRef(userId);
+  const keysRef = useRef(keysFor(userId));
+
   const [texts, setTexts] = useState<LearningText[]>([]);
   const [results, setResults] = useState<SessionResult[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
@@ -63,17 +89,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadAll();
-  }, []);
+    if (!authLoaded) return;
+    currentUserRef.current = userId;
+    keysRef.current = keysFor(userId);
+    setIsLoading(true);
+    setTexts([]);
+    setResults([]);
+    setProgress({});
+    setSettings(DEFAULT_SETTINGS);
+    loadAll(userId).catch(() => {});
+  }, [authLoaded, userId]);
 
-  async function loadAll() {
+  async function migrateLegacyIfNeeded(K: ReturnType<typeof keysFor>, isGuestScope: boolean) {
+    if (!isGuestScope) return;
+    // For the guest scope, copy any legacy unscoped data on first run.
+    const migratedFlagKey = "ll:migrated_legacy_v1";
+    const flag = await AsyncStorage.getItem(migratedFlagKey);
+    if (flag === "1") return;
     try {
-      const [textsRaw, resultsRaw, progressRaw, settingsRaw] = await Promise.all([
-        AsyncStorage.getItem(STORAGE_KEYS.TEXTS),
-        AsyncStorage.getItem(STORAGE_KEYS.RESULTS),
-        AsyncStorage.getItem(STORAGE_KEYS.PROGRESS),
-        AsyncStorage.getItem(STORAGE_KEYS.SETTINGS),
+      const [t, r, p, s] = await Promise.all([
+        AsyncStorage.getItem(LEGACY_KEYS.TEXTS),
+        AsyncStorage.getItem(LEGACY_KEYS.RESULTS),
+        AsyncStorage.getItem(LEGACY_KEYS.PROGRESS),
+        AsyncStorage.getItem(LEGACY_KEYS.SETTINGS),
       ]);
+      const writes: Promise<void>[] = [];
+      if (t && !(await AsyncStorage.getItem(K.TEXTS))) writes.push(AsyncStorage.setItem(K.TEXTS, t));
+      if (r && !(await AsyncStorage.getItem(K.RESULTS))) writes.push(AsyncStorage.setItem(K.RESULTS, r));
+      if (p && !(await AsyncStorage.getItem(K.PROGRESS))) writes.push(AsyncStorage.setItem(K.PROGRESS, p));
+      if (s && !(await AsyncStorage.getItem(K.SETTINGS))) writes.push(AsyncStorage.setItem(K.SETTINGS, s));
+      await Promise.all(writes);
+      await AsyncStorage.setItem(migratedFlagKey, "1");
+    } catch {
+      // best-effort migration
+    }
+  }
+
+  async function loadAll(uid: string) {
+    const K = keysFor(uid);
+    try {
+      await migrateLegacyIfNeeded(K, uid === GUEST_USER_ID);
+      const [textsRaw, resultsRaw, progressRaw, settingsRaw] = await Promise.all([
+        AsyncStorage.getItem(K.TEXTS),
+        AsyncStorage.getItem(K.RESULTS),
+        AsyncStorage.getItem(K.PROGRESS),
+        AsyncStorage.getItem(K.SETTINGS),
+      ]);
+      // Discard if user changed mid-load
+      if (uid !== currentUserRef.current) return;
       if (textsRaw) {
         const parsed = JSON.parse(textsRaw) as LearningText[];
         let mutated = false;
@@ -86,7 +149,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         setTexts(migrated);
         if (mutated) {
-          AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(migrated));
+          AsyncStorage.setItem(K.TEXTS, JSON.stringify(migrated));
         }
       }
       if (resultsRaw) setResults(JSON.parse(resultsRaw));
@@ -96,12 +159,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const [k, v] of Object.entries(raw)) {
           let bests: number[] = v.stageBests ?? STAGES.map(() => 0);
           let passed: boolean[] = v.stagePassed ?? STAGES.map(() => false);
-          if (bests.length > STAGES.length) {
-            bests = bests.slice(bests.length - STAGES.length);
-          }
-          if (passed.length > STAGES.length) {
-            passed = passed.slice(passed.length - STAGES.length);
-          }
+          if (bests.length > STAGES.length) bests = bests.slice(bests.length - STAGES.length);
+          if (passed.length > STAGES.length) passed = passed.slice(passed.length - STAGES.length);
           while (bests.length < STAGES.length) bests.push(0);
           while (passed.length < STAGES.length) passed.push(false);
           migrated[k] = {
@@ -115,38 +174,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (settingsRaw) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(settingsRaw) });
     } finally {
-      setIsLoading(false);
+      if (uid === currentUserRef.current) setIsLoading(false);
     }
   }
 
+  // Captures the active user at call-time. Writes are silently ignored if the
+  // user changes before they execute, preventing cross-account data leakage.
+  function safeWrite(uidAtCall: string, key: string, value: string) {
+    if (uidAtCall !== currentUserRef.current) return;
+    AsyncStorage.setItem(key, value).catch(() => {});
+  }
+
   const addText = useCallback(async (text: LearningText) => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
     setTexts((prev) => {
       const next = [text, ...prev.filter((t) => t.id !== text.id)];
-      AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(next));
+      safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
       return next;
     });
   }, []);
 
   const updateText = useCallback(async (id: string, partial: Partial<LearningText>) => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
     setTexts((prev) => {
       const next = prev.map((t) => (t.id === id ? { ...t, ...partial } : t));
-      AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(next));
+      safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
       return next;
     });
   }, []);
 
   const removeText = useCallback(async (id: string) => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
     setTexts((prev) => {
       const next = prev.filter((t) => t.id !== id);
-      AsyncStorage.setItem(STORAGE_KEYS.TEXTS, JSON.stringify(next));
+      safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
       return next;
     });
   }, []);
 
   const addResult = useCallback(async (result: SessionResult) => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
     setResults((prev) => {
       const next = [result, ...prev].slice(0, 200);
-      AsyncStorage.setItem(STORAGE_KEYS.RESULTS, JSON.stringify(next));
+      safeWrite(uidAtCall, K.RESULTS, JSON.stringify(next));
       return next;
     });
 
@@ -181,15 +255,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         totalSessions: existing.totalSessions + 1,
       };
       const next = { ...prev, [result.textId]: updated };
-      AsyncStorage.setItem(STORAGE_KEYS.PROGRESS, JSON.stringify(next));
+      safeWrite(uidAtCall, K.PROGRESS, JSON.stringify(next));
       return next;
     });
   }, []);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
     setSettings((prev) => {
       const next = { ...prev, ...partial };
-      AsyncStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(next));
+      safeWrite(uidAtCall, K.SETTINGS, JSON.stringify(next));
       return next;
     });
   }, []);
@@ -212,7 +288,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addResult,
         updateSettings,
         getProgressForText,
-        isLoading,
+        isLoading: isLoading || !authLoaded,
+        userId,
+        isGuest,
       }}
     >
       {children}

@@ -9,9 +9,12 @@ import {
   Modal,
   FlatList,
   Platform,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useAuth, useUser, useClerk } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useT, getDifficultyLabel } from "@/utils/i18n";
@@ -32,6 +35,9 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const t = useT();
   const { settings, updateSettings } = useApp();
+  const { isSignedIn } = useAuth();
+  const { user } = useUser();
+  const { signOut } = useClerk();
   const [picker, setPicker] = useState<PickerKind>(null);
 
   const lang = settings.nativeLanguage;
@@ -39,11 +45,33 @@ export default function SettingsScreen() {
   const currentUi = LANGUAGES.find((l) => l.code === settings.nativeLanguage);
   const currentVoice = VOICE_OPTIONS.find((v) => v.id === settings.preferredVoice);
 
+  const topPad = Platform.OS === "web" ? 67 : insets.top;
+
   const closePicker = () => setPicker(null);
 
+  const confirmSignOut = () => {
+    const doSignOut = async () => {
+      try {
+        await signOut();
+      } catch {
+        // ignore
+      }
+    };
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm(t("auth.signOut.confirmMsg"))) {
+        doSignOut();
+      }
+      return;
+    }
+    Alert.alert(t("auth.signOut.title"), t("auth.signOut.confirmMsg"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("auth.signOut.title"), style: "destructive", onPress: doSignOut },
+    ]);
+  };
+
   return (
-    <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
-      <View style={styles.header}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { paddingTop: topPad + 16 }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>
           {t("settings.title")}
         </Text>
@@ -54,6 +82,78 @@ export default function SettingsScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100, gap: 18 }}
         showsVerticalScrollIndicator={Platform.OS === "web"}
       >
+        <Section title={t("settings.section.account")} colors={colors}>
+          {isSignedIn && user ? (
+            <>
+              <View style={[styles.itemRow, { borderBottomColor: colors.border }]}>
+                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
+                  <Feather name="user" size={16} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.itemLabel, { color: colors.foreground }]} numberOfLines={1}>
+                    {user.fullName || user.primaryEmailAddress?.emailAddress || t("auth.account.signedIn")}
+                  </Text>
+                  {user.primaryEmailAddress?.emailAddress ? (
+                    <Text style={[styles.itemDesc, { color: colors.mutedForeground }]} numberOfLines={1}>
+                      {user.primaryEmailAddress.emailAddress}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={confirmSignOut}
+                style={[styles.itemRow, { borderBottomColor: colors.border }]}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: colors.destructive + "15" }]}>
+                  <Feather name="log-out" size={16} color={colors.destructive} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemLabel, { color: colors.destructive }]}>
+                    {t("auth.signOut.title")}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => router.push("/(auth)/sign-in")}
+                style={[styles.itemRow, { borderBottomColor: colors.border }]}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
+                  <Feather name="log-in" size={16} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
+                    {t("auth.signIn.title")}
+                  </Text>
+                  <Text style={[styles.itemDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
+                    {t("auth.account.guestHint")}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => router.push("/(auth)/sign-up")}
+                style={[styles.itemRow, { borderBottomColor: colors.border }]}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
+                  <Feather name="user-plus" size={16} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
+                    {t("auth.signUp.title")}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </>
+          )}
+        </Section>
+
         <Section title={t("settings.section.language")} colors={colors}>
           <Row
             colors={colors}
@@ -347,10 +447,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   header: {
     paddingHorizontal: 20,
-    paddingBottom: 12,
+    paddingBottom: 16,
   },
   title: {
-    fontSize: 26,
+    fontSize: 28,
     fontFamily: "Inter_700Bold",
   },
   sectionLabel: {
