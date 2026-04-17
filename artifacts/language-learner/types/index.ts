@@ -63,6 +63,7 @@ export interface AppSettings {
   defaultDifficulty: Difficulty;
   preferredVoice: string;
   autoPlayAudio: boolean;
+  ambientSound: boolean;
   onboarded: boolean;
 }
 

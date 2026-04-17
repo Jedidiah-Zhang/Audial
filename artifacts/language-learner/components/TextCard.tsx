@@ -12,6 +12,7 @@ import { STAGES } from "@/types";
 import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, getContentTypeLabel, getStageName } from "@/utils/i18n";
 import { useApp } from "@/context/AppContext";
+import { getFlag } from "@/utils/flags";
 
 interface TextCardProps {
   item: LearningText;
@@ -66,6 +67,9 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          <Text style={styles.flag} accessibilityLabel={item.targetLanguage}>
+            {getFlag(item.targetLanguage)}
+          </Text>
           <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
             <Text style={[styles.diffText, { color: diffColor }]}>
               {getDifficultyLabel(item.difficulty, lang)}
@@ -228,6 +232,11 @@ const styles = StyleSheet.create({
   lang: {
     fontSize: 11,
     fontFamily: "Inter_500Medium",
+  },
+  flag: {
+    fontSize: 18,
+    lineHeight: 22,
+    marginRight: 2,
   },
   title: {
     fontSize: 16,

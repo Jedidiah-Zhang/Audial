@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
+import { useAmbientPlayer } from "@/hooks/useAmbient";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { useApp } from "@/context/AppContext";
 import { VOICE_OPTIONS } from "@/types";
@@ -50,6 +51,8 @@ export function SentenceArticle({
   const { settings, updateSettings } = useApp();
   const voice = voiceProp ?? settings.preferredVoice ?? "nova";
   const { playTTS, stop, isLoading, setRate } = useAudioPlayer();
+  const ambient = useAmbientPlayer();
+  const ambientEnabled = settings.ambientSound !== false;
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [isSequence, setIsSequence] = useState(false);
   const [rate, setRateState] = useState<number>(1);
@@ -109,14 +112,16 @@ export function SentenceArticle({
     return () => {
       sequenceCancelRef.current = true;
       stop();
+      ambient.stop();
     };
-  }, [stop]);
+  }, [stop, ambient]);
 
   const playOne = useCallback(
     async (idx: number) => {
       sequenceCancelRef.current = true;
       setIsSequence(false);
       stop();
+      ambient.stop();
       setActiveIdx(idx);
       onPlay?.();
       await playTTS(
@@ -128,7 +133,7 @@ export function SentenceArticle({
         rate
       );
     },
-    [playableSentences, voice, playTTS, stop, onPlay, rate]
+    [playableSentences, voice, playTTS, stop, onPlay, rate, ambient]
   );
 
   const playSequence = useCallback(
@@ -137,10 +142,15 @@ export function SentenceArticle({
       setIsSequence(true);
       onPlay?.();
 
+      if (ambientEnabled && effectiveType === "dialogue") {
+        ambient.play(0.3);
+      }
+
       const playFrom = (i: number) => {
         if (sequenceCancelRef.current || i >= playableSentences.length) {
           setActiveIdx(null);
           setIsSequence(false);
+          ambient.stop();
           return;
         }
         setActiveIdx(i);
@@ -159,7 +169,7 @@ export function SentenceArticle({
       };
       playFrom(startIdx);
     },
-    [playableSentences, voice, playTTS, onPlay, rate]
+    [playableSentences, voice, playTTS, onPlay, rate, ambient, ambientEnabled, effectiveType]
   );
 
   const stopAll = useCallback(() => {
@@ -167,7 +177,8 @@ export function SentenceArticle({
     setIsSequence(false);
     setActiveIdx(null);
     stop();
-  }, [stop]);
+    ambient.stop();
+  }, [stop, ambient]);
 
   const handleSelectRate = useCallback(
     (newRate: number) => {
@@ -183,9 +194,10 @@ export function SentenceArticle({
       setIsSequence(false);
       setActiveIdx(null);
       stop();
+      ambient.stop();
       updateSettings({ preferredVoice: newVoice });
     },
-    [stop, updateSettings]
+    [stop, updateSettings, ambient]
   );
 
   const isAnyPlaying = activeIdx !== null;

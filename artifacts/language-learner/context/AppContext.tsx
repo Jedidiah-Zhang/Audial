@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultDifficulty: "intermediate",
   preferredVoice: "nova",
   autoPlayAudio: true,
+  ambientSound: true,
   onboarded: false,
 };
 

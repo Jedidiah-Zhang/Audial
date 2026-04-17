@@ -518,7 +518,10 @@ export default function GenerateScreen() {
               {t("generate.picker.title")}
             </Text>
             <FlatList
-              data={LANGUAGES.filter((l) => l.code !== nativeLanguage)}
+              data={LANGUAGES
+                .filter((l) => l.code !== nativeLanguage)
+                .slice()
+                .sort((a, b) => a.english.localeCompare(b.english))}
               keyExtractor={(l) => l.code}
               style={{ maxHeight: 380 }}
               renderItem={({ item: lang }) => {
