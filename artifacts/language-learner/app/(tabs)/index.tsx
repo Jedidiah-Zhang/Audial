@@ -89,15 +89,6 @@ export default function HomeScreen() {
           <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
             {t("home.empty.subtitle")}
           </Text>
-          <TouchableOpacity
-            onPress={() => router.push("/generate")}
-            style={[styles.startBtn, { backgroundColor: colors.primary }]}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.startBtnText, { color: colors.primaryForeground }]}>
-              {t("home.empty.cta")}
-            </Text>
-          </TouchableOpacity>
         </View>
       ) : (
         <FlatList

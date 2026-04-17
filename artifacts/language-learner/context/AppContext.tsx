@@ -12,6 +12,15 @@ import { detectContentType } from "@/utils/contentType";
 
 const GUEST_USER_ID = "guest";
 
+const LOCAL_ACCOUNTS_KEY = "ll:localAccounts";
+const ACTIVE_LOCAL_KEY = "ll:activeLocalAccountId";
+
+export interface LocalAccount {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
 // Legacy unscoped keys (used before per-account isolation was introduced).
 // We keep reading from them once for the guest scope so existing users don't
 // lose their data when they update.
@@ -55,6 +64,10 @@ function defaultProgress(textId: string): UserProgress {
   };
 }
 
+function genId() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
 interface AppContextValue {
   texts: LearningText[];
   results: SessionResult[];
@@ -69,18 +82,33 @@ interface AppContextValue {
   isLoading: boolean;
   userId: string;
   isGuest: boolean;
+  // Local (no-password, on-device) accounts
+  localAccounts: LocalAccount[];
+  activeLocalAccountId: string | null;
+  activeLocalAccount: LocalAccount | null;
+  createLocalAccount: (name: string) => Promise<LocalAccount>;
+  switchLocalAccount: (id: string | null) => Promise<void>;
+  deleteLocalAccount: (id: string) => Promise<void>;
+  renameLocalAccount: (id: string, name: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { isLoaded: authLoaded, userId: clerkUserId } = useAuth();
-  const userId = clerkUserId ?? GUEST_USER_ID;
-  const isGuest = !clerkUserId;
+
+  const [localAccounts, setLocalAccounts] = useState<LocalAccount[]>([]);
+  const [activeLocalAccountId, setActiveLocalAccountId] = useState<string | null>(null);
+  const [localLoaded, setLocalLoaded] = useState(false);
+
+  // Effective active user id: Clerk session wins, then local account, then guest.
+  const userId = clerkUserId
+    ?? (activeLocalAccountId ? `local:${activeLocalAccountId}` : GUEST_USER_ID);
+  const isGuest = !clerkUserId && !activeLocalAccountId;
+
   // Source of truth for the active user that all async ops compare against
   // before committing state or writes. Updated synchronously on user change.
   const currentUserRef = useRef(userId);
-  const keysRef = useRef(keysFor(userId));
 
   const [texts, setTexts] = useState<LearningText[]>([]);
   const [results, setResults] = useState<SessionResult[]>([]);
@@ -88,17 +116,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Load local accounts list + active id once on mount.
   useEffect(() => {
-    if (!authLoaded) return;
+    (async () => {
+      try {
+        const [listRaw, activeRaw] = await Promise.all([
+          AsyncStorage.getItem(LOCAL_ACCOUNTS_KEY),
+          AsyncStorage.getItem(ACTIVE_LOCAL_KEY),
+        ]);
+        const list: LocalAccount[] = listRaw ? JSON.parse(listRaw) : [];
+        setLocalAccounts(Array.isArray(list) ? list : []);
+        if (activeRaw && (Array.isArray(list) ? list : []).some((a) => a.id === activeRaw)) {
+          setActiveLocalAccountId(activeRaw);
+        } else if (activeRaw) {
+          await AsyncStorage.removeItem(ACTIVE_LOCAL_KEY);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLocalLoaded(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!authLoaded || !localLoaded) return;
     currentUserRef.current = userId;
-    keysRef.current = keysFor(userId);
     setIsLoading(true);
     setTexts([]);
     setResults([]);
     setProgress({});
     setSettings(DEFAULT_SETTINGS);
     loadAll(userId).catch(() => {});
-  }, [authLoaded, userId]);
+  }, [authLoaded, localLoaded, userId]);
 
   async function migrateLegacyIfNeeded(K: ReturnType<typeof keysFor>, isGuestScope: boolean) {
     if (!isGuestScope) return;
@@ -270,10 +320,84 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const persistLocalAccounts = useCallback(async (next: LocalAccount[]) => {
+    setLocalAccounts(next);
+    try {
+      await AsyncStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const createLocalAccount = useCallback(
+    async (rawName: string) => {
+      const name = rawName.trim() || "Local";
+      const account: LocalAccount = { id: genId(), name, createdAt: Date.now() };
+      const next = [...localAccounts, account];
+      await persistLocalAccounts(next);
+      // Auto-switch to the new local account (only effective when not signed
+      // into Clerk; if signed in, Clerk userId still wins, but the active id
+      // will be remembered for after sign-out).
+      await AsyncStorage.setItem(ACTIVE_LOCAL_KEY, account.id);
+      setActiveLocalAccountId(account.id);
+      return account;
+    },
+    [localAccounts, persistLocalAccounts]
+  );
+
+  const switchLocalAccount = useCallback(
+    async (id: string | null) => {
+      if (id === null) {
+        await AsyncStorage.removeItem(ACTIVE_LOCAL_KEY);
+        setActiveLocalAccountId(null);
+        return;
+      }
+      // Reject ids that don't correspond to a known local profile to avoid
+      // entering a hidden scope with no addressable profile.
+      if (!localAccounts.some((a) => a.id === id)) return;
+      await AsyncStorage.setItem(ACTIVE_LOCAL_KEY, id);
+      setActiveLocalAccountId(id);
+    },
+    [localAccounts]
+  );
+
+  const deleteLocalAccount = useCallback(
+    async (id: string) => {
+      // Wipe the account's scoped data
+      const K = keysFor(`local:${id}`);
+      try {
+        await AsyncStorage.multiRemove([K.TEXTS, K.RESULTS, K.PROGRESS, K.SETTINGS]);
+      } catch {
+        // ignore
+      }
+      const next = localAccounts.filter((a) => a.id !== id);
+      await persistLocalAccounts(next);
+      if (activeLocalAccountId === id) {
+        await AsyncStorage.removeItem(ACTIVE_LOCAL_KEY);
+        setActiveLocalAccountId(null);
+      }
+    },
+    [activeLocalAccountId, localAccounts, persistLocalAccounts]
+  );
+
+  const renameLocalAccount = useCallback(
+    async (id: string, rawName: string) => {
+      const name = rawName.trim();
+      if (!name) return;
+      const next = localAccounts.map((a) => (a.id === id ? { ...a, name } : a));
+      await persistLocalAccounts(next);
+    },
+    [localAccounts, persistLocalAccounts]
+  );
+
   const getProgressForText = useCallback(
     (textId: string) => progress[textId],
     [progress]
   );
+
+  const activeLocalAccount = activeLocalAccountId
+    ? localAccounts.find((a) => a.id === activeLocalAccountId) ?? null
+    : null;
 
   return (
     <AppContext.Provider
@@ -288,9 +412,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addResult,
         updateSettings,
         getProgressForText,
-        isLoading: isLoading || !authLoaded,
+        isLoading: isLoading || !authLoaded || !localLoaded,
         userId,
         isGuest,
+        localAccounts,
+        activeLocalAccountId,
+        activeLocalAccount,
+        createLocalAccount,
+        switchLocalAccount,
+        deleteLocalAccount,
+        renameLocalAccount,
       }}
     >
       {children}
