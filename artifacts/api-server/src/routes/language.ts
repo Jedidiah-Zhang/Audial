@@ -37,7 +37,16 @@ Format your response as JSON with these fields:
 - "text": the main text in ${targetLanguage}
 - "translation": translation in ${language}
 - "title": a short title for the text (in ${targetLanguage})
-- "contentType": one of "dialogue" | "news" | "general". Use "dialogue" if the text is a conversation between two or more speakers — in that case, format the "text" field with one turn per line as "SpeakerName: utterance". Use "news" if the text reads like a news report or article (with a lede, reporting style, or factual third-person tone) — in that case, separate paragraphs with a blank line. Otherwise use "general".
+- "contentType": classify the writing **by its actual content and intent, not just its formatting**. Choose ONE of:
+    - "dialogue": a back-and-forth conversation between two or more speakers. Format text with one turn per line as "SpeakerName: utterance".
+    - "news": a news report or journalistic piece (lede, reporting style, third-person factual tone). Separate paragraphs with a blank line.
+    - "email": an email message (has greeting like "Hi X,", a body, and a sign-off; conversational but written; may include subject as the first line "Subject: ...").
+    - "letter": a formal or personal written letter (date, salutation like "Dear X,", body, formal closing like "Sincerely, ..."). Separate paragraphs with a blank line.
+    - "speech": a spoken address or speech meant to be delivered to an audience (rhetorical, addressing "you" / the audience, often inspirational, persuasive, or ceremonial).
+    - "story": a short narrative or story (characters, plot, scenes).
+    - "essay": an opinion piece, argumentative or reflective essay.
+    - "general": none of the above clearly fits.
+  Always prefer the content-based classification over surface formatting.
 - "vocabulary": array of 5-8 key vocabulary items, each with:
   - "word": the word in ${targetLanguage}
   - "pronunciation": IPA or romanization if applicable

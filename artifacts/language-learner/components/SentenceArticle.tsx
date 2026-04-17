@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
@@ -7,7 +7,7 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import { useApp } from "@/context/AppContext";
 import { VOICE_OPTIONS } from "@/types";
 import type { ContentType } from "@/types";
-import { detectContentType, parseDialogue, parseParagraphs } from "@/utils/contentType";
+import { detectContentType, parseDialogue, parseParagraphs, CONTENT_TYPE_META } from "@/utils/contentType";
 
 interface SentenceArticleProps {
   text: string;
@@ -17,6 +17,8 @@ interface SentenceArticleProps {
   visible?: boolean;
   onPlay?: () => void;
   contentType?: ContentType;
+  /** Maximum height (px) of the scrollable text card. 0 / undefined => no cap. */
+  maxTextHeight?: number;
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -40,6 +42,7 @@ export function SentenceArticle({
   visible = true,
   onPlay,
   contentType,
+  maxTextHeight = 320,
 }: SentenceArticleProps) {
   const colors = useColors();
   const { settings, updateSettings } = useApp();
@@ -50,14 +53,14 @@ export function SentenceArticle({
   const [rate, setRateState] = useState<number>(1);
   const sequenceCancelRef = useRef(false);
 
-  const sentences = useMemo(() => splitSentences(text), [text]);
   const effectiveType: ContentType = useMemo(
     () => contentType ?? detectContentType(text),
     [contentType, text]
   );
 
-  // Build a per-sentence layout map so that, regardless of structure (dialogue / news / general),
-  // we can keep a single global sentence index for play-all and active highlighting.
+  // Build the layout. For dialogue, the speaker labels are NOT part of the
+  // playable sentences (we don't read names aloud). For paragraph-based types
+  // we just split each paragraph into sentences.
   const layout = useMemo(() => {
     if (effectiveType === "dialogue") {
       const turns = parseDialogue(text);
@@ -67,18 +70,30 @@ export function SentenceArticle({
       }));
       return { kind: "dialogue" as const, groups };
     }
-    if (effectiveType === "news") {
-      const paragraphs = parseParagraphs(text);
-      const groups = paragraphs.map((p) => ({ sentences: splitSentences(p) }));
-      return { kind: "news" as const, groups };
+    // All other types render as paragraphs
+    const paragraphs = parseParagraphs(text);
+    if (paragraphs.length === 0) {
+      return { kind: "paragraphs" as const, groups: [{ sentences: splitSentences(text) }] };
     }
-    return { kind: "general" as const };
+    const groups = paragraphs.map((p) => ({ sentences: splitSentences(p) }));
+    return { kind: "paragraphs" as const, groups };
   }, [effectiveType, text]);
+
+  // Flat list of sentences to actually play (excludes speaker labels)
+  const playableSentences = useMemo(() => {
+    const out: string[] = [];
+    if (layout.kind === "dialogue") {
+      for (const g of layout.groups) for (const s of g.sentences) out.push(s);
+    } else {
+      for (const g of layout.groups) for (const s of g.sentences) out.push(s);
+    }
+    return out;
+  }, [layout]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      for (const s of sentences) {
+      for (const s of playableSentences) {
         if (cancelled) return;
         await prefetchTTS(s, voice);
       }
@@ -86,7 +101,7 @@ export function SentenceArticle({
     return () => {
       cancelled = true;
     };
-  }, [sentences, voice]);
+  }, [playableSentences, voice]);
 
   useEffect(() => {
     return () => {
@@ -103,7 +118,7 @@ export function SentenceArticle({
       setActiveIdx(idx);
       onPlay?.();
       await playTTS(
-        sentences[idx],
+        playableSentences[idx],
         voice,
         () => {
           setActiveIdx((cur) => (cur === idx ? null : cur));
@@ -111,7 +126,7 @@ export function SentenceArticle({
         rate
       );
     },
-    [sentences, voice, playTTS, stop, onPlay, rate]
+    [playableSentences, voice, playTTS, stop, onPlay, rate]
   );
 
   const playSequence = useCallback(
@@ -121,17 +136,17 @@ export function SentenceArticle({
       onPlay?.();
 
       const playFrom = (i: number) => {
-        if (sequenceCancelRef.current || i >= sentences.length) {
+        if (sequenceCancelRef.current || i >= playableSentences.length) {
           setActiveIdx(null);
           setIsSequence(false);
           return;
         }
         setActiveIdx(i);
-        if (i + 1 < sentences.length) {
-          prefetchTTS(sentences[i + 1], voice);
+        if (i + 1 < playableSentences.length) {
+          prefetchTTS(playableSentences[i + 1], voice);
         }
         playTTS(
-          sentences[i],
+          playableSentences[i],
           voice,
           () => {
             if (sequenceCancelRef.current) return;
@@ -142,7 +157,7 @@ export function SentenceArticle({
       };
       playFrom(startIdx);
     },
-    [sentences, voice, playTTS, onPlay, rate]
+    [playableSentences, voice, playTTS, onPlay, rate]
   );
 
   const stopAll = useCallback(() => {
@@ -176,7 +191,19 @@ export function SentenceArticle({
   return (
     <View style={styles.container}>
       {visible ? (
-        <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.textCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            maxTextHeight ? { maxHeight: maxTextHeight + 60 } : null,
+          ]}
+        >
+          <ScrollView
+            style={maxTextHeight ? { maxHeight: maxTextHeight } : undefined}
+            contentContainerStyle={{ paddingRight: 4 }}
+            showsVerticalScrollIndicator
+            nestedScrollEnabled
+          >
           {(() => {
             const renderSentence = (globalIdx: number, sent: string, isLastInGroup: boolean) => {
               const isActive = activeIdx === globalIdx;
@@ -199,25 +226,27 @@ export function SentenceArticle({
               );
             };
 
+            const meta = CONTENT_TYPE_META[effectiveType];
+            const Badge = meta.showBadge ? (
+              <View style={[styles.contentTypeBadge, { backgroundColor: accentColor + "18" }]}>
+                <Feather name={meta.icon as any} size={10} color={accentColor} />
+                <Text style={[styles.contentTypeBadgeText, { color: accentColor }]}>
+                  {meta.label}
+                </Text>
+              </View>
+            ) : null;
+
             if (layout.kind === "dialogue") {
               let cursor = 0;
               return (
                 <View style={styles.dialogueWrap}>
-                  <View style={[styles.contentTypeBadge, { backgroundColor: accentColor + "18" }]}>
-                    <Feather name="message-circle" size={10} color={accentColor} />
-                    <Text style={[styles.contentTypeBadgeText, { color: accentColor }]}>
-                      对话
-                    </Text>
-                  </View>
+                  {Badge}
                   {layout.groups.map((g, gi) => {
                     const isAlt = gi % 2 === 1;
                     return (
                       <View
                         key={gi}
-                        style={[
-                          styles.turn,
-                          isAlt && styles.turnAlt,
-                        ]}
+                        style={[styles.turn, isAlt && styles.turnAlt]}
                       >
                         <View
                           style={[
@@ -261,49 +290,37 @@ export function SentenceArticle({
               );
             }
 
-            if (layout.kind === "news") {
-              let cursor = 0;
-              return (
-                <View style={styles.newsWrap}>
-                  <View style={[styles.contentTypeBadge, { backgroundColor: accentColor + "18" }]}>
-                    <Feather name="file-text" size={10} color={accentColor} />
-                    <Text style={[styles.contentTypeBadgeText, { color: accentColor }]}>
-                      新闻 / 文章
-                    </Text>
-                  </View>
-                  {layout.groups.map((g, gi) => (
-                    <Text
-                      key={gi}
-                      style={[
-                        styles.article,
-                        styles.newsParagraph,
-                        { color: colors.foreground },
-                      ]}
-                    >
-                      {gi === 0 ? null : <Text>{"   "}</Text>}
-                      {g.sentences.map((s, i) => {
-                        const idx = cursor++;
-                        return renderSentence(idx, s, i === g.sentences.length - 1);
-                      })}
-                    </Text>
-                  ))}
-                </View>
-              );
-            }
-
+            // Paragraph-based layout for news/email/letter/speech/story/essay/general
+            let cursor = 0;
+            const indent = effectiveType === "news" || effectiveType === "essay";
             return (
-              <Text style={[styles.article, { color: colors.foreground }]}>
-                {sentences.map((sent, i) =>
-                  renderSentence(i, sent, i === sentences.length - 1)
-                )}
-              </Text>
+              <View style={styles.newsWrap}>
+                {Badge}
+                {layout.groups.map((g, gi) => (
+                  <Text
+                    key={gi}
+                    style={[
+                      styles.article,
+                      styles.newsParagraph,
+                      { color: colors.foreground },
+                    ]}
+                  >
+                    {indent && gi !== 0 ? <Text>{"   "}</Text> : null}
+                    {g.sentences.map((s, i) => {
+                      const idx = cursor++;
+                      return renderSentence(idx, s, i === g.sentences.length - 1);
+                    })}
+                  </Text>
+                ))}
+              </View>
             );
           })()}
+          </ScrollView>
 
           <View style={[styles.hintRow, { borderTopColor: colors.border }]}>
             <Feather name="info" size={11} color={colors.mutedForeground} />
             <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
-              点击任意句子单独播放（共 {sentences.length} 句）
+              点击任意句子单独播放（共 {playableSentences.length} 句）
             </Text>
           </View>
         </View>
@@ -428,7 +445,7 @@ export function SentenceArticle({
 
           {isSequence && activeIdx !== null && (
             <Text style={[styles.progressLabel, { color: colors.mutedForeground }]}>
-              第 {activeIdx + 1} / {sentences.length} 句
+              第 {activeIdx + 1} / {playableSentences.length} 句
             </Text>
           )}
         </View>

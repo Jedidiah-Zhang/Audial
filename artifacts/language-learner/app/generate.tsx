@@ -18,7 +18,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES, DIFFICULTY_LABELS } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
-import { detectContentType } from "@/utils/contentType";
+import { detectContentType, isContentType } from "@/utils/contentType";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -89,10 +89,7 @@ export default function GenerateScreen() {
         text: rawText,
         translation: result.data.translation ?? "",
         vocabulary: result.data.vocabulary ?? [],
-        contentType:
-          declaredType && ["dialogue", "news", "general"].includes(declaredType)
-            ? declaredType
-            : detectContentType(rawText),
+        contentType: isContentType(declaredType) ? declaredType : detectContentType(rawText),
       };
       setDraft(payload);
       setDraftTitle(payload.title);
@@ -124,7 +121,7 @@ export default function GenerateScreen() {
       targetLanguage,
       nativeLanguage,
       createdAt: Date.now(),
-      contentType: detectContentType(finalText) === "general" ? draft.contentType : detectContentType(finalText),
+      contentType: draft.contentType,
     };
     await addText(text);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

@@ -11,7 +11,15 @@ export interface VocabularyItem {
   exampleTranslation?: string;
 }
 
-export type ContentType = "dialogue" | "news" | "general";
+export type ContentType =
+  | "dialogue"
+  | "news"
+  | "email"
+  | "letter"
+  | "speech"
+  | "story"
+  | "essay"
+  | "general";
 
 export interface LearningText {
   id: string;
