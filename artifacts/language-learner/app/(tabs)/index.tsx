@@ -33,6 +33,12 @@ export default function HomeScreen() {
   };
 
   const handleDelete = (id: string) => {
+    if (Platform.OS === "web") {
+      // Alert.alert buttons don't render on react-native-web
+      const ok = typeof window !== "undefined" && window.confirm("确定要删除这篇文章吗？");
+      if (ok) removeText(id);
+      return;
+    }
     Alert.alert("删除文本", "确定要删除这篇文章吗？", [
       { text: "取消", style: "cancel" },
       { text: "删除", style: "destructive", onPress: () => removeText(id) },

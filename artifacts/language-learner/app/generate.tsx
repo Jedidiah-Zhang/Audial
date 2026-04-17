@@ -47,8 +47,8 @@ export default function GenerateScreen() {
   const [targetLanguage, setTargetLanguage] = useState(settings.targetLanguage);
   const [manualText, setManualText] = useState("");
   const [manualTitle, setManualTitle] = useState("");
-  const [manualTranslation, setManualTranslation] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
 
   // Preview/edit phase
   const [draft, setDraft] = useState<DraftPayload | null>(null);
@@ -142,11 +142,35 @@ export default function GenerateScreen() {
     }
 
     const finalText = manualText.trim();
+    setIsTranslating(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    let translation = "";
+    try {
+      const resp = await fetch(`${BASE_URL}/api/language/translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: finalText,
+          sourceLanguage:
+            LANGUAGES.find((l) => l.code === targetLanguage)?.name ?? "English",
+          targetLanguage:
+            LANGUAGES.find((l) => l.code === nativeLanguage)?.name ?? "中文",
+        }),
+      });
+      const j = (await resp.json()) as { success: boolean; data?: { translation?: string } };
+      if (j.success) translation = (j.data?.translation ?? "").trim();
+    } catch {
+      // Translation is best-effort; we still save the text.
+    } finally {
+      setIsTranslating(false);
+    }
+
     const text: LearningText = {
       id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
       title: manualTitle.trim(),
       text: finalText,
-      translation: manualTranslation.trim(),
+      translation,
       vocabulary: [],
       topic: "自定义",
       difficulty,
@@ -473,26 +497,30 @@ export default function GenerateScreen() {
               />
             </View>
 
-            <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>翻译（可选）</Text>
-              <TextInput
-                style={[styles.textarea, inputStyle]}
-                value={manualTranslation}
-                onChangeText={setManualTranslation}
-                placeholder="中文翻译（可选）"
-                placeholderTextColor={colors.mutedForeground}
-                multiline
-                textAlignVertical="top"
-              />
+            <View style={[styles.previewBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
+              <Feather name="cpu" size={14} color={colors.primary} />
+              <Text style={[styles.previewBannerText, { color: colors.primary }]}>
+                译文将由 AI 自动生成，无需手动填写。
+              </Text>
             </View>
 
             <TouchableOpacity
               onPress={handleManualSave}
-              style={[styles.generateBtn, { backgroundColor: colors.primary }]}
+              disabled={isTranslating}
+              style={[styles.generateBtn, { backgroundColor: colors.primary, opacity: isTranslating ? 0.7 : 1 }]}
               activeOpacity={0.85}
             >
-              <Feather name="save" size={18} color="#fff" />
-              <Text style={styles.generateBtnText}>保存文章</Text>
+              {isTranslating ? (
+                <>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.generateBtnText}>翻译中...</Text>
+                </>
+              ) : (
+                <>
+                  <Feather name="save" size={18} color="#fff" />
+                  <Text style={styles.generateBtnText}>保存文章</Text>
+                </>
+              )}
             </TouchableOpacity>
           </>
         )}

@@ -9,6 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { LearningText } from "@/types";
 import { DIFFICULTY_LABELS, STAGES } from "@/types";
+import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 
 interface TextCardProps {
   item: LearningText;
@@ -30,6 +31,8 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
   const [showActions, setShowActions] = useState(false);
 
   const diffColor = DIFF_COLORS[item.difficulty] ?? colors.primary;
+  const ctype = item.contentType ?? detectContentType(item.text);
+  const ctypeMeta = CONTENT_TYPE_META[ctype];
   const passedCount = stagesPassed ? stagesPassed.filter(Boolean).length : 0;
   const totalStages = STAGES.length;
   const allDone = passedCount === totalStages;
@@ -57,10 +60,20 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
       ]}
     >
       <View style={styles.header}>
-        <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
-          <Text style={[styles.diffText, { color: diffColor }]}>
-            {DIFFICULTY_LABELS[item.difficulty]}
-          </Text>
+        <View style={styles.headerLeft}>
+          <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
+            <Text style={[styles.diffText, { color: diffColor }]}>
+              {DIFFICULTY_LABELS[item.difficulty]}
+            </Text>
+          </View>
+          {ctypeMeta.showBadge && (
+            <View style={[styles.diffBadge, { backgroundColor: colors.muted, flexDirection: "row", alignItems: "center", gap: 4 }]}>
+              <Feather name={ctypeMeta.icon as any} size={10} color={colors.foreground} />
+              <Text style={[styles.diffText, { color: colors.foreground }]}>
+                {ctypeMeta.label}
+              </Text>
+            </View>
+          )}
         </View>
         <Text style={[styles.lang, { color: colors.mutedForeground }]}>
           {item.targetLanguage.toUpperCase()}
@@ -181,6 +194,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
   },
   diffBadge: {
     paddingHorizontal: 8,
