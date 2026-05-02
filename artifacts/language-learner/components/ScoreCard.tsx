@@ -60,6 +60,12 @@ export function ScoreCard({
       <Text style={[styles.modeLabel, { color: colors.mutedForeground }]}>{modeLabel}</Text>
 
       <View style={[styles.scoreCircle, { borderColor: getScoreColor() }]}>
+        {/* Stacked column — the big score is the only thing on its own line so
+            it sits at the geometric center of the circle. The `/100` caption
+            is rendered as a smaller secondary line beneath it; previously
+            both numbers shared a single row with `alignItems: baseline`,
+            which pushed the dominant score visibly to the left because the
+            "/100" suffix occupied real horizontal space. */}
         <Text style={[styles.scoreText, { color: getScoreColor() }]}>{score}</Text>
         <Text style={[styles.scoreMax, { color: colors.mutedForeground }]}>/100</Text>
       </View>
@@ -194,19 +200,26 @@ const styles = StyleSheet.create({
     height: 110,
     borderRadius: 55,
     borderWidth: 4,
-    flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     justifyContent: "center",
   },
   scoreText: {
-    fontSize: 48,
+    fontSize: 42,
     fontFamily: "Inter_700Bold",
-    lineHeight: 56,
+    // Tight lineHeight so the column (score + "/100") still sits at the
+    // visual center of the circle; a too-large lineHeight here would push
+    // the "/100" into the bottom border.
+    lineHeight: 46,
+    textAlign: "center",
+    includeFontPadding: false,
   },
   scoreMax: {
-    fontSize: 16,
-    fontFamily: "Inter_400Regular",
-    marginBottom: 4,
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    lineHeight: 14,
+    marginTop: 2,
+    textAlign: "center",
+    letterSpacing: 0.3,
   },
   scoreLabel: {
     fontSize: 18,

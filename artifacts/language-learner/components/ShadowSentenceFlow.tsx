@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { AlertTriangle, Check, Play, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
+import { AlertTriangle, Check, Headphones, Play, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -111,6 +111,8 @@ export function ShadowSentenceFlow({
     permission,
     requestPermission,
     openAppSettings,
+    lastRecordingUri,
+    clearLastRecording,
   } = useAudioRecorder();
   const { requestAccess: requestMicAccess, modal: micPermissionModal } =
     useMicPermissionGate({ permission, requestPermission, openAppSettings });
@@ -295,6 +297,10 @@ export function ShadowSentenceFlow({
   const advanceTo = useCallback(
     (nextIdx: number) => {
       stopAdvanceTimer();
+      // Free the previous sentence's recording before moving on — the
+      // "Play my recording" button is single-shot per sentence and a stale
+      // blob from sentence N-1 must never play while we're working on N.
+      clearLastRecording();
       if (nextIdx >= sentences.length) {
         setPhase("done");
         finishFlow(statesRef.current);
@@ -303,7 +309,7 @@ export function ShadowSentenceFlow({
       setCurrentIdx(nextIdx);
       playSentence(nextIdx);
     },
-    [sentences.length, playSentence, finishFlow, stopAdvanceTimer]
+    [sentences.length, playSentence, finishFlow, stopAdvanceTimer, clearLastRecording]
   );
 
   const scoreCurrent = useCallback(
@@ -446,6 +452,18 @@ export function ShadowSentenceFlow({
     if (phase === "recording" || phase === "transcribing" || phase === "scoring") return;
     playSentence(currentIdx);
   }, [phase, playSentence, currentIdx]);
+
+  // Replay the user's just-finished recording for the current sentence.
+  // Stops any in-flight TTS first so the model voice and the user voice
+  // never overlap. Invalidates `playGenRef` so a stale `playTTS` callback
+  // can't bump us back to "ready" while the user is reviewing themselves.
+  const handlePlayMyRecording = useCallback(() => {
+    if (!lastRecordingUri) return;
+    if (phase === "recording" || phase === "transcribing" || phase === "scoring") return;
+    player.stop();
+    playGenRef.current++;
+    player.playRecording(lastRecordingUri);
+  }, [lastRecordingUri, phase, player]);
 
   // Replay any sentence (current or not). For a non-current sentence we play
   // a one-shot TTS that does NOT mutate the flow phase, so users can review
@@ -888,6 +906,20 @@ export function ShadowSentenceFlow({
                 {t("session.shadow.replayThis")}
               </Text>
             </TouchableOpacity>
+            {lastRecordingUri ? (
+              <TouchableOpacity
+                onPress={handlePlayMyRecording}
+                style={[styles.optBtn, { borderColor: colors.border }]}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={t("session.shadow.playMyRecording")}
+              >
+                <Headphones size={16} color={colors.foreground} />
+                <Text style={[styles.optBtnText, { color: colors.foreground }]}>
+                  {t("session.shadow.playMyRecording")}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               onPress={handleRetryCurrent}
               style={[styles.optBtn, { borderColor: accentColor, backgroundColor: accentColor + "15" }]}
@@ -956,6 +988,25 @@ export function ShadowSentenceFlow({
                   </Text>
                 </TouchableOpacity>
               ) : null}
+              {/* Re-listen to the just-recorded audio. error-no-audio means
+                  no playable URI was captured, so the button stays hidden
+                  there; for transcribe / score errors the bytes are valid
+                  even though downstream processing failed, so users can
+                  still review what they actually said. */}
+              {lastRecordingUri && phase !== "error-no-audio" ? (
+                <TouchableOpacity
+                  onPress={handlePlayMyRecording}
+                  style={[styles.optBtn, { borderColor: colors.border }]}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("session.shadow.playMyRecording")}
+                >
+                  <Headphones size={16} color={colors.foreground} />
+                  <Text style={[styles.optBtnText, { color: colors.foreground }]}>
+                    {t("session.shadow.playMyRecording")}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
                 onPress={handleRetryCurrent}
                 style={[
@@ -997,11 +1048,27 @@ export function ShadowSentenceFlow({
         ) : null}
 
         {isPassedPause ? (
-          <View style={styles.passedBadge}>
-            <Check size={14} color="#10B981" />
-            <Text style={[styles.passedBadgeText, { color: "#10B981" }]}>
-              {states[currentIdx]?.score ?? 0}
-            </Text>
+          <View style={styles.passedRow}>
+            <View style={styles.passedBadge}>
+              <Check size={14} color="#10B981" />
+              <Text style={[styles.passedBadgeText, { color: "#10B981" }]}>
+                {states[currentIdx]?.score ?? 0}
+              </Text>
+            </View>
+            {lastRecordingUri ? (
+              <TouchableOpacity
+                onPress={handlePlayMyRecording}
+                style={[styles.optBtn, { borderColor: colors.border }]}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={t("session.shadow.playMyRecording")}
+              >
+                <Headphones size={14} color={colors.foreground} />
+                <Text style={[styles.optBtnText, { color: colors.foreground }]}>
+                  {t("session.shadow.playMyRecording")}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -1192,6 +1259,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontFamily: "Inter_500Medium",
+  },
+  passedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
   },
   passedBadge: {
     flexDirection: "row",

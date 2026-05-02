@@ -309,6 +309,66 @@ export function useAudioPlayer(opts?: {
     [cleanupCurrent]
   );
 
+  // Play an arbitrary local audio source — used for replaying the user's
+  // own recording (web blob URL or expo-audio recording file URI). Skips the
+  // TTS fetch + cache logic entirely and assumes the URI is already
+  // playable. Critically, we DO NOT assign to `audioUrlRef` here because
+  // the caller (e.g. `useAudioRecorder`) owns that URL and is responsible
+  // for revoking it; if we routed it through `cleanupCurrent` we'd
+  // double-revoke and break the next playback attempt for the same uri.
+  const playRecording = useCallback(
+    async (uri: string, onEnded?: () => void) => {
+      try {
+        cleanupCurrent();
+        setIsPlaying(false);
+
+        if (Platform.OS === "web") {
+          const audio = new Audio();
+          audio.preload = "auto";
+          audioRef.current = audio;
+          // NOTE: deliberately not setting audioUrlRef — see comment above.
+          audio.onended = () => {
+            setIsPlaying(false);
+            if (audioRef.current === audio) audioRef.current = null;
+            onEnded?.();
+          };
+          audio.onerror = () => {
+            setIsPlaying(false);
+            if (audioRef.current === audio) audioRef.current = null;
+          };
+          audio.src = uri;
+          audio.load();
+          if (audioRef.current !== audio) return;
+          setIsPlaying(true);
+          try {
+            await audio.play();
+          } catch {
+            setIsPlaying(false);
+          }
+        } else {
+          const player = createAudioPlayer({ uri });
+          expoPlayerRef.current = player;
+          setIsPlaying(true);
+          let didEnd = false;
+          const sub = player.addListener("playbackStatusUpdate", (status: any) => {
+            if (status.didJustFinish && !didEnd) {
+              didEnd = true;
+              setIsPlaying(false);
+              try { sub?.remove?.(); } catch {}
+              if (expoSubRef.current === sub) expoSubRef.current = null;
+              onEnded?.();
+            }
+          });
+          expoSubRef.current = sub;
+          player.play();
+        }
+      } catch {
+        setIsPlaying(false);
+      }
+    },
+    [cleanupCurrent]
+  );
+
   const stop = useCallback(() => {
     cleanupCurrent();
     setIsPlaying(false);
@@ -332,7 +392,7 @@ export function useAudioPlayer(opts?: {
     }
   }, []);
 
-  return { playTTS, stop, isPlaying, isLoading, setRate };
+  return { playTTS, playRecording, stop, isPlaying, isLoading, setRate };
 }
 
 // Granular mic-permission state shared by both platforms.
@@ -353,6 +413,37 @@ export function useAudioRecorder() {
   const recorder = useExpoAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const webMediaRef = useRef<MediaRecorder | null>(null);
   const webChunksRef = useRef<Blob[]>([]);
+
+  // Latest recording the user produced — exposed so callers can offer a
+  // "Play my recording" affordance without having to manage URL lifetimes
+  // themselves. On web this is a blob: URL we created via
+  // `URL.createObjectURL`; on native it's the file URI returned by the
+  // expo-audio recorder. The recorder hook owns the URL and revokes it on
+  // the next `startRecording`, on explicit `clearLastRecording`, and on
+  // unmount, so the consumer must NOT revoke it.
+  const [lastRecordingUri, setLastRecordingUri] = useState<string | null>(null);
+  const lastRecordingUriRef = useRef<string | null>(null);
+
+  const clearLastRecording = useCallback(() => {
+    const cur = lastRecordingUriRef.current;
+    if (cur && cur.startsWith("blob:")) {
+      try { URL.revokeObjectURL(cur); } catch {}
+    }
+    lastRecordingUriRef.current = null;
+    setLastRecordingUri(null);
+  }, []);
+
+  // Always free the last recording on unmount so we don't leak object URLs
+  // when the user navigates away mid-session.
+  useEffect(() => {
+    return () => {
+      const cur = lastRecordingUriRef.current;
+      if (cur && cur.startsWith("blob:")) {
+        try { URL.revokeObjectURL(cur); } catch {}
+      }
+      lastRecordingUriRef.current = null;
+    };
+  }, []);
 
   // Read the current permission status WITHOUT triggering a system prompt.
   // The previous version called `requestRecordingPermissionsAsync` on mount,
@@ -534,6 +625,18 @@ export function useAudioRecorder() {
   }, []);
 
   const startRecording = useCallback(async (): Promise<boolean> => {
+    // Free any prior recording before starting a new one — the user is
+    // explicitly replacing it, so any "Play my recording" UI must not still
+    // point at the old (about-to-be-stale) blob. Doing this up front also
+    // guarantees we don't leak object URLs across rapid re-record cycles.
+    {
+      const cur = lastRecordingUriRef.current;
+      if (cur && cur.startsWith("blob:")) {
+        try { URL.revokeObjectURL(cur); } catch {}
+      }
+      lastRecordingUriRef.current = null;
+      setLastRecordingUri(null);
+    }
     // Defensive: callers are expected to gate on `permission === "granted"`
     // first (see `useMicPermissionGate`), but if we somehow get here without
     // permission, do an opportunistic re-check that does NOT trigger a system
@@ -603,6 +706,17 @@ export function useAudioRecorder() {
             const blob = new Blob(webChunksRef.current, { type: mediaRecorder.mimeType });
             mediaRecorder.stream.getTracks().forEach((t) => t.stop());
             webMediaRef.current = null;
+            // Stash a playable URL for the just-finished recording so the
+            // UI can offer "Play my recording" without re-encoding the
+            // blob. The hook owns this URL; see `clearLastRecording`.
+            try {
+              const url = URL.createObjectURL(blob);
+              lastRecordingUriRef.current = url;
+              setLastRecordingUri(url);
+            } catch {
+              /* createObjectURL is unavailable — skip the playback URL but
+                 still resolve with the bytes for transcription. */
+            }
             resolve(blob);
           };
           mediaRecorder.stop();
@@ -614,6 +728,12 @@ export function useAudioRecorder() {
 
         const file = new File(uri);
         const byteArray = await file.bytes();
+        // expo-audio's recorder URI points at a real file we can replay
+        // directly via `createAudioPlayer`. Stash it for the same
+        // "Play my recording" UI; cleanup is implicit (the file is
+        // overwritten on the next `recorder.record()`).
+        lastRecordingUriRef.current = uri;
+        setLastRecordingUri(uri);
         return new Blob([byteArray], { type: "audio/wav" });
       }
     } catch {
@@ -629,6 +749,8 @@ export function useAudioRecorder() {
     requestPermission,
     openAppSettings,
     syncPermission,
+    lastRecordingUri,
+    clearLastRecording,
   };
 }
 

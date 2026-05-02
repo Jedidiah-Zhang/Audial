@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Square, Target } from "lucide-react-native";
+import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Square, Target, Volume2 } from "lucide-react-native";
 import { flipIfRTL } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
@@ -54,6 +54,7 @@ export default function SessionScreen() {
     permission: micPermission,
     requestPermission: requestMicPermission,
     openAppSettings: openMicAppSettings,
+    lastRecordingUri,
   } = useAudioRecorder();
   const { requestAccess: requestMicAccess, modal: micPermissionModal } =
     useMicPermissionGate({
@@ -107,6 +108,13 @@ export default function SessionScreen() {
   const activeSentenceIndexRef = useRef<number | null>(null);
   activeSentenceIndexRef.current = activeSentenceIndex;
 
+  // Result-page recording player: replays the user's own recitation audio so
+  // they can compare it directly against the model's pronunciation. Kept on
+  // its own player instance so word / sentence taps don't share isPlaying
+  // state with it; we explicitly stop the others before kicking it off.
+  const recordingPlayer = useAudioPlayer({ articleId: text?.id, userId });
+  const [isPlayingRecording, setIsPlayingRecording] = useState(false);
+
   const handleWordPress = (side: "target" | "user") => (
     spoken: string,
     index: number
@@ -120,6 +128,12 @@ export default function SessionScreen() {
       setActiveWord(null);
       return;
     }
+    // Stop any concurrent playback (sentence row or user recording) so we
+    // never have two voices overlapping on the result page.
+    sentencePlayer.stop();
+    setActiveSentenceIndex(null);
+    recordingPlayer.stop();
+    setIsPlayingRecording(false);
     setActiveWord({ side, index });
     const voice = settings.preferredVoice ?? "nova";
     wordPlayer.playTTS(trimmed, voice, () => {
@@ -140,6 +154,10 @@ export default function SessionScreen() {
       setActiveSentenceIndex(null);
       return;
     }
+    wordPlayer.stop();
+    setActiveWord(null);
+    recordingPlayer.stop();
+    setIsPlayingRecording(false);
     setActiveSentenceIndex(row.index);
     const voice = settings.preferredVoice ?? "nova";
     sentencePlayer.playTTS(target, voice, () => {
@@ -149,17 +167,40 @@ export default function SessionScreen() {
     });
   };
 
-  // Stop word/sentence playback and clear highlights whenever we leave the
-  // result phase (e.g. user taps Try Again or Continue) so nothing keeps
-  // playing in the background.
+  // Replay the user's own recording from the recitation stage. Stops any
+  // other result-page playback first so the model TTS and the user's voice
+  // never overlap. Tapping while the recording is already playing toggles
+  // it off (matches the behavior of the word / sentence taps above).
+  const handlePlayMyRecording = () => {
+    if (!lastRecordingUri) return;
+    if (isPlayingRecording) {
+      recordingPlayer.stop();
+      setIsPlayingRecording(false);
+      return;
+    }
+    wordPlayer.stop();
+    setActiveWord(null);
+    sentencePlayer.stop();
+    setActiveSentenceIndex(null);
+    setIsPlayingRecording(true);
+    recordingPlayer.playRecording(lastRecordingUri, () => {
+      setIsPlayingRecording(false);
+    });
+  };
+
+  // Stop word/sentence/recording playback and clear highlights whenever we
+  // leave the result phase (e.g. user taps Try Again or Continue) so
+  // nothing keeps playing in the background.
   useEffect(() => {
     if (phase !== "result") {
       wordPlayer.stop();
       setActiveWord(null);
       sentencePlayer.stop();
       setActiveSentenceIndex(null);
+      recordingPlayer.stop();
+      setIsPlayingRecording(false);
     }
-  }, [phase, wordPlayer, sentencePlayer]);
+  }, [phase, wordPlayer, sentencePlayer, recordingPlayer]);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
@@ -713,6 +754,37 @@ export default function SessionScreen() {
                   onSentencePress={handleSentencePress}
                   playingIndex={activeSentenceIndex}
                 />
+                {/* Recitation-only: let users replay their own audio so they
+                    can compare it against the model TTS already exposed via
+                    the per-sentence rows above. Stage 0 (shadowing) shows
+                    its own per-sentence "Play my recording" inside the
+                    ShadowSentenceFlow; stage 1 (dictation) has no audio. */}
+                {stageIdx === 2 && lastRecordingUri ? (
+                  <TouchableOpacity
+                    onPress={handlePlayMyRecording}
+                    style={[
+                      styles.playMyRecordingBtn,
+                      { borderColor: colors.border, backgroundColor: colors.muted },
+                    ]}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("session.shadow.playMyRecording")}
+                  >
+                    {isPlayingRecording ? (
+                      <Square size={16} color={colors.foreground} />
+                    ) : (
+                      <Volume2 size={16} color={colors.foreground} />
+                    )}
+                    <Text
+                      style={[
+                        styles.playMyRecordingBtnText,
+                        { color: colors.foreground },
+                      ]}
+                    >
+                      {t("session.shadow.playMyRecording")}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </>
             ) : (
               <View style={[styles.passedBanner, { backgroundColor: "#10B981" + "15", borderColor: "#10B981" }]}>
@@ -1079,6 +1151,21 @@ const styles = StyleSheet.create({
   doneBtnText: {
     color: "#fff",
     fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  playMyRecordingBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignSelf: "center",
+  },
+  playMyRecordingBtnText: {
+    fontSize: 13,
     fontFamily: "Inter_600SemiBold",
   },
 });
