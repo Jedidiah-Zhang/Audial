@@ -314,13 +314,8 @@ export function ShadowSentenceFlow({
   );
 
   const handleMicPress = useCallback(async () => {
-    if (phase === "playing") {
-      // Allow user to interrupt playback and start recording immediately.
-      player.stop();
-      playGenRef.current++;
-      setPhase("ready");
-      return;
-    }
+    // Note: `phase === "playing"` is filtered out by `micDisabled` in render,
+    // so this handler only ever sees ready/recording/failed-options.
     if (phase === "recording") {
       setPhase("transcribing");
       const blob = await stopRecording();

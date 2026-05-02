@@ -332,16 +332,22 @@ export default function SessionScreen() {
     }));
     if (userTranscript) persistedDetails.userTranscript = userTranscript;
 
-    await addResult({
-      id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
-      textId: text.id,
-      mode: "shadowing",
-      stage: 0,
-      score,
-      feedback: flow.feedback,
-      createdAt: Date.now(),
-      details: persistedDetails,
-    });
+    // Persistence is best-effort: even if writing to local storage fails we
+    // still want to surface the result page so the user sees their score.
+    try {
+      await addResult({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
+        textId: text.id,
+        mode: "shadowing",
+        stage: 0,
+        score,
+        feedback: flow.feedback,
+        createdAt: Date.now(),
+        details: persistedDetails,
+      });
+    } catch (err) {
+      console.warn("[session] failed to persist shadow result", err);
+    }
 
     setResult({
       score,
