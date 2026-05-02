@@ -197,7 +197,7 @@ export function ShadowSentenceFlow({
   );
 
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [phase, setPhase] = useState<FlowPhase>("playing");
+  const [phase, setPhase] = useState<FlowPhase>("ready");
   const [states, setStates] = useState<SentenceState[]>(() =>
     sentences.map(() => ({ listened: false, recorded: false }))
   );
@@ -317,7 +317,8 @@ export function ShadowSentenceFlow({
     [sentences, voice, player, clearPlaybackWatchdog, updateStates]
   );
 
-  // Kick off the very first sentence on mount.
+  // Mount-time setup. We intentionally do NOT auto-play the first
+  // sentence — the user taps the play button when they're ready.
   useEffect(() => {
     if (sentences.length === 0) {
       // Empty article — nothing to score. Report a 0 so the result page
@@ -328,7 +329,6 @@ export function ShadowSentenceFlow({
       }
       return;
     }
-    playSentence(0);
     return () => {
       clearPlaybackWatchdog();
       try {
