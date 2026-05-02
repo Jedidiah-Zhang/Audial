@@ -500,14 +500,43 @@ export function SentenceArticle({
 
           {(() => {
             const total = playableSentences.length;
+            // Prev is disabled when there is no current sentence to step
+            // back from (cursorIdx===null) or we're already at the first
+            // sentence. Critically, `isLoading` does NOT gate prev/next:
+            // disabling them during TTS load felt like the buttons were
+            // permanently stuck right after the first tap.
             const prevDisabled =
-              isLoading || total === 0 || cursorIdx === 0;
+              total === 0 || cursorIdx === null || cursorIdx === 0;
+            // Next walks forward; from the initial null state it starts
+            // at sentence 0, so it stays enabled. Only disabled when
+            // already on the last sentence.
             const nextDisabled =
-              isLoading ||
               total === 0 ||
               (cursorIdx !== null && cursorIdx >= total - 1);
+            // Show a "Sentence i / N" indicator. In dictation mode the
+            // article body is hidden, so we always surface progress to
+            // give the user a sense of position. In normal viewing modes
+            // we keep the legacy behaviour of only showing it during a
+            // continuous play-all run.
+            const showProgress =
+              total > 0 && (!visible || (isSequence && activeIdx !== null));
+            const progressIdx = activeIdx ?? cursorIdx ?? 0;
             return (
-              <View style={styles.stepRow}>
+              <View style={styles.stepGroup}>
+                {showProgress && (
+                  <Text
+                    style={[
+                      styles.progressLabel,
+                      { color: colors.mutedForeground },
+                    ]}
+                  >
+                    {t("sentence.progress", {
+                      i: progressIdx + 1,
+                      n: total,
+                    })}
+                  </Text>
+                )}
+                <View style={styles.stepRow}>
                 <TouchableOpacity
                   onPress={playPrev}
                   disabled={prevDisabled}
@@ -544,6 +573,7 @@ export function SentenceArticle({
                   </Text>
                   <ChevronRight size={16} color={colors.foreground} />
                 </TouchableOpacity>
+                </View>
               </View>
             );
           })()}
@@ -579,22 +609,6 @@ export function SentenceArticle({
             </TouchableOpacity>
           )}
 
-          {(() => {
-            const total = playableSentences.length;
-            if (total === 0) return null;
-            // In dictation mode (the card is hidden) the user has no on-screen
-            // way to tell which sentence they're on, so we always surface the
-            // progress label. In normal viewing modes we keep the legacy
-            // behaviour and only show it during continuous play-all.
-            const showProgress = !visible || (isSequence && activeIdx !== null);
-            if (!showProgress) return null;
-            const idx = activeIdx ?? cursorIdx ?? 0;
-            return (
-              <Text style={[styles.progressLabel, { color: colors.mutedForeground }]}>
-                {t("sentence.progress", { i: idx + 1, n: total })}
-              </Text>
-            );
-          })()}
         </View>
       )}
     </View>
@@ -751,6 +765,10 @@ const styles = StyleSheet.create({
   speedBtnText: {
     fontSize: 12,
     fontFamily: "Inter_600SemiBold",
+  },
+  stepGroup: {
+    width: "100%",
+    gap: 6,
   },
   stepRow: {
     flexDirection: "row",
