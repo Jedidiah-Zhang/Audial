@@ -12,7 +12,7 @@ import { STAGES } from "@/types";
 import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, getContentTypeLabel, getStageName } from "@/utils/i18n";
 import { useApp } from "@/context/AppContext";
-import { getFlag } from "@/utils/flags";
+import { Flag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
 
 interface TextCardProps {
@@ -88,9 +88,7 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
             </View>
           </View>
           <View style={styles.headerRight}>
-            <Text style={styles.flag} accessibilityLabel={item.targetLanguage}>
-              {getFlag(item.targetLanguage)}
-            </Text>
+            <Flag code={item.targetLanguage} size={18} />
             <Text style={[styles.lang, { color: colors.mutedForeground }]}>
               {item.targetLanguage.toUpperCase()}
             </Text>
@@ -188,9 +186,7 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
           </View>
         </View>
         <View style={styles.headerRight}>
-          <Text style={styles.flag} accessibilityLabel={item.targetLanguage}>
-            {getFlag(item.targetLanguage)}
-          </Text>
+          <Flag code={item.targetLanguage} size={18} />
           <Text style={[styles.lang, { color: colors.mutedForeground }]}>
             {item.targetLanguage.toUpperCase()}
           </Text>
@@ -347,10 +343,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-  },
-  flag: {
-    fontSize: 16,
-    lineHeight: 20,
   },
   title: {
     fontSize: 16,

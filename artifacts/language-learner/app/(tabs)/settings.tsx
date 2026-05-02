@@ -19,7 +19,7 @@ import { useApp } from "@/context/AppContext";
 import { useT, getDifficultyLabel } from "@/utils/i18n";
 import { LANGUAGES, VOICE_OPTIONS } from "@/types";
 import type { Difficulty } from "@/types";
-import { getFlag } from "@/utils/flags";
+import { Flag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
 
 const DIFFICULTIES: Difficulty[] = ["beginner", "elementary", "intermediate", "advanced"];
@@ -79,14 +79,16 @@ export default function SettingsScreen() {
             colors={colors}
             icon="globe"
             label={t("settings.uiLanguage")}
-            value={`${getFlag(currentUi?.code ?? "en")}  ${currentUi?.name ?? "English"}`}
+            value={currentUi?.name ?? "English"}
+            valuePrefix={<Flag code={currentUi?.code ?? "en"} size={18} />}
             onPress={() => setPicker("ui")}
           />
           <Row
             colors={colors}
             icon="book-open"
             label={t("settings.targetLanguage")}
-            value={`${getFlag(currentTarget?.code ?? "en")}  ${currentTarget?.name ?? "English"}`}
+            value={currentTarget?.name ?? "English"}
+            valuePrefix={<Flag code={currentTarget?.code ?? "en"} size={18} />}
             onPress={() => setPicker("target")}
           />
         </Section>
@@ -163,7 +165,9 @@ export default function SettingsScreen() {
                         closePicker();
                       }}
                     >
-                      <Text style={styles.rowFlag}>{getFlag(item.code)}</Text>
+                      <View style={styles.rowFlagWrap}>
+                        <Flag code={item.code} size={22} />
+                      </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: selected ? colors.primary : colors.foreground, fontSize: 15, fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium" }}>
                           {item.name}
@@ -194,7 +198,9 @@ export default function SettingsScreen() {
                         closePicker();
                       }}
                     >
-                      <Text style={styles.rowFlag}>{getFlag(item.code)}</Text>
+                      <View style={styles.rowFlagWrap}>
+                        <Flag code={item.code} size={22} />
+                      </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: selected ? colors.primary : colors.foreground, fontSize: 15, fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium" }}>
                           {item.name}
@@ -297,12 +303,18 @@ function Row({
   icon,
   label,
   value,
+  valuePrefix,
   onPress,
 }: {
   colors: ReturnType<typeof useColors>;
   icon: IconName;
   label: string;
   value: string;
+  /**
+   * Optional element rendered immediately before the value text. Used by the
+   * language rows to show a small flag image next to the language name.
+   */
+  valuePrefix?: React.ReactNode;
   onPress?: () => void;
 }) {
   return (
@@ -317,6 +329,9 @@ function Row({
       <View style={{ flex: 1 }}>
         <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>
       </View>
+      {valuePrefix ? (
+        <View style={styles.valuePrefixWrap}>{valuePrefix}</View>
+      ) : null}
       <Text style={[styles.itemValue, { color: colors.mutedForeground }]} numberOfLines={1}>
         {value}
       </Text>
@@ -454,6 +469,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
     width: 26,
     textAlign: "center",
+  },
+  rowFlagWrap: {
+    width: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  valuePrefixWrap: {
+    marginRight: 6,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 
