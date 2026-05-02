@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Check, Play, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
+import { AlertTriangle, Check, Play, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -71,7 +71,15 @@ type FlowPhase =
   | "scoring"
   | "passed-pause"
   | "failed-options"
+  | "error-no-audio"
+  | "error-transcribe"
+  | "error-score"
   | "done";
+
+// Hard upper bound on the stop-recording / transcribe / score round-trip.
+// 30s is comfortably more than any realistic call but short enough that the
+// user isn't left staring at a spinner forever when something goes wrong.
+const REQUEST_TIMEOUT_MS = 30000;
 
 interface Props {
   text: string;
@@ -113,6 +121,9 @@ export function ShadowSentenceFlow({
   const [states, setStates] = useState<SentenceState[]>(() =>
     sentences.map(() => ({ status: "pending" as SentenceStatus }))
   );
+  // Cache the last successful transcription so the user can retry just the
+  // scoring step (without re-recording) when the score endpoint fails.
+  const [lastTranscript, setLastTranscript] = useState<string>("");
 
   // Source-of-truth mirror of `states` so completion paths can synchronously
   // read the freshest values without depending on React's update timing.
@@ -290,7 +301,12 @@ export function ShadowSentenceFlow({
     async (transcript: string) => {
       const idx = currentIdx;
       const target = sentences[idx];
+      // Stash the transcript before the scoring attempt so the "retry score"
+      // path can reuse it without forcing the user to re-record.
+      setLastTranscript(transcript);
       setPhase("scoring");
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
         const response = await fetch(`${BASE_URL}/api/language/score-pronunciation`, {
           method: "POST",
@@ -300,6 +316,7 @@ export function ShadowSentenceFlow({
             transcribedText: transcript,
             language,
           }),
+          signal: controller.signal,
         });
         const json: ScorePronunciationResponse = await response.json();
         if (!json.success || !json.data) throw new Error("Scoring failed");
@@ -334,43 +351,72 @@ export function ShadowSentenceFlow({
           setPhase("failed-options");
         }
       } catch {
-        Alert.alert(t("common.error"), t("session.alert.scoreFailed"));
-        setPhase("ready");
+        // Keep `lastTranscript` populated so the inline "retry scoring" button
+        // can reuse it. We don't surface an Alert anymore — the inline error
+        // card below the mic gives the user a clear next step instead.
+        setPhase("error-score");
+      } finally {
+        clearTimeout(timer);
       }
     },
-    [currentIdx, sentences, language, t, advanceTo, finishFlow]
+    [currentIdx, sentences, language, advanceTo, finishFlow, updateStates]
   );
 
   const handleMicPress = useCallback(async () => {
     // Note: `phase === "playing"` is filtered out by `micDisabled` in render,
-    // so this handler only ever sees ready/recording/failed-options.
+    // so this handler only ever sees ready/recording/failed-options or one of
+    // the inline error states (which behave like `ready` for re-recording).
     if (phase === "recording") {
       setPhase("transcribing");
-      const blob = await stopRecording();
-      if (!blob) {
-        setPhase("ready");
+      // Cap stopRecording too — the underlying MediaRecorder.onstop / expo
+      // file read are usually instantaneous, but a stuck handler should not
+      // freeze the UI. Treat as "no audio" if it doesn't return in time.
+      // Track the timer so we clear it the moment stopRecording resolves —
+      // otherwise a fast happy-path would leave a 30s no-op timer pending.
+      let stopTimer: ReturnType<typeof setTimeout> | null = null;
+      const stopWithTimeout = await Promise.race<Blob | null>([
+        stopRecording().then((b) => {
+          if (stopTimer) clearTimeout(stopTimer);
+          return b;
+        }),
+        new Promise<null>((resolve) => {
+          stopTimer = setTimeout(() => resolve(null), REQUEST_TIMEOUT_MS);
+        }),
+      ]);
+      if (!stopWithTimeout) {
+        setPhase("error-no-audio");
         return;
       }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const transcript = await transcribeAudio(blob);
+        const transcript = await transcribeAudio(stopWithTimeout, controller.signal);
         if (!transcript || !transcript.trim()) {
-          Alert.alert(t("common.tip"), t("session.alert.transcribeFailed"));
-          setPhase("ready");
+          setPhase("error-transcribe");
           return;
         }
         await scoreCurrent(transcript.trim());
       } catch {
-        Alert.alert(t("common.error"), t("session.alert.transcribeFailed"));
-        setPhase("ready");
+        setPhase("error-transcribe");
+      } finally {
+        clearTimeout(timer);
       }
       return;
     }
-    if (phase === "ready" || phase === "failed-options") {
+    if (
+      phase === "ready" ||
+      phase === "failed-options" ||
+      phase === "error-no-audio" ||
+      phase === "error-transcribe" ||
+      phase === "error-score"
+    ) {
       // Force-stop any TTS / ambient before recording.
       player.stop();
       playGenRef.current++;
       const ok = await startRecording();
       if (!ok) {
+        // Mic-permission failures happen before any recording attempt, so we
+        // keep the Alert here — there's nothing inline to show otherwise.
         Alert.alert(t("common.tip"), t("session.alert.micPermission"));
         return;
       }
@@ -378,6 +424,13 @@ export function ShadowSentenceFlow({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   }, [phase, player, stopRecording, startRecording, scoreCurrent, t]);
+
+  // Re-run scoring for the most recently transcribed sentence without forcing
+  // the user to re-record. Only meaningful in the `error-score` phase.
+  const handleRetryScore = useCallback(() => {
+    if (!lastTranscript) return;
+    scoreCurrent(lastTranscript);
+  }, [lastTranscript, scoreCurrent]);
 
   const handleReplayCurrent = useCallback(() => {
     if (phase === "recording" || phase === "transcribing" || phase === "scoring") return;
@@ -531,6 +584,10 @@ export function ShadowSentenceFlow({
   const isProcessing = phase === "transcribing" || phase === "scoring";
   const showFailedOptions = phase === "failed-options";
   const isPassedPause = phase === "passed-pause";
+  const isErrorPhase =
+    phase === "error-no-audio" ||
+    phase === "error-transcribe" ||
+    phase === "error-score";
 
   const meta = CONTENT_TYPE_META[effectiveType];
   const Badge = meta.showBadge ? (
@@ -693,6 +750,9 @@ export function ShadowSentenceFlow({
     }
     if (isPassedPause) return t("session.shadow.sentencePassed");
     if (showFailedOptions) return t("session.shadow.sentenceFailed");
+    if (phase === "error-no-audio") return t("session.shadow.error.noAudio.title");
+    if (phase === "error-transcribe") return t("session.shadow.error.transcribe.title");
+    if (phase === "error-score") return t("session.shadow.error.score.title");
     if (phase === "recording") return t("session.shadow.stopHint");
     if (phase === "playing") return t("session.shadow.guidedHint");
     return t("session.shadow.guidedHint");
@@ -703,7 +763,7 @@ export function ShadowSentenceFlow({
       ? "#EF4444"
       : isPassedPause
       ? "#10B981"
-      : showFailedOptions
+      : showFailedOptions || isErrorPhase
       ? "#EF4444"
       : accentColor;
 
@@ -711,6 +771,8 @@ export function ShadowSentenceFlow({
   // Mic is locked during initial sentence playback so users hear the model
   // before recording. Tapping a sentence row to replay still works (it stops
   // playback and re-arms `ready`), but the big mic button itself is inert.
+  // In error phases we keep the mic button enabled so a quick re-record is
+  // one tap away — the inline card below also exposes more granular actions.
   const micDisabled =
     isProcessing || isPassedPause || phase === "done" || phase === "playing";
 
@@ -829,6 +891,91 @@ export function ShadowSentenceFlow({
                 {t("session.shadow.skip")}
               </Text>
             </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {isErrorPhase ? (
+          <View
+            style={[
+              styles.errorCard,
+              { borderColor: "#EF444455", backgroundColor: "#EF44440F" },
+            ]}
+          >
+            <View style={styles.errorHeader}>
+              <AlertTriangle size={14} color="#EF4444" />
+              <Text style={[styles.errorDesc, { color: colors.mutedForeground }]}>
+                {phase === "error-no-audio"
+                  ? t("session.shadow.error.noAudio.desc")
+                  : phase === "error-transcribe"
+                  ? t("session.shadow.error.transcribe.desc")
+                  : t("session.shadow.error.score.desc")}
+              </Text>
+            </View>
+            <View style={styles.optionRow}>
+              {phase === "error-score" ? (
+                <TouchableOpacity
+                  onPress={handleRetryScore}
+                  style={[
+                    styles.optBtn,
+                    { borderColor: accentColor, backgroundColor: accentColor + "15" },
+                  ]}
+                  activeOpacity={0.85}
+                >
+                  <RotateCcw size={16} color={accentColor} />
+                  <Text style={[styles.optBtnText, { color: accentColor }]}>
+                    {t("session.shadow.error.retryScore")}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              {phase === "error-transcribe" ? (
+                <TouchableOpacity
+                  onPress={handleReplayCurrent}
+                  style={[styles.optBtn, { borderColor: colors.border }]}
+                  activeOpacity={0.85}
+                >
+                  <Volume2 size={16} color={colors.foreground} />
+                  <Text style={[styles.optBtnText, { color: colors.foreground }]}>
+                    {t("session.shadow.replayThis")}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                onPress={handleRetryCurrent}
+                style={[
+                  styles.optBtn,
+                  phase === "error-score"
+                    ? { borderColor: colors.border }
+                    : { borderColor: accentColor, backgroundColor: accentColor + "15" },
+                ]}
+                activeOpacity={0.85}
+              >
+                <RotateCcw
+                  size={16}
+                  color={phase === "error-score" ? colors.foreground : accentColor}
+                />
+                <Text
+                  style={[
+                    styles.optBtnText,
+                    {
+                      color:
+                        phase === "error-score" ? colors.foreground : accentColor,
+                    },
+                  ]}
+                >
+                  {t("session.shadow.error.recordAgain")}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSkip}
+                style={[styles.optBtn, { borderColor: colors.border }]}
+                activeOpacity={0.85}
+              >
+                <SkipForward size={16} color={colors.mutedForeground} />
+                <Text style={[styles.optBtnText, { color: colors.mutedForeground }]}>
+                  {t("session.shadow.skip")}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : null}
 
@@ -1007,6 +1154,26 @@ const styles = StyleSheet.create({
   optBtnText: {
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
+  },
+  errorCard: {
+    width: "100%",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+    marginTop: 4,
+  },
+  errorHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  errorDesc: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: "Inter_500Medium",
   },
   passedBadge: {
     flexDirection: "row",

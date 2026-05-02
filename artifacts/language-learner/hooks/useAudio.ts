@@ -418,13 +418,17 @@ export function useAudioRecorder() {
   return { startRecording, stopRecording, isRecording, hasPermission };
 }
 
-export async function transcribeAudio(audioBlob: Blob): Promise<string> {
+export async function transcribeAudio(
+  audioBlob: Blob,
+  signal?: AbortSignal,
+): Promise<string> {
   const arrayBuffer = await audioBlob.arrayBuffer();
 
   const response = await fetch(`${BASE_URL}/api/language/stt`, {
     method: "POST",
     headers: { "Content-Type": audioBlob.type || "audio/webm" },
     body: arrayBuffer,
+    signal,
   });
 
   if (!response.ok) throw new Error("Transcription failed");
