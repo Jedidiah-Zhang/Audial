@@ -782,6 +782,50 @@ export default function GenerateScreen() {
   }
 
   // ============ FORM MODE (AI / MANUAL) ============
+  // Single source of truth for the "今日剩余 N/总数" chip — rendered in
+  // both the AI and manual tabs so users can see the shared daily quota
+  // before they start either flow. Hidden for Pro users.
+  const quotaChip = !isPro ? (
+    <View
+      style={[
+        styles.quotaChip,
+        {
+          backgroundColor:
+            generationsRemaining === 0
+              ? colors.destructive + "15"
+              : colors.primary + "12",
+          borderColor:
+            generationsRemaining === 0
+              ? colors.destructive + "55"
+              : colors.primary + "33",
+        },
+      ]}
+    >
+      <Sparkles
+        size={12}
+        color={
+          generationsRemaining === 0 ? colors.destructive : colors.primary
+        }
+      />
+      <Text
+        style={[
+          styles.quotaChipText,
+          {
+            color:
+              generationsRemaining === 0
+                ? colors.destructive
+                : colors.primary,
+          },
+        ]}
+      >
+        {t("quota.gen.remaining", {
+          n: generationsRemaining,
+          total: generationLimit,
+        })}
+      </Text>
+    </View>
+  ) : null;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
@@ -912,48 +956,7 @@ export default function GenerateScreen() {
               </View>
             </View>
 
-            {!isPro ? (
-              <View
-                style={[
-                  styles.quotaChip,
-                  {
-                    backgroundColor:
-                      generationsRemaining === 0
-                        ? colors.destructive + "15"
-                        : colors.primary + "12",
-                    borderColor:
-                      generationsRemaining === 0
-                        ? colors.destructive + "55"
-                        : colors.primary + "33",
-                  },
-                ]}
-              >
-                <Sparkles
-                  size={12}
-                  color={
-                    generationsRemaining === 0
-                      ? colors.destructive
-                      : colors.primary
-                  }
-                />
-                <Text
-                  style={[
-                    styles.quotaChipText,
-                    {
-                      color:
-                        generationsRemaining === 0
-                          ? colors.destructive
-                          : colors.primary,
-                    },
-                  ]}
-                >
-                  {t("quota.gen.remaining", {
-                    n: generationsRemaining,
-                    total: generationLimit,
-                  })}
-                </Text>
-              </View>
-            ) : null}
+            {quotaChip}
 
             <TouchableOpacity
               onPress={handleGenerate}
@@ -999,6 +1002,8 @@ export default function GenerateScreen() {
                 {t("generate.manualNote", { target: targetLangObj.name })}
               </Text>
             </View>
+
+            {quotaChip}
 
             <TouchableOpacity
               onPress={handleManualSave}
