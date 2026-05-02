@@ -1012,96 +1012,100 @@ export function ShadowSentenceFlow({
       : t("session.shadow.guidedHint");
   const isLast = currentIdx >= sentences.length - 1;
 
-  return (
-    <View style={styles.wrap}>
-      <View style={styles.controls}>
-        <View style={styles.voiceSection}>
-          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-            {t("sentence.voice")}
-          </Text>
-          <View style={styles.voiceGrid}>
-            {VOICE_OPTIONS.map((opt) => {
-              const active = voice === opt.id;
-              const genderLabel =
-                opt.gender === "female" ? "♀" : opt.gender === "male" ? "♂" : "·";
-              return (
-                <TouchableOpacity
-                  key={opt.id}
-                  onPress={() => handleSelectVoice(opt.id)}
-                  activeOpacity={0.85}
-                  style={[
-                    styles.voiceChip,
-                    {
-                      backgroundColor: active ? accentColor : colors.muted,
-                      borderColor: active ? accentColor : colors.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.voiceChipGender,
-                      { color: active ? "#fff" : colors.mutedForeground },
-                    ]}
-                  >
-                    {genderLabel}
-                  </Text>
-                  <View style={styles.voiceChipTextWrap}>
-                    <Text
-                      style={[
-                        styles.voiceChipName,
-                        { color: active ? "#fff" : colors.foreground },
-                      ]}
-                    >
-                      {opt.label}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.voiceChipDesc,
-                        {
-                          color: active ? "rgba(255,255,255,0.85)" : colors.mutedForeground,
-                        },
-                      ]}
-                    >
-                      {opt.description}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
-          <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>
-            {t("sentence.speed")}
-          </Text>
-          {SPEED_OPTIONS.map((opt) => {
-            const active = rate === opt.value;
+  // Voice + speed pickers. Rendered just below the passage card so
+  // they're tucked under the text rather than floating above it.
+  const renderControls = () => (
+    <View style={styles.controls}>
+      <View style={styles.voiceSection}>
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+          {t("sentence.voice")}
+        </Text>
+        <View style={styles.voiceGrid}>
+          {VOICE_OPTIONS.map((opt) => {
+            const active = voice === opt.id;
+            const genderLabel =
+              opt.gender === "female" ? "♀" : opt.gender === "male" ? "♂" : "·";
             return (
               <TouchableOpacity
-                key={opt.value}
-                onPress={() => handleSelectRate(opt.value)}
-                activeOpacity={0.8}
+                key={opt.id}
+                onPress={() => handleSelectVoice(opt.id)}
+                activeOpacity={0.85}
                 style={[
-                  styles.speedBtn,
-                  active && { backgroundColor: accentColor },
+                  styles.voiceChip,
+                  {
+                    backgroundColor: active ? accentColor : colors.muted,
+                    borderColor: active ? accentColor : colors.border,
+                  },
                 ]}
               >
                 <Text
                   style={[
-                    styles.speedBtnText,
-                    { color: active ? "#fff" : colors.foreground },
+                    styles.voiceChipGender,
+                    { color: active ? "#fff" : colors.mutedForeground },
                   ]}
                 >
-                  {opt.label}
+                  {genderLabel}
                 </Text>
+                <View style={styles.voiceChipTextWrap}>
+                  <Text
+                    style={[
+                      styles.voiceChipName,
+                      { color: active ? "#fff" : colors.foreground },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.voiceChipDesc,
+                      {
+                        color: active ? "rgba(255,255,255,0.85)" : colors.mutedForeground,
+                      },
+                    ]}
+                  >
+                    {opt.description}
+                  </Text>
+                </View>
               </TouchableOpacity>
             );
           })}
         </View>
       </View>
 
+      <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
+        <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>
+          {t("sentence.speed")}
+        </Text>
+        {SPEED_OPTIONS.map((opt) => {
+          const active = rate === opt.value;
+          return (
+            <TouchableOpacity
+              key={opt.value}
+              onPress={() => handleSelectRate(opt.value)}
+              activeOpacity={0.8}
+              style={[
+                styles.speedBtn,
+                active && { backgroundColor: accentColor },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.speedBtnText,
+                  { color: active ? "#fff" : colors.foreground },
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.wrap}>
       <View
         style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}
       >
@@ -1156,6 +1160,8 @@ export function ShadowSentenceFlow({
           </TouchableOpacity>
         </View>
       </View>
+
+      {renderControls()}
 
       <View style={styles.recordSection}>
         <TouchableOpacity
