@@ -6,3 +6,21 @@ id = "_P65AANFrfDcQwQ-jRHuU"
 uri = "file://artifacts/language-learner/assets/images/icon.png"
 type = "image"
 title = "generated_image"
+
+[[generated]]
+id = "_CyMfMHAJ7PfQpZ80YU8o"
+uri = "file://attached_assets/generated_images/audial_fish_iconA.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "5rmce7U7zggpeyrcn8WFS"
+uri = "file://attached_assets/generated_images/audial_fish_iconB.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "ENtYtQgOWcjf4_cOgdv6F"
+uri = "file://attached_assets/generated_images/audial_fish_v2.png"
+type = "image"
+title = "generated_image"
