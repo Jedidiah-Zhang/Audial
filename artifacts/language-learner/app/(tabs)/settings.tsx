@@ -22,10 +22,6 @@ import type { Difficulty } from "@/types";
 import { getFlag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
 
-const SUPPORTED_UI = new Set([
-  "en", "zh", "ja", "ko", "es", "fr", "de", "ru", "hu",
-]);
-
 const DIFFICULTIES: Difficulty[] = ["beginner", "elementary", "intermediate", "advanced"];
 
 type PickerKind = "ui" | "target" | "voice" | "difficulty" | null;
@@ -159,7 +155,6 @@ export default function SettingsScreen() {
                 style={{ maxHeight: 420 }}
                 renderItem={({ item }) => {
                   const selected = item.code === settings.nativeLanguage;
-                  const supported = SUPPORTED_UI.has(item.code);
                   return (
                     <TouchableOpacity
                       style={[styles.row, { borderBottomColor: colors.border }, selected && { backgroundColor: colors.primary + "15" }]}
@@ -174,7 +169,7 @@ export default function SettingsScreen() {
                           {item.name}
                         </Text>
                         <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
-                          {item.english}{!supported ? "  ·  English UI" : ""}
+                          {item.english}
                         </Text>
                       </View>
                       {selected && <Check size={18} color={colors.primary} />}

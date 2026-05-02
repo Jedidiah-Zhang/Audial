@@ -14,10 +14,6 @@ import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import { translate } from "@/utils/i18n";
 
-const SUPPORTED_UI = new Set([
-  "en", "zh", "ja", "ko", "es", "fr", "de", "ru", "hu",
-]);
-
 export function LanguageOnboarding() {
   const colors = useColors();
   const { settings, updateSettings, isLoading } = useApp();
@@ -55,7 +51,6 @@ export function LanguageOnboarding() {
               showsVerticalScrollIndicator={Platform.OS === "web"}
               renderItem={({ item: lang }) => {
                 const isSelected = code === lang.code;
-                const supported = SUPPORTED_UI.has(lang.code);
                 return (
                   <TouchableOpacity
                     onPress={() => setSelected(lang.code)}
@@ -78,7 +73,6 @@ export function LanguageOnboarding() {
                       </Text>
                       <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
                         {lang.english}
-                        {!supported ? "  ·  English UI" : ""}
                       </Text>
                     </View>
                     {isSelected && <Check size={18} color={colors.primary} />}
