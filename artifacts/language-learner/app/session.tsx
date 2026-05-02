@@ -21,12 +21,39 @@ import { useAudioRecorder, transcribeAudio } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { ScoreCard } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
+import { AnnotatedText, AnnotatedLegend, type Annotation } from "@/components/AnnotatedText";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import type { LearningMode } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 import { Icon } from "@/components/Icon";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
+
+const VALID_STATUSES = new Set(["ok", "wrong", "missed", "extra"]);
+
+/**
+ * Defensively normalize the AI's annotation array. Returns null if the input
+ * is not a usable array of {word, status} entries, so callers can render a
+ * plain-text fallback instead of crashing on malformed model output.
+ */
+function sanitizeAnnotations(input: unknown): Annotation[] | null {
+  if (!Array.isArray(input) || input.length === 0) return null;
+  const out: Annotation[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const word = rec.word;
+    const status = rec.status;
+    if (typeof word !== "string" || typeof status !== "string") continue;
+    if (!VALID_STATUSES.has(status)) continue;
+    const ann: Annotation = { word, status: status as Annotation["status"] };
+    if (typeof rec.correct === "string" && rec.correct.length > 0) {
+      ann.correct = rec.correct;
+    }
+    out.push(ann);
+  }
+  return out.length > 0 ? out : null;
+}
 
 type SessionPhase =
   | "intro"
@@ -52,7 +79,15 @@ export default function SessionScreen() {
 
   const [phase, setPhase] = useState<SessionPhase>("intro");
   const [dictationInput, setDictationInput] = useState("");
-  const [result, setResult] = useState<{ score: number; feedback: string; details: Record<string, string | number>; passed: boolean } | null>(null);
+  const [result, setResult] = useState<{
+    score: number;
+    feedback: string;
+    details: Record<string, string | number>;
+    passed: boolean;
+    targetAnnotations?: Annotation[];
+    userAnnotations?: Annotation[];
+    userTranscript?: string;
+  } | null>(null);
   const [memorizeCountdown, setMemorizeCountdown] = useState(30);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -140,9 +175,8 @@ export default function SessionScreen() {
       const d = json.data;
       const details: Record<string, string | number> = {};
 
-      if (stageIdx === 0 && d.mistakes?.length) {
-        details[t("session.detail.mistakes")] = d.mistakes.join(", ");
-      }
+      // For shadowing, the mistakes are now visualised inline via AnnotatedText,
+      // so we no longer repeat them as a comma-joined detail row.
       if (stageIdx === 1 && d.wordAccuracy) {
         details[t("session.detail.wordAccuracy")] = `${d.wordAccuracy}%`;
       }
@@ -155,6 +189,15 @@ export default function SessionScreen() {
       const score = d.score ?? 0;
       const passed = score >= STAGE_PASS_SCORE;
 
+      const targetAnnotations = sanitizeAnnotations(d.targetAnnotations);
+      const userAnnotations = sanitizeAnnotations(d.userAnnotations);
+      const userTranscript = transcribedOrTyped;
+
+      const persistedDetails: Record<string, unknown> = { ...details };
+      if (targetAnnotations) persistedDetails.targetAnnotations = targetAnnotations;
+      if (userAnnotations) persistedDetails.userAnnotations = userAnnotations;
+      if (userTranscript) persistedDetails.userTranscript = userTranscript;
+
       await addResult({
         id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
         textId: text.id,
@@ -163,10 +206,18 @@ export default function SessionScreen() {
         score,
         feedback: d.feedback ?? "",
         createdAt: Date.now(),
-        details,
+        details: persistedDetails,
       });
 
-      setResult({ score, feedback: d.feedback ?? "", details, passed });
+      setResult({
+        score,
+        feedback: d.feedback ?? "",
+        details,
+        passed,
+        targetAnnotations: targetAnnotations ?? undefined,
+        userAnnotations: userAnnotations ?? undefined,
+        userTranscript,
+      });
       Haptics.notificationAsync(
         passed ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
       );
@@ -459,6 +510,56 @@ export default function SessionScreen() {
                     {result.score}
                   </Text>
                 </View>
+                {(() => {
+                  const targetTitle = t("session.annot.target");
+                  const userTitle =
+                    stageIdx === 1
+                      ? t("session.annot.userWrote")
+                      : t("session.annot.userSaid");
+                  // Wrong + missed apply to all three scored modes; extra only
+                  // when the user can supply tokens not in the target (stage 0
+                  // shadowing transcript, stage 1 dictation typing).
+                  const showExtra = stageIdx === 0 || stageIdx === 1;
+                  return (
+                    <>
+                      {stageIdx === 1 ? (
+                        <>
+                          <AnnotatedText
+                            title={userTitle}
+                            annotations={result.userAnnotations}
+                            fallbackText={result.userTranscript}
+                          />
+                          <AnnotatedText
+                            title={targetTitle}
+                            annotations={result.targetAnnotations}
+                            fallbackText={text.text}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <AnnotatedText
+                            title={targetTitle}
+                            annotations={result.targetAnnotations}
+                            fallbackText={text.text}
+                          />
+                          <AnnotatedText
+                            title={userTitle}
+                            annotations={result.userAnnotations}
+                            fallbackText={result.userTranscript}
+                          />
+                        </>
+                      )}
+                      <AnnotatedLegend
+                        show={{ wrong: true, missed: true, extra: showExtra }}
+                        labels={{
+                          wrong: t("session.annot.legend.wrong"),
+                          missed: t("session.annot.legend.missed"),
+                          extra: t("session.annot.legend.extra"),
+                        }}
+                      />
+                    </>
+                  );
+                })()}
                 <ScoreCard
                   score={result.score}
                   feedback={result.feedback}
@@ -487,10 +588,12 @@ export default function SessionScreen() {
               </View>
             )}
 
-            <View style={[styles.originalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <Text style={[styles.originalLabel, { color: colors.mutedForeground }]}>{t("session.result.original")}</Text>
-              <Text style={[styles.originalText, { color: colors.foreground }]}>{text.text}</Text>
-            </View>
+            {!stage.needsScore && (
+              <View style={[styles.originalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.originalLabel, { color: colors.mutedForeground }]}>{t("session.result.original")}</Text>
+                <Text style={[styles.originalText, { color: colors.foreground }]}>{text.text}</Text>
+              </View>
+            )}
 
             <View style={styles.resultActions}>
               <TouchableOpacity

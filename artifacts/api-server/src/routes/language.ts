@@ -276,7 +276,7 @@ router.post("/language/score-pronunciation", requireDeepseek, async (req, res) =
 
     const response = await deepseek.chat.completions.create({
       model: DEEPSEEK_MODEL,
-      max_completion_tokens: 512,
+      max_completion_tokens: 2048,
       messages: [
         {
           role: "system",
@@ -284,7 +284,10 @@ router.post("/language/score-pronunciation", requireDeepseek, async (req, res) =
 - "score": 0-100 accuracy score
 - "feedback": 1-2 sentences of constructive feedback in the user's native language (${language})
 - "mistakes": array of specific words/phrases that were wrong or missing (max 3)
-- "praise": one specific thing they did well`,
+- "praise": one specific thing they did well
+- "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed"} that tokenizes the target text in original order. Use "wrong" for words the user mispronounced, "missed" for words they skipped entirely, "ok" otherwise. The concatenation of all words MUST exactly reproduce the target text (include punctuation as its own token or attached to the previous word).
+- "userAnnotations": array of {"word": string, "status": "ok" | "wrong" | "extra"} that tokenizes the transcript in original order. Use "wrong" for words that don't match the target, "extra" for filler/inserted words not in the target, "ok" otherwise.
+For non-spaced languages (Chinese / Japanese / Korean), tokenize at word/character boundaries that preserve readability when concatenated without spaces.`,
         },
         {
           role: "user",
@@ -313,7 +316,7 @@ router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
 
     const response = await deepseek.chat.completions.create({
       model: DEEPSEEK_MODEL,
-      max_completion_tokens: 512,
+      max_completion_tokens: 2048,
       messages: [
         {
           role: "system",
@@ -321,7 +324,10 @@ router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
 - "score": 0-100 accuracy score (penalize spelling errors, missing words, wrong words)
 - "feedback": 1-2 sentences of constructive feedback in ${language}
 - "corrections": array of objects {wrong: string, correct: string} showing what was wrong (max 5)
-- "wordAccuracy": percentage of words spelled correctly`,
+- "wordAccuracy": percentage of words spelled correctly
+- "userAnnotations": array of {"word": string, "status": "ok" | "wrong" | "extra", "correct"?: string} that tokenizes the user's writing in original order. Use "wrong" for misspelled or wrong words (include the suggested correction in "correct"), "extra" for words the user wrote that aren't in the target, "ok" otherwise.
+- "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed"} that tokenizes the target text in original order. Use "missed" for words the user omitted, "wrong" for words the user spelled or replaced incorrectly, "ok" otherwise.
+The concatenation of all words in each array MUST exactly reproduce the original sentence (include punctuation as its own token or attached to the previous word). For non-spaced languages, tokenize at word/character boundaries that preserve readability when concatenated without spaces.`,
         },
         {
           role: "user",
@@ -350,7 +356,7 @@ router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
 
     const response = await deepseek.chat.completions.create({
       model: DEEPSEEK_MODEL,
-      max_completion_tokens: 512,
+      max_completion_tokens: 2048,
       messages: [
         {
           role: "system",
@@ -359,7 +365,10 @@ router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
 - "feedback": 1-2 sentences of constructive feedback in ${language}
 - "completeness": percentage of the text they covered
 - "fluency": "excellent" | "good" | "fair" | "needs_work"
-- "encouragement": a motivating closing sentence`,
+- "encouragement": a motivating closing sentence
+- "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed"} that tokenizes the target text in original order. Use "missed" for parts the user did NOT recite (forgot), "wrong" for parts they recited incorrectly, "ok" otherwise.
+- "userAnnotations": array of {"word": string, "status": "ok" | "wrong"} that tokenizes the transcript in original order. Use "wrong" for clearly off-topic or invented words that don't belong in the target, "ok" otherwise.
+The concatenation of all words MUST exactly reproduce the original sentence (include punctuation as its own token or attached to the previous word). For non-spaced languages, tokenize at word/character boundaries that preserve readability when concatenated without spaces.`,
         },
         {
           role: "user",
