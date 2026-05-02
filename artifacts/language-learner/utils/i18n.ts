@@ -10,7 +10,7 @@ type Dict = Record<string, string>;
 
 const en: Dict = {
   "tab.articles": "Articles",
-  "home.greeting": "LANGUAGE LEARNING",
+  "home.greeting": "AUDIAL",
   "home.title": "My Articles",
   "home.empty.title": "No articles yet",
   "home.empty.subtitle": "Tap the + button to generate or paste a learning text",
@@ -234,7 +234,7 @@ const en: Dict = {
 
 const zh: Dict = {
   "tab.articles": "文章",
-  "home.greeting": "外语学习",
+  "home.greeting": "AUDIAL",
   "home.title": "我的文章",
   "home.empty.title": "还没有文章",
   "home.empty.subtitle": "点击右上角添加按钮\n生成或输入学习文章",
@@ -458,7 +458,7 @@ const zh: Dict = {
 
 const ja: Dict = {
   "tab.articles": "記事",
-  "home.greeting": "外国語学習",
+  "home.greeting": "AUDIAL",
   "home.title": "マイ記事",
   "home.empty.title": "まだ記事がありません",
   "home.empty.subtitle": "右上の追加ボタンから\n学習用テキストを作成または入力",
@@ -633,7 +633,7 @@ const ja: Dict = {
 
 const es: Dict = {
   "tab.articles": "Artículos",
-  "home.greeting": "APRENDIZAJE DE IDIOMAS",
+  "home.greeting": "AUDIAL",
   "home.title": "Mis artículos",
   "home.empty.title": "Aún no hay artículos",
   "home.empty.subtitle": "Toca el botón + para generar\no pegar un texto de aprendizaje",
@@ -809,7 +809,7 @@ const es: Dict = {
 // Brief overrides for additional languages — fall back to English where missing
 const fr: Dict = {
   "tab.articles": "Articles",
-  "home.greeting": "APPRENTISSAGE DES LANGUES",
+  "home.greeting": "AUDIAL",
   "home.title": "Mes articles",
   "home.empty.title": "Aucun article",
   "home.empty.subtitle": "Touchez le bouton + pour générer\nou coller un texte d'apprentissage",
@@ -861,7 +861,7 @@ const fr: Dict = {
 
 const de: Dict = {
   "tab.articles": "Artikel",
-  "home.greeting": "SPRACHENLERNEN",
+  "home.greeting": "AUDIAL",
   "home.title": "Meine Artikel",
   "home.empty.title": "Noch keine Artikel",
   "home.empty.subtitle": "Tippe auf +, um einen Text\nzu erstellen oder einzufügen",
@@ -913,7 +913,7 @@ const de: Dict = {
 
 const ko: Dict = {
   "tab.articles": "기사",
-  "home.greeting": "외국어 학습",
+  "home.greeting": "AUDIAL",
   "home.title": "내 기사",
   "home.empty.title": "아직 기사가 없습니다",
   "home.empty.subtitle": "+ 버튼을 눌러 학습용 텍스트를\n생성하거나 붙여넣으세요",
@@ -1010,7 +1010,7 @@ const ru: Dict = {
 const hu: Dict = {
   "tab.articles": "Cikkek",
   "home.title": "Cikkeim",
-  "home.greeting": "NYELVTANULÁS",
+  "home.greeting": "AUDIAL",
   "home.empty.title": "Még nincs cikk",
   "home.empty.subtitle": "Érintsd meg a + gombot szöveg\ngenerálásához vagy beillesztéséhez",
   "home.empty.cta": "Cikk hozzáadása",
