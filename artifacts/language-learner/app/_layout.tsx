@@ -50,7 +50,21 @@ function RootLayoutNav() {
     // Painting `colors.background` here means any uncovered pixel
     // matches the surrounding app chrome instead of flashing white.
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          // Each non-modal screen's *native* container also gets an
+          // opaque `colors.background` backing. This is the layer
+          // react-native-screens paints below the React content, and
+          // it's what gets exposed for the brief frame between when
+          // the practice modal's Dialog Window is dismissed and when
+          // the underlying screen's React tree repaints. Without
+          // this, the Stack screen container falls back to its
+          // default (white) on Android, which was the source of the
+          // close-animation white flash.
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)" options={{ headerShown: false, presentation: "modal" }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
@@ -59,22 +73,23 @@ function RootLayoutNav() {
         name="practice"
         options={{
           headerShown: false,
-          // The practice screen runs its own card-expand overlay animation
-          // (see app/practice.tsx). We disable the native stack transition
-          // so it doesn't compete with our overlay, and we present it as a
-          // *contained* transparent modal so the home screen stays
-          // mounted behind it AND the modal lives inside the same native
-          // window as home — not in a separate Dialog. The "contained"
-          // variant matters on Android: with plain `transparentModal`,
-          // dismissing the modal tears down a native Dialog window, and
-          // for one frame the Activity's default theme background (which
-          // is white on most light themes) shows through before home
-          // repaints — that's the white flash that was visible at the
-          // very end of the close animation. Containing the modal in the
-          // same window means there is no window-level dismissal, so no
-          // window-background frame can leak through.
+          // The practice screen runs its own card-expand overlay
+          // animation (see app/practice.tsx). We disable the native
+          // stack transition so it doesn't compete with our overlay,
+          // and we present it as a transparent modal so the home
+          // screen stays mounted behind it AND the modal occupies the
+          // full activity window — `transparentModal` (not the
+          // *contained* variant) is the one whose coordinate space
+          // matches the values `measureInWindow` returns from the
+          // home cards, so the overlay lands exactly on top of the
+          // tapped card. The white flash that previously appeared at
+          // close-end with this presentation is now neutralised by
+          // the `screenOptions.contentStyle` above, which paints the
+          // underlying Stack screen container with `colors.background`
+          // instead of the default white — so the brief frame where
+          // the Dialog Window dismisses no longer exposes white.
           animation: "none",
-          presentation: "containedTransparentModal",
+          presentation: "transparentModal",
           contentStyle: { backgroundColor: "transparent" },
         }}
       />
