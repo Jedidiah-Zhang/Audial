@@ -202,7 +202,7 @@ export default function SessionScreen() {
 
       // For shadowing, the mistakes are now visualised inline via AnnotatedText,
       // so we no longer repeat them as a comma-joined detail row.
-      if (stageIdx === 1 && d.wordAccuracy) {
+      if (stageIdx === 1 && d.wordAccuracy != null) {
         details[t("session.detail.wordAccuracy")] = `${d.wordAccuracy}%`;
       }
       if (stageIdx === 2) {
