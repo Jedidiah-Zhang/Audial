@@ -425,7 +425,7 @@ export function ShadowSentenceFlow({
       phase === "error-transcribe" ||
       phase === "error-score"
     ) {
-      // Force-stop any TTS / ambient before recording.
+      // Force-stop any TTS before recording.
       player.stop();
       playGenRef.current++;
       // Gate on mic permission first. If permission is anything other than

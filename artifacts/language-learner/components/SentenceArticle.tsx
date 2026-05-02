@@ -3,8 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView
 import { Info, PlayCircle, Square } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
-import { useAmbientPlayer } from "@/hooks/useAmbient";
-import { detectAmbientScene } from "@/utils/sceneDetect";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { useApp } from "@/context/AppContext";
 import { VOICE_OPTIONS } from "@/types";
@@ -76,8 +74,6 @@ export function SentenceArticle({
     articleId,
     userId,
   });
-  const ambient = useAmbientPlayer();
-  const ambientEnabled = settings.ambientSound !== false;
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [isSequence, setIsSequence] = useState(false);
   const [rate, setRateState] = useState<number>(1);
@@ -87,8 +83,6 @@ export function SentenceArticle({
     () => contentType ?? detectContentType(text),
     [contentType, text]
   );
-
-  const ambientScene = useMemo(() => detectAmbientScene(text), [text]);
 
   // Build the layout. For dialogue, the speaker labels are NOT part of the
   // playable sentences (we don't read names aloud). For paragraph-based types
@@ -118,30 +112,25 @@ export function SentenceArticle({
     return () => {
       sequenceCancelRef.current = true;
       stop();
-      // Note: `ambient` cleans itself up on unmount via its own effect,
-      // so we deliberately don't depend on it here to avoid re-running
-      // this effect on every render and aborting in-flight playback.
     };
   }, [stop]);
 
-  // Hard-stop any in-flight TTS / ambient playback the moment playback is
-  // disabled (e.g. user starts recording). Keeps mic input clean.
+  // Hard-stop any in-flight TTS playback the moment playback is disabled
+  // (e.g. user starts recording). Keeps mic input clean.
   useEffect(() => {
     if (disablePlayback) {
       sequenceCancelRef.current = true;
       setIsSequence(false);
       setActiveIdx(null);
       stop();
-      ambient.stop();
     }
-  }, [disablePlayback, stop, ambient]);
+  }, [disablePlayback, stop]);
 
   const playOne = useCallback(
     async (idx: number) => {
       sequenceCancelRef.current = true;
       setIsSequence(false);
       stop();
-      ambient.stop();
       setActiveIdx(idx);
       onPlay?.();
       await playTTS(
@@ -153,7 +142,7 @@ export function SentenceArticle({
         rate
       );
     },
-    [playableSentences, voice, playTTS, stop, onPlay, rate, ambient]
+    [playableSentences, voice, playTTS, stop, onPlay, rate]
   );
 
   const playSequence = useCallback(
@@ -162,15 +151,10 @@ export function SentenceArticle({
       setIsSequence(true);
       onPlay?.();
 
-      if (ambientEnabled && effectiveType === "dialogue") {
-        ambient.play(ambientScene, 0.3);
-      }
-
       const playFrom = (i: number) => {
         if (sequenceCancelRef.current || i >= playableSentences.length) {
           setActiveIdx(null);
           setIsSequence(false);
-          ambient.stop();
           return;
         }
         setActiveIdx(i);
@@ -189,7 +173,7 @@ export function SentenceArticle({
       };
       playFrom(startIdx);
     },
-    [playableSentences, voice, playTTS, onPlay, rate, ambient, ambientEnabled, effectiveType, ambientScene]
+    [playableSentences, voice, playTTS, onPlay, rate, userId, articleId]
   );
 
   const stopAll = useCallback(() => {
@@ -197,8 +181,7 @@ export function SentenceArticle({
     setIsSequence(false);
     setActiveIdx(null);
     stop();
-    ambient.stop();
-  }, [stop, ambient]);
+  }, [stop]);
 
   const handleSelectRate = useCallback(
     (newRate: number) => {
@@ -214,13 +197,12 @@ export function SentenceArticle({
       setIsSequence(false);
       setActiveIdx(null);
       stop();
-      ambient.stop();
       // Once the user explicitly picks a voice, mark the preference as
       // user-set so future articles stop auto-switching to a language
       // default behind their back.
       updateSettings({ preferredVoice: newVoice, preferredVoiceUserSet: true });
     },
-    [stop, updateSettings, ambient]
+    [stop, updateSettings]
   );
 
   const isAnyPlaying = activeIdx !== null;

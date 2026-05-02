@@ -133,14 +133,6 @@ export default function SettingsScreen() {
             value={settings.autoPlayAudio}
             onValueChange={(v) => updateSettings({ autoPlayAudio: v })}
           />
-          <ToggleRow
-            colors={colors}
-            icon="coffee"
-            label={t("settings.ambient")}
-            description={t("settings.ambient.desc")}
-            value={settings.ambientSound !== false}
-            onValueChange={(v) => updateSettings({ ambientSound: v })}
-          />
         </Section>
       </ScrollView>
 

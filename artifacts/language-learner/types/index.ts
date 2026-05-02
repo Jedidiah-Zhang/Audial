@@ -88,7 +88,6 @@ export interface AppSettings {
    */
   preferredVoiceUserSet?: boolean;
   autoPlayAudio: boolean;
-  ambientSound: boolean;
   onboarded: boolean;
 }
 

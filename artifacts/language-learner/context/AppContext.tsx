@@ -55,7 +55,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   // language-default voice per article (en-GB → fable, en-US → nova).
   preferredVoiceUserSet: false,
   autoPlayAudio: true,
-  ambientSound: true,
   onboarded: false,
 };
 
