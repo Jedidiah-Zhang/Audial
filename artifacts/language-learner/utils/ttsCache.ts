@@ -1,24 +1,15 @@
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
+import { Directory, File, Paths } from "expo-file-system";
 
 const SUBDIR = "tts-cache";
 const INDEX_PREFIX = "tts-index:";
 
-let _fsModulePromise: Promise<any> | null = null;
-async function getFs(): Promise<any | null> {
-  if (Platform.OS === "web") return null;
-  if (!_fsModulePromise) {
-    _fsModulePromise = import("expo-file-system").catch(() => null);
-  }
-  return _fsModulePromise;
-}
-
-async function ensureDir(): Promise<void> {
-  const FS = await getFs();
-  if (!FS?.Directory || !FS?.Paths) return;
+function ensureDir(): void {
+  if (Platform.OS === "web") return;
   try {
-    const dir = new FS.Directory(FS.Paths.document, SUBDIR);
+    const dir = new Directory(Paths.document, SUBDIR);
     if (!dir.exists) {
       try {
         dir.create();
@@ -43,11 +34,10 @@ export async function getCachedTTSUri(
   text: string,
   voice: string
 ): Promise<string | null> {
+  if (Platform.OS === "web") return null;
   try {
-    const FS = await getFs();
-    if (!FS?.File || !FS?.Paths) return null;
     const name = await fileNameFor(text, voice);
-    const file = new FS.File(FS.Paths.document, SUBDIR, name);
+    const file = new File(Paths.document, SUBDIR, name);
     if (file.exists) return file.uri;
     return null;
   } catch {
@@ -60,12 +50,11 @@ export async function writeCachedTTS(
   voice: string,
   buffer: ArrayBuffer
 ): Promise<{ uri: string; fileName: string } | null> {
+  if (Platform.OS === "web") return null;
   try {
-    const FS = await getFs();
-    if (!FS?.File || !FS?.Paths) return null;
-    await ensureDir();
+    ensureDir();
     const name = await fileNameFor(text, voice);
-    const file = new FS.File(FS.Paths.document, SUBDIR, name);
+    const file = new File(Paths.document, SUBDIR, name);
     if (!file.exists) {
       file.create();
       file.write(new Uint8Array(buffer));
@@ -191,12 +180,11 @@ export async function clearArticleAudio(
           if (otherId === articleId) continue;
           for (const n of list) referencedElsewhere.add(n);
         }
-        const FS = await getFs();
-        if (FS?.File && FS?.Paths) {
+        if (Platform.OS !== "web") {
           for (const name of files) {
             if (referencedElsewhere.has(name)) continue;
             try {
-              const f = new FS.File(FS.Paths.document, SUBDIR, name);
+              const f = new File(Paths.document, SUBDIR, name);
               if (f.exists) f.delete();
             } catch {
               // ignore individual failures

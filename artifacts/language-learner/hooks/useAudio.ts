@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Platform } from "react-native";
-import { AudioModule, RecordingPresets, useAudioRecorder as useExpoAudioRecorder } from "expo-audio";
+import {
+  AudioModule,
+  RecordingPresets,
+  createAudioPlayer,
+  useAudioRecorder as useExpoAudioRecorder,
+} from "expo-audio";
+import { File, Paths } from "expo-file-system";
 import {
   getCachedTTSUri,
   writeCachedTTS,
@@ -216,7 +222,6 @@ export function useAudioPlayer(opts?: {
             setIsPlaying(false);
           }
         } else {
-          const { createAudioPlayer } = await import("expo-audio");
           let uri: string | null = await getCachedTTSUri(text, voice);
           if (uri) {
             if (userIdRef.current && articleIdRef.current) {
@@ -247,8 +252,6 @@ export function useAudioPlayer(opts?: {
               // Last-resort fallback: ephemeral cache file or data URI so
               // playback still works when the persistent write failed.
               try {
-                const FileSystem = await import("expo-file-system");
-                const { File, Paths } = FileSystem as any;
                 const file = new File(
                   Paths.cache,
                   `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`
@@ -392,11 +395,8 @@ export function useAudioRecorder() {
         const uri = recorder.uri;
         if (!uri) return null;
 
-        const FileSystem = await import("expo-file-system");
-        const base64 = await FileSystem.default.readAsStringAsync(uri, {
-          encoding: "base64" as any,
-        });
-        const byteArray = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const file = new File(uri);
+        const byteArray = await file.bytes();
         return new Blob([byteArray], { type: "audio/wav" });
       }
     } catch {

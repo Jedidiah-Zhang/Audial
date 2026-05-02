@@ -60,7 +60,6 @@
   },
   "dependencies": {
     "expo-audio": "^1.1.1",
-    "expo-av": "^16.0.8",
     "expo-file-system": "^19.0.22",
     "lucide-react-native": "^1.14.0"
   }

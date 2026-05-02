@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Platform } from "react-native";
+import { createAudioPlayer } from "expo-audio";
+import { File, Paths } from "expo-file-system";
 import { getAmbientDataUri, getAmbientWav } from "@/utils/ambient";
 import type { AmbientScene } from "@/utils/sceneDetect";
 
@@ -70,12 +72,9 @@ export function useAmbientPlayer() {
           try { URL.revokeObjectURL(url); } catch {}
         }
       } else {
-        const { createAudioPlayer } = await import("expo-audio");
-        const FileSystem = await import("expo-file-system");
         if (token !== playTokenRef.current) return;
         let uri = getAmbientDataUri(scene);
         try {
-          const { File, Paths } = FileSystem as any;
           const file = new File(Paths.cache, `ambient-${scene}.wav`);
           if (!file.exists) {
             file.create();
