@@ -78,6 +78,12 @@ uri = "file://attached_assets/generated_images/fish_v6_simple_upleft.png"
 type = "image"
 title = "generated_image"
 
+[[generated]]
+id = "T-MrfMwHFeQe9qOvMLabM"
+uri = "file://attached_assets/generated_images/fish_v7_v2style_recolor_up.png"
+type = "image"
+title = "generated_image"
+
 [[outputs]]
 id = "biYEemwyYwu-r3eJ6Zcko"
 uri = "file://artifacts/language-learner/assets/images/icon.png"
@@ -137,3 +143,9 @@ id = "HdhpjFHA7ze-rvbY5fgmk"
 uri = "file://attached_assets/generated_images/fish_v6_simple_upleft.png"
 type = "image"
 title = "鱼方案6 · 极简珊瑚鱼，明显朝左上扬"
+
+[[outputs]]
+id = "3vLDWnWeUfVms4OdAG1DB"
+uri = "file://attached_assets/generated_images/fish_v7_v2style_recolor_up.png"
+type = "image"
+title = "鱼方案7 · 方案2造型 + 珊瑚×靛紫 + 上扬"
