@@ -300,7 +300,7 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {phase === "study" && stageIdx === 0 && (
+        {(phase === "study" || phase === "recording") && stageIdx === 0 && (
           <View style={styles.section}>
             <SentenceArticle
               text={text.text}
@@ -308,6 +308,7 @@ export default function SessionScreen() {
               accentColor={stageColor}
               contentType={text.contentType}
               articleId={text.id}
+              disablePlayback={phase === "recording"}
             />
 
             <View style={styles.recordSection}>
@@ -405,7 +406,7 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {phase === "recording" && (
+        {phase === "recording" && stageIdx !== 0 && (
           <View style={[styles.section, styles.centerSection]}>
             <AudioWaveform isActive color="#EF4444" barCount={9} />
             <TouchableOpacity

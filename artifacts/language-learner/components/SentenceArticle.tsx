@@ -25,6 +25,8 @@ interface SentenceArticleProps {
   maxTextHeight?: number;
   /** Owning article id, used to scope persistent TTS cache cleanup. */
   articleId?: string;
+  /** When true, sentence taps and Play All controls are disabled (e.g. during mic recording). */
+  disablePlayback?: boolean;
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -50,6 +52,7 @@ export function SentenceArticle({
   contentType,
   maxTextHeight = 320,
   articleId,
+  disablePlayback = false,
 }: SentenceArticleProps) {
   const colors = useColors();
   const t = useT();
@@ -127,6 +130,18 @@ export function SentenceArticle({
       // this effect on every render and aborting in-flight playback.
     };
   }, [stop]);
+
+  // Hard-stop any in-flight TTS / ambient playback the moment playback is
+  // disabled (e.g. user starts recording). Keeps mic input clean.
+  useEffect(() => {
+    if (disablePlayback) {
+      sequenceCancelRef.current = true;
+      setIsSequence(false);
+      setActiveIdx(null);
+      stop();
+      ambient.stop();
+    }
+  }, [disablePlayback, stop, ambient]);
 
   const playOne = useCallback(
     async (idx: number) => {
@@ -236,7 +251,7 @@ export function SentenceArticle({
               return (
                 <Text
                   key={globalIdx}
-                  onPress={() => playOne(globalIdx)}
+                  onPress={disablePlayback ? undefined : () => playOne(globalIdx)}
                   suppressHighlighting
                   style={[
                     styles.sentence,
@@ -352,7 +367,7 @@ export function SentenceArticle({
         </View>
       ) : null}
 
-      {showPlayAll && (
+      {showPlayAll && !disablePlayback && (
         <View style={styles.controls}>
           <View style={styles.voiceSection}>
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
