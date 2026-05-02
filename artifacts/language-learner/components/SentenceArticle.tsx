@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
-import { Info, PlayCircle, Square } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, Info, PlayCircle, Square } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
@@ -88,6 +88,10 @@ export function SentenceArticle({
     userId,
   });
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  // Tracks the most recent sentence the user listened to (or is listening to),
+  // so the prev/next buttons can step from a stable cursor even after a
+  // sentence finishes playing and `activeIdx` clears back to null.
+  const [cursorIdx, setCursorIdx] = useState<number | null>(null);
   const [isSequence, setIsSequence] = useState(false);
   const [rate, setRateState] = useState<number>(1);
   const sequenceCancelRef = useRef(false);
@@ -128,6 +132,16 @@ export function SentenceArticle({
     };
   }, [stop]);
 
+  // If the article (and therefore the playable sentence list) changes, reset
+  // the prev/next cursor and any active highlight so we never index out of
+  // range on the new list.
+  useEffect(() => {
+    sequenceCancelRef.current = true;
+    setIsSequence(false);
+    setActiveIdx(null);
+    setCursorIdx(null);
+  }, [playableSentences]);
+
   // Hard-stop any in-flight TTS playback the moment playback is disabled
   // (e.g. user starts recording). Keeps mic input clean.
   useEffect(() => {
@@ -149,6 +163,7 @@ export function SentenceArticle({
       setIsSequence(false);
       stop();
       setActiveIdx(idx);
+      setCursorIdx(idx);
       onPlay?.();
       await playTTS(
         playableSentences[idx],
@@ -161,6 +176,22 @@ export function SentenceArticle({
     },
     [playableSentences, voice, playTTS, stop, onPlay, rate, playGate]
   );
+
+  const playPrev = useCallback(() => {
+    if (playableSentences.length === 0) return;
+    const target =
+      cursorIdx === null ? 0 : Math.max(0, cursorIdx - 1);
+    playOne(target);
+  }, [cursorIdx, playOne, playableSentences.length]);
+
+  const playNext = useCallback(() => {
+    if (playableSentences.length === 0) return;
+    const target =
+      cursorIdx === null
+        ? 0
+        : Math.min(playableSentences.length - 1, cursorIdx + 1);
+    playOne(target);
+  }, [cursorIdx, playOne, playableSentences.length]);
 
   const playSequence = useCallback(
     (startIdx: number = 0) => {
@@ -185,6 +216,7 @@ export function SentenceArticle({
           return;
         }
         setActiveIdx(i);
+        setCursorIdx(i);
         if (i + 1 < playableSentences.length) {
           prefetchTTS(playableSentences[i + 1], voice, { userId, articleId });
         }
@@ -466,6 +498,56 @@ export function SentenceArticle({
             })}
           </View>
 
+          {(() => {
+            const total = playableSentences.length;
+            const prevDisabled =
+              isLoading || total === 0 || cursorIdx === 0;
+            const nextDisabled =
+              isLoading ||
+              total === 0 ||
+              (cursorIdx !== null && cursorIdx >= total - 1);
+            return (
+              <View style={styles.stepRow}>
+                <TouchableOpacity
+                  onPress={playPrev}
+                  disabled={prevDisabled}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.stepBtn,
+                    {
+                      backgroundColor: colors.muted,
+                      borderColor: colors.border,
+                      opacity: prevDisabled ? 0.4 : 1,
+                    },
+                  ]}
+                >
+                  <ChevronLeft size={16} color={colors.foreground} />
+                  <Text style={[styles.stepBtnText, { color: colors.foreground }]}>
+                    {t("sentence.prev")}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={playNext}
+                  disabled={nextDisabled}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.stepBtn,
+                    {
+                      backgroundColor: colors.muted,
+                      borderColor: colors.border,
+                      opacity: nextDisabled ? 0.4 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.stepBtnText, { color: colors.foreground }]}>
+                    {t("sentence.next")}
+                  </Text>
+                  <ChevronRight size={16} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
+
           {isAnyPlaying ? (
             <TouchableOpacity
               onPress={stopAll}
@@ -497,11 +579,22 @@ export function SentenceArticle({
             </TouchableOpacity>
           )}
 
-          {isSequence && activeIdx !== null && (
-            <Text style={[styles.progressLabel, { color: colors.mutedForeground }]}>
-              {t("sentence.progress", { i: activeIdx + 1, n: playableSentences.length })}
-            </Text>
-          )}
+          {(() => {
+            const total = playableSentences.length;
+            if (total === 0) return null;
+            // In dictation mode (the card is hidden) the user has no on-screen
+            // way to tell which sentence they're on, so we always surface the
+            // progress label. In normal viewing modes we keep the legacy
+            // behaviour and only show it during continuous play-all.
+            const showProgress = !visible || (isSequence && activeIdx !== null);
+            if (!showProgress) return null;
+            const idx = activeIdx ?? cursorIdx ?? 0;
+            return (
+              <Text style={[styles.progressLabel, { color: colors.mutedForeground }]}>
+                {t("sentence.progress", { i: idx + 1, n: total })}
+              </Text>
+            );
+          })()}
         </View>
       )}
     </View>
@@ -657,6 +750,26 @@ const styles = StyleSheet.create({
   },
   speedBtnText: {
     fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  stepRow: {
+    flexDirection: "row",
+    gap: 8,
+    width: "100%",
+  },
+  stepBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  stepBtnText: {
+    fontSize: 13,
     fontFamily: "Inter_600SemiBold",
   },
   bigBtn: {
