@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, type TextStyle } from "react-native";
 import { useColors } from "@/hooks/useColors";
 
 export type AnnotationStatus = "ok" | "wrong" | "missed" | "extra";
@@ -71,7 +71,7 @@ export function AnnotatedText({
           const prev = i > 0 ? items[i - 1].word : null;
           const space = shouldPrependSpace(prev, a.word) ? " " : "";
 
-          let style: any = null;
+          let style: TextStyle | null = null;
           switch (a.status) {
             case "wrong":
               style = {
