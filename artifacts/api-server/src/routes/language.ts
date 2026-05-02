@@ -8,6 +8,8 @@ import {
   textToSpeech,
   speechToText,
   ensureCompatibleFormat,
+  isOpenaiConfigured,
+  OpenAINotConfiguredError,
 } from "@workspace/integrations-openai-ai-server/audio";
 
 const router = Router();
@@ -23,6 +25,18 @@ const requireDeepseek: RequestHandler = (_req, res, next) => {
       success: false,
       error:
         "DeepSeek 未配置：请设置 DEEPSEEK_API_KEY 环境变量后重启服务（DeepSeek is not configured: set DEEPSEEK_API_KEY and restart the server）",
+    });
+    return;
+  }
+  next();
+};
+
+const requireOpenai: RequestHandler = (_req, res, next) => {
+  if (!isOpenaiConfigured()) {
+    res.status(503).json({
+      success: false,
+      error:
+        "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后将其添加为 Replit Secret OPENAI_API_KEY 后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
     });
     return;
   }
@@ -226,7 +240,7 @@ router.post("/language/word-detail", requireDeepseek, async (req, res) => {
   }
 });
 
-router.post("/language/tts", async (req, res) => {
+router.post("/language/tts", requireOpenai, async (req, res) => {
   try {
     const { text, voice = "nova" } = req.body as { text: string; voice?: string };
 
@@ -240,12 +254,16 @@ router.post("/language/tts", async (req, res) => {
     res.setHeader("Content-Length", audioBuffer.length);
     res.send(audioBuffer);
   } catch (err) {
+    if (err instanceof OpenAINotConfiguredError) {
+      res.status(503).json({ success: false, error: err.message });
+      return;
+    }
     req.log.error({ err }, "TTS failed");
     res.status(500).json({ success: false, error: "TTS generation failed" });
   }
 });
 
-router.post("/language/stt", async (req, res) => {
+router.post("/language/stt", requireOpenai, async (req, res) => {
   try {
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -256,6 +274,10 @@ router.post("/language/stt", async (req, res) => {
         const transcript = await speechToText(buffer, format);
         res.json({ success: true, transcript });
       } catch (err) {
+        if (err instanceof OpenAINotConfiguredError) {
+          res.status(503).json({ success: false, error: err.message });
+          return;
+        }
         req.log.error({ err }, "STT failed");
         res.status(500).json({ success: false, error: "Transcription failed" });
       }

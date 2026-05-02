@@ -11,3 +11,4 @@ export {
   speechToText,
   speechToTextStream,
 } from "./client";
+export { isOpenaiConfigured, OpenAINotConfiguredError } from "../client";
