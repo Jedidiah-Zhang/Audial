@@ -15,6 +15,7 @@ import { ArrowLeft, Book, Check, ChevronRight, Lock, Star } from "lucide-react-n
 import Animated, {
   Easing,
   runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -125,6 +126,23 @@ export default function PracticeScreen() {
   // before the reverse interpolation starts).
   const [overlayMounted] = useState(hasGeom);
   const closingRef = useRef(false);
+
+  // Touch-gate for the practice content layer. React Native's `opacity`
+  // does not disable hit-testing, so without this an accidental tap on
+  // the (still-invisible) back button or scroll area during the
+  // open/close crossfade could fire. We flip the gate when the animation
+  // crosses the same p=0.85 boundary where the content reaches full
+  // opacity, so taps only land once the content is actually visible.
+  const [contentPointerEvents, setContentPointerEvents] = useState<
+    "auto" | "none"
+  >(hasGeom ? "none" : "auto");
+  useAnimatedReaction(
+    () => progressSV.value >= 0.85,
+    (interactive, prev) => {
+      if (prev === null || interactive === prev) return;
+      runOnJS(setContentPointerEvents)(interactive ? "auto" : "none");
+    },
+  );
 
   useEffect(() => {
     if (!hasGeom) return;
@@ -284,8 +302,27 @@ export default function PracticeScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Animated.View style={[styles.contentWrap, hasGeom ? contentStyle : null]}>
+    // Container is transparent so the home screen (rendered behind us via
+    // `presentation: "transparentModal"` in app/_layout.tsx) shows through
+    // any uncovered areas during the card-expand animation. The opaque
+    // background actually lives on `contentWrap` below, where it fades in
+    // and out together with the practice content — that way the home
+    // screen is naturally visible during the expand/collapse and there's
+    // no blank-background frame at either end of the animation.
+    <View style={[styles.container, { backgroundColor: "transparent" }]}>
+      <Animated.View
+        // Block touches while the practice content is mostly invisible
+        // (during the open/close crossfade window). React Native opacity
+        // does NOT disable hit-testing on its own, so without this an
+        // accidental tap on the still-invisible back button or scroll
+        // area could fire mid-animation.
+        pointerEvents={hasGeom ? contentPointerEvents : "auto"}
+        style={[
+          styles.contentWrap,
+          { backgroundColor: colors.background },
+          hasGeom ? contentStyle : null,
+        ]}
+      >
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.7}>
             <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
@@ -468,13 +505,6 @@ export default function PracticeScreen() {
       {hasGeom && overlayMounted && initialGeom && (
         <Animated.View
           pointerEvents="none"
-          // Composite the panel + the snapshot inside as a single offscreen
-          // texture before blending over the practice content. Without this,
-          // Android alpha-blends each child View independently against the
-          // underlying content, which produces visible seams during the
-          // open/close crossfade and a flash on the very last frame.
-          renderToHardwareTextureAndroid
-          needsOffscreenAlphaCompositing
           style={[
             styles.overlay,
             {

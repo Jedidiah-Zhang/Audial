@@ -44,7 +44,22 @@ function RootLayoutNav() {
       <Stack.Screen name="generate" options={{ headerShown: false, presentation: "modal" }} />
       <Stack.Screen
         name="practice"
-        options={{ headerShown: false, animation: "none" }}
+        options={{
+          headerShown: false,
+          // The practice screen runs its own card-expand overlay animation
+          // (see app/practice.tsx). We disable the native stack transition
+          // so it doesn't compete with our overlay, and we present it as a
+          // transparent modal so the home screen stays mounted behind it.
+          // That's what makes the open/close animations look like the card
+          // is genuinely growing out of and back into the home page,
+          // instead of the home page disappearing into a blank background
+          // frame at the start (and a flicker at the end on Android when
+          // the navigator instantly swaps between an opaque practice
+          // screen and the home screen).
+          animation: "none",
+          presentation: "transparentModal",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
       />
       <Stack.Screen name="session" options={{ headerShown: false }} />
     </Stack>
