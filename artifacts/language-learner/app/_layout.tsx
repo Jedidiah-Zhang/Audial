@@ -21,6 +21,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { LanguageOnboarding } from "@/components/LanguageOnboarding";
 import { RewardedAdSimulatorHost } from "@/components/RewardedAdSimulatorHost";
+import { isRealAdMobActive } from "@/hooks/useRewardedAd";
 import { tokenCache } from "@/utils/tokenCache";
 import { applyRTL, isRTL, reloadForRTL } from "@/utils/rtl";
 
@@ -132,7 +133,7 @@ export default function RootLayout() {
                   <RTLController>
                     <RootLayoutNav />
                     <LanguageOnboarding />
-                    <RewardedAdSimulatorHost />
+                    {!isRealAdMobActive() && <RewardedAdSimulatorHost />}
                   </RTLController>
                 </KeyboardProvider>
               </GestureHandlerRootView>
