@@ -96,6 +96,16 @@ async function writeIndex(
   }
 }
 
+// Like writeIndex but propagates the failure so callers that need to know
+// whether the target index was actually persisted (e.g. ownership transfer
+// before deleting the source) can react.
+async function writeIndexStrict(
+  userId: string,
+  idx: Record<string, string[]>
+): Promise<void> {
+  await AsyncStorage.setItem(indexKey(userId), JSON.stringify(idx));
+}
+
 // Per-user serialization for read-modify-write on the index. Without this,
 // concurrent prefetch/play calls (and concurrent remove) can lose updates.
 const _indexQueues = new Map<string, Promise<unknown>>();
@@ -183,11 +193,16 @@ export async function transferAudioOwnership(
           mutated = true;
         }
       }
-      if (mutated) await writeIndex(toUserId, toIdx);
+      // Only remove the source index if the target write actually succeeded.
+      // Otherwise leave both intact so the next sign-in can retry instead of
+      // silently dropping ownership metadata.
+      if (mutated) {
+        await writeIndexStrict(toUserId, toIdx);
+      }
       try {
         await AsyncStorage.removeItem(indexKey(fromUserId));
       } catch {
-        // ignore
+        // ignore: target already has the data, source removal can be retried
       }
     });
   });

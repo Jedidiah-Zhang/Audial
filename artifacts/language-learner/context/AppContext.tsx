@@ -178,11 +178,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       if (shouldMigrate) {
-        migratedTargetsRef.current.add(userId);
         try {
           await migrateGuestData(userId);
+          // Only mark this target as done after the migration actually
+          // completed without throwing. Transient AsyncStorage failures
+          // should be retried on the next sign-in.
+          migratedTargetsRef.current.add(userId);
         } catch {
-          // best-effort; fall through to loadAll regardless
+          // best-effort; fall through to loadAll so the user still sees
+          // whatever target-side data is already there
         }
       }
       // If the active user changed while migration was in flight, abort the
