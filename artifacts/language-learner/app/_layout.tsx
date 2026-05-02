@@ -93,7 +93,22 @@ function RootLayoutNav() {
           contentStyle: { backgroundColor: "transparent" },
         }}
       />
-      <Stack.Screen name="session" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="session"
+        options={{
+          headerShown: false,
+          // Same card-expand overlay treatment as /practice — see the
+          // practice screen options above for the rationale. The session
+          // screen runs its own Reanimated-based expand animation
+          // (see app/session.tsx), so we disable the native stack
+          // transition and present transparently to keep the practice
+          // screen mounted as the visible background during the open
+          // and close phases.
+          animation: "none",
+          presentation: "transparentModal",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
       </Stack>
     </View>
   );

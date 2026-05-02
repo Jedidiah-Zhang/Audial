@@ -8,10 +8,11 @@ import {
   Platform,
   BackHandler,
   useWindowDimensions,
+  View as RNView,
 } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, Book, Check, ChevronRight, Lock, Star } from "lucide-react-native";
+import { ArrowLeft, Book, Star } from "lucide-react-native";
 import Animated, {
   Easing,
   runOnJS,
@@ -25,9 +26,10 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
 import { TextCard } from "@/components/TextCard";
+import { StageCard } from "@/components/StageCard";
 import { VocabularyList } from "@/components/VocabularyList";
-import { STAGES, STAGE_PASS_SCORE } from "@/types";
-import { useT, getStageName, getStageDesc } from "@/utils/i18n";
+import { STAGES } from "@/types";
+import { useT } from "@/utils/i18n";
 import { Icon } from "@/components/Icon";
 
 // Open uses a strong ease-out ("Expo Out") to mimic the iOS App Store launch
@@ -317,9 +319,61 @@ export default function PracticeScreen() {
     ? Math.round(stageBests.reduce((a, b) => a + b, 0) / STAGES.length)
     : 0;
 
+  // Per-stage refs let us measure each stage card on tap so we can hand
+  // its on-screen geometry to /session for the same App Store-style
+  // expand animation we use to enter /practice from the home page.
+  const stageRefs = useRef<Array<RNView | null>>([]);
+  const navigatingStageRef = useRef(false);
+
   const handleStartStage = (stageIdx: number) => {
     if (!isUnlocked(stageIdx)) return;
-    router.push({ pathname: "/session", params: { id: text.id, stage: stageIdx.toString() } });
+    if (navigatingStageRef.current) return;
+
+    const goPlain = () => {
+      navigatingStageRef.current = true;
+      router.push({
+        pathname: "/session",
+        params: { id: text!.id, stage: stageIdx.toString() },
+      });
+      setTimeout(() => {
+        navigatingStageRef.current = false;
+      }, 600);
+    };
+
+    const node = stageRefs.current[stageIdx];
+    if (
+      Platform.OS === "web" ||
+      !node ||
+      typeof (node as any).measureInWindow !== "function"
+    ) {
+      goPlain();
+      return;
+    }
+
+    (node as any).measureInWindow(
+      (x: number, y: number, width: number, height: number) => {
+        if (!width || !height || Number.isNaN(x) || Number.isNaN(y)) {
+          goPlain();
+          return;
+        }
+        navigatingStageRef.current = true;
+        router.push({
+          pathname: "/session",
+          params: {
+            id: text!.id,
+            stage: stageIdx.toString(),
+            oX: String(Math.round(x)),
+            oY: String(Math.round(y)),
+            oW: String(Math.round(width)),
+            oH: String(Math.round(height)),
+            oR: "18",
+          },
+        });
+        setTimeout(() => {
+          navigatingStageRef.current = false;
+        }, 600);
+      },
+    );
   };
 
   return (
@@ -442,82 +496,18 @@ export default function PracticeScreen() {
                     />
                   )}
 
-                  <TouchableOpacity
+                  <StageCard
+                    ref={(node) => {
+                      stageRefs.current[idx] = node;
+                    }}
+                    idx={idx}
+                    locked={locked}
+                    passed={passed}
+                    current={current}
+                    best={best}
+                    lang={lang}
                     onPress={() => handleStartStage(idx)}
-                    disabled={locked}
-                    activeOpacity={locked ? 1 : 0.85}
-                    style={[
-                      styles.stageCard,
-                      {
-                        backgroundColor: colors.card,
-                        borderColor: current
-                          ? stage.color
-                          : passed
-                          ? stage.color + "60"
-                          : colors.border,
-                        borderWidth: current ? 2 : 1,
-                        opacity: locked ? 0.45 : 1,
-                      },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.stageBadge,
-                        {
-                          backgroundColor: passed
-                            ? stage.color
-                            : current
-                            ? stage.color + "20"
-                            : colors.muted,
-                        },
-                      ]}
-                    >
-                      {passed ? (
-                        <Check size={20} color="#fff" />
-                      ) : locked ? (
-                        <Lock size={18} color={colors.mutedForeground} />
-                      ) : (
-                        <Icon name={stage.icon as any} size={20} color={stage.color} />
-                      )}
-                    </View>
-
-                    <View style={styles.stageInfo}>
-                      <View style={styles.stageHeader}>
-                        <Text style={[styles.stageNum, { color: colors.mutedForeground }]}>
-                          {t("practice.stageNum", { n: idx + 1 })}
-                        </Text>
-                        {current && (
-                          <View style={[styles.currentTag, { backgroundColor: stage.color }]}>
-                            <Text style={styles.currentTagText}>{t("practice.current")}</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[styles.stageName, { color: locked ? colors.mutedForeground : colors.foreground }]}>
-                        {getStageName(idx, lang)}
-                      </Text>
-                      <Text style={[styles.stageDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
-                        {getStageDesc(idx, lang)}
-                      </Text>
-                      {stage.needsScore && (
-                        <Text style={[styles.stageThreshold, { color: colors.mutedForeground }]}>
-                          {t("practice.passReq", { n: STAGE_PASS_SCORE })}
-                        </Text>
-                      )}
-                    </View>
-
-                    <View style={styles.stageRight}>
-                      {best > 0 ? (
-                        <View style={styles.scoreBlock}>
-                          <Text style={[styles.scoreBig, { color: passed ? stage.color : colors.mutedForeground }]}>
-                            {best}
-                          </Text>
-                          <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>{t("practice.bestLabel")}</Text>
-                        </View>
-                      ) : locked ? null : (
-                        <ChevronRight size={20} color={stage.color} style={flipIfRTL()} />
-                      )}
-                    </View>
-                  </TouchableOpacity>
+                  />
                 </View>
               );
             })}

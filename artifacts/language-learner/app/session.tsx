@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,9 +10,19 @@ import {
   Platform,
   Alert,
   Modal,
+  BackHandler,
+  useWindowDimensions,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Sparkles, Square, Target, Volume2 } from "lucide-react-native";
 import { flipIfRTL, rtlTextStyle } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
@@ -25,6 +35,7 @@ import { ScoreCard, type PerSentenceRow } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
 import { ShadowSentenceFlow, type ShadowFlowResult } from "@/components/ShadowSentenceFlow";
 import { AnnotatedText, AnnotatedLegend, type Annotation } from "@/components/AnnotatedText";
+import { StageCard } from "@/components/StageCard";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import type { LearningMode } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
@@ -34,6 +45,39 @@ import { useRewardedAd } from "@/hooks/useRewardedAd";
 import { useDictationListenQuota } from "@/hooks/useDictationListenQuota";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
+
+// Card-expand animation tuning. Kept in sync with app/practice.tsx so
+// home → practice → session feels like one continuous transition.
+const OPEN_DURATION = 420;
+const CLOSE_DURATION = 320;
+const OPEN_EASING = Easing.bezier(0.16, 1, 0.3, 1);
+const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
+
+type Geom = { x: number; y: number; width: number; height: number; radius: number };
+
+function parseGeom(p: {
+  oX?: string;
+  oY?: string;
+  oW?: string;
+  oH?: string;
+  oR?: string;
+}): Geom | null {
+  const x = Number(p.oX);
+  const y = Number(p.oY);
+  const w = Number(p.oW);
+  const h = Number(p.oH);
+  const r = Number(p.oR ?? "18");
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(w) ||
+    !Number.isFinite(h)
+  ) {
+    return null;
+  }
+  if (w <= 0 || h <= 0) return null;
+  return { x, y, width: w, height: h, radius: Number.isFinite(r) ? r : 18 };
+}
 
 type SessionPhase =
   | "intro"
@@ -48,7 +92,18 @@ export default function SessionScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { id, stage: stageParam } = useLocalSearchParams<{ id: string; stage: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    stage: string;
+    oX?: string;
+    oY?: string;
+    oW?: string;
+    oH?: string;
+    oR?: string;
+  }>();
+  const { id, stage: stageParam } = params;
+  const navigation = useNavigation();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const {
     texts,
     addResult,
@@ -57,6 +112,7 @@ export default function SessionScreen() {
     isPro,
     isAnalysisUnlocked,
     unlockAnalysis,
+    getProgressForText,
   } = useApp();
   // Rewarded-ad hooks for the two in-session placements: per-result
   // analysis unlock and dictation listen-again. `useRewardedAd` is
@@ -570,6 +626,149 @@ export default function SessionScreen() {
   // different stage in the future without re-plumbing.
   const analysisLocked = false;
 
+  // ---- Card-expand transition (mirrors app/practice.tsx) ----
+  // The /practice screen captures the tapped stage card's geometry and
+  // hands it to us via router params. We replay the same expand-from-
+  // card animation here so the practice → session navigation feels like
+  // one continuous transition, matching the home → practice animation.
+  const initialGeom = useRef(parseGeom(params)).current;
+  const hasGeom = initialGeom != null && Platform.OS !== "web";
+
+  const stageColorValue = stage.color;
+  const progressForText = text ? getProgressForText(text.id) : undefined;
+  const stagePassedArr =
+    progressForText?.stagePassed ?? STAGES.map(() => false);
+  const snapshotPassed = stagePassedArr[stageIdx] ?? false;
+  const snapshotLocked = stageIdx > 0 && !stagePassedArr[stageIdx - 1];
+  const snapshotCurrent = !snapshotLocked && !snapshotPassed;
+  // Match the originating stage card chrome so the start of the
+  // animation lines up exactly with what the user just tapped.
+  const overlayBorderColor = snapshotCurrent
+    ? stageColorValue
+    : snapshotPassed
+    ? stageColorValue + "60"
+    : colors.border;
+  const overlayMaxBorder = snapshotCurrent ? 2 : 1;
+
+  const progressSV = useSharedValue(hasGeom ? 0 : 1);
+  // Overlay stays mounted for the lifetime of the screen; see the same
+  // rationale in app/practice.tsx (avoids a one-frame flash on Android
+  // when tearing down the overlay's view tree at p=1).
+  const [overlayMounted] = useState(hasGeom);
+  const closingRef = useRef(false);
+
+  // Touch-gate for the session content during the open/close crossfade.
+  const [contentPointerEvents, setContentPointerEvents] = useState<
+    "auto" | "none"
+  >(hasGeom ? "none" : "auto");
+  useAnimatedReaction(
+    () => progressSV.value >= 0.85,
+    (interactive, prev) => {
+      if (prev === null || interactive === prev) return;
+      runOnJS(setContentPointerEvents)(interactive ? "auto" : "none");
+    },
+  );
+
+  useEffect(() => {
+    if (!hasGeom) return;
+    const handle = requestAnimationFrame(() => {
+      progressSV.value = withTiming(1, {
+        duration: OPEN_DURATION,
+        easing: OPEN_EASING,
+      });
+    });
+    return () => cancelAnimationFrame(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runCloseAnimation = useCallback(
+    (onDone: () => void) => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      progressSV.value = withTiming(
+        0,
+        { duration: CLOSE_DURATION, easing: CLOSE_EASING },
+        (finished) => {
+          if (finished) runOnJS(onDone)();
+        },
+      );
+    },
+    [progressSV],
+  );
+
+  // Intercept navigation back so the reverse animation runs first. This
+  // covers the in-app back button, the iOS swipe-back gesture (since
+  // navigation events fire for it too), and any router.back() calls
+  // emitted from inside the session screen (e.g. handleNextStage).
+  useEffect(() => {
+    if (!hasGeom) return;
+    const sub = navigation.addListener("beforeRemove", (e) => {
+      if (closingRef.current) return;
+      e.preventDefault();
+      runCloseAnimation(() => {
+        // Wait one extra frame before handing control to the navigator;
+        // see the same comment in app/practice.tsx for why.
+        requestAnimationFrame(() => {
+          navigation.dispatch(e.data.action);
+        });
+      });
+    });
+    return sub;
+  }, [navigation, runCloseAnimation, hasGeom]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android" || !hasGeom) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => false);
+    return () => sub.remove();
+  }, [hasGeom]);
+
+  // See app/practice.tsx for the Android Dialog-vs-activity-window
+  // coordinate-space rationale behind this offset.
+  const verticalOffset = Platform.OS === "android" ? insets.top : 0;
+
+  const overlayBgStyle = useAnimatedStyle(() => {
+    if (!initialGeom) return { opacity: 0 };
+    const p = progressSV.value;
+    const inv = 1 - p;
+    const bgOp = p <= 0.85 ? 1 : Math.max(0, 1 - (p - 0.85) / 0.15);
+    return {
+      top: (initialGeom.y + verticalOffset) * inv,
+      left: initialGeom.x * inv,
+      width: initialGeom.width + (screenW - initialGeom.width) * p,
+      height: initialGeom.height + (screenH - initialGeom.height) * p,
+      borderRadius: initialGeom.radius * inv,
+      borderWidth: overlayMaxBorder * inv,
+      opacity: bgOp,
+    };
+  }, [
+    initialGeom?.x,
+    initialGeom?.y,
+    initialGeom?.width,
+    initialGeom?.height,
+    initialGeom?.radius,
+    screenW,
+    screenH,
+    overlayMaxBorder,
+    verticalOffset,
+  ]);
+
+  const contentScaleTarget = initialGeom
+    ? Math.min(1.6, Math.max(1, screenW / initialGeom.width))
+    : 1;
+  const contentSnapStyle = useAnimatedStyle(() => {
+    if (!initialGeom) return { opacity: 0 };
+    const p = progressSV.value;
+    const s = 1 + (contentScaleTarget - 1) * p;
+    const op = p <= 0.55 ? 1 : p >= 0.9 ? 0 : 1 - (p - 0.55) / 0.35;
+    return { transform: [{ scale: s }], opacity: op };
+  }, [contentScaleTarget, initialGeom?.width, initialGeom?.height]);
+
+  const contentStyle = useAnimatedStyle(() => {
+    const p = progressSV.value;
+    const op = p <= 0.4 ? 0 : p >= 0.85 ? 1 : (p - 0.4) / 0.45;
+    return { opacity: op };
+  });
+
   if (!text) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -582,7 +781,20 @@ export default function SessionScreen() {
   const isLastStage = stageIdx === STAGES.length - 1;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    // Container is transparent so the practice screen (rendered behind
+    // us via `presentation: "transparentModal"` in app/_layout.tsx)
+    // shows through during the card-expand animation. The opaque
+    // background lives on `contentWrap` below where it crossfades with
+    // the overlay snapshot.
+    <View style={[styles.container, { backgroundColor: "transparent" }]}>
+      <Animated.View
+        pointerEvents={hasGeom ? contentPointerEvents : "auto"}
+        style={[
+          styles.contentWrap,
+          { backgroundColor: colors.background },
+          hasGeom ? contentStyle : null,
+        ]}
+      >
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
           <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
@@ -1006,6 +1218,43 @@ export default function SessionScreen() {
           </View>
         )}
       </ScrollView>
+      </Animated.View>
+
+      {hasGeom && overlayMounted && initialGeom && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.overlay,
+            {
+              backgroundColor: colors.card,
+              borderColor: overlayBorderColor,
+            },
+            overlayBgStyle,
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.overlaySnapshot,
+              {
+                width: initialGeom.width,
+                height: initialGeom.height,
+              },
+              contentSnapStyle,
+            ]}
+          >
+            <StageCard
+              idx={stageIdx}
+              locked={snapshotLocked}
+              passed={snapshotPassed}
+              current={snapshotCurrent}
+              best={progressForText?.stageBests?.[stageIdx] ?? 0}
+              lang={lang}
+              snapshot
+            />
+          </Animated.View>
+        </Animated.View>
+      )}
+
       {micPermissionModal}
 
       <Modal
@@ -1082,6 +1331,17 @@ export default function SessionScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  contentWrap: { flex: 1 },
+  overlay: {
+    position: "absolute",
+    overflow: "hidden",
+    borderStyle: "solid",
+  },
+  overlaySnapshot: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
