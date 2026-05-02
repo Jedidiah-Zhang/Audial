@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -9,7 +10,17 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { AlertTriangle, Check, Headphones, Play, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
+import { useNavigation } from "expo-router";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Headphones,
+  Play,
+  RotateCcw,
+  Square,
+  Volume2,
+} from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -19,27 +30,22 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import { Icon } from "@/components/Icon";
 import { useT } from "@/utils/i18n";
 import type { ContentType } from "@/types";
-import { STAGE_PASS_SCORE } from "@/types";
 import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
 import { getContentTypeLabel } from "@/utils/i18n";
+import { sanitizeAnnotations } from "@/utils/annotations";
+import type { Annotation } from "@/components/AnnotatedText";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
-
-export interface PerSentenceResult {
-  index: number;
-  score: number;
-  passed: boolean;
-  transcript: string;
-  target: string;
-  feedback?: string;
-  mistakes?: string[];
-}
 
 export interface ShadowFlowResult {
   score: number;
   feedback: string;
-  perSentence: PerSentenceResult[];
+  fluency?: number;
+  accuracy?: number;
+  targetAnnotations?: Annotation[];
+  userTranscript?: string;
+  recordingUri?: string | null;
 }
 
 interface ScorePronunciationResponse {
@@ -47,39 +53,49 @@ interface ScorePronunciationResponse {
   data?: {
     score?: number;
     feedback?: string;
-    mistakes?: string[];
+    fluency?: number;
+    accuracy?: number;
+    targetAnnotations?: unknown;
     [key: string]: unknown;
   };
   error?: string;
-}
-
-type SentenceStatus = "pending" | "passed" | "failed";
-
-interface SentenceState {
-  status: SentenceStatus;
-  score?: number;
-  transcript?: string;
-  feedback?: string;
-  mistakes?: string[];
 }
 
 type FlowPhase =
   | "playing"
   | "ready"
   | "recording"
-  | "transcribing"
-  | "scoring"
-  | "passed-pause"
-  | "failed-options"
-  | "error-no-audio"
-  | "error-transcribe"
-  | "error-score"
+  | "full-read-intro"
+  | "full-playing"
+  | "full-recording"
+  | "full-scoring"
+  | "full-error-no-audio"
+  | "full-error-transcribe"
+  | "full-error-score"
   | "done";
 
-// Hard upper bound on the stop-recording / transcribe / score round-trip.
-// 30s is comfortably more than any realistic call but short enough that the
-// user isn't left staring at a spinner forever when something goes wrong.
-const REQUEST_TIMEOUT_MS = 30000;
+interface SentenceState {
+  listened: boolean;
+  recorded: boolean;
+}
+
+const REQUEST_TIMEOUT_MS = 60000;
+
+// Per-character TTS duration estimate. CJK characters are slower than
+// Latin syllables in OpenAI TTS Nova at 1× speed. Used to set the hard
+// auto-stop on the full read-through (we multiply by 2.5 below).
+function estimateTtsMs(text: string): number {
+  if (!text) return 0;
+  let ms = 0;
+  for (const ch of text) {
+    if (/[\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(ch)) {
+      ms += 200;
+    } else {
+      ms += 70;
+    }
+  }
+  return Math.max(2000, ms);
+}
 
 interface Props {
   text: string;
@@ -102,12 +118,13 @@ export function ShadowSentenceFlow({
 }: Props) {
   const colors = useColors();
   const t = useT();
+  const navigation = useNavigation();
   const { userId, settings } = useApp();
   const player = useAudioPlayer({ articleId, userId });
+  const recordingPlayer = useAudioPlayer({ articleId, userId });
   const {
     startRecording,
     stopRecording,
-    isRecording,
     permission,
     requestPermission,
     openAppSettings,
@@ -127,17 +144,25 @@ export function ShadowSentenceFlow({
   );
   const sentences = useMemo(() => flattenSentences(layout), [layout]);
 
+  // Total estimated TTS time across the whole passage; the full read-through
+  // gets a hard auto-stop at 2.5× this value.
+  const totalEstimatedMs = useMemo(
+    () => sentences.reduce((s, x) => s + estimateTtsMs(x), 0),
+    [sentences]
+  );
+
   const [currentIdx, setCurrentIdx] = useState(0);
   const [phase, setPhase] = useState<FlowPhase>("playing");
   const [states, setStates] = useState<SentenceState[]>(() =>
-    sentences.map(() => ({ status: "pending" as SentenceStatus }))
+    sentences.map(() => ({ listened: false, recorded: false }))
   );
-  // Cache the last successful transcription so the user can retry just the
-  // scoring step (without re-recording) when the score endpoint fails.
-  const [lastTranscript, setLastTranscript] = useState<string>("");
+  const [recElapsedMs, setRecElapsedMs] = useState(0);
+  const [isPlayingMyRecording, setIsPlayingMyRecording] = useState(false);
+  // Cache the last successful full-passage transcript so the user can retry
+  // just the scoring step (without re-recording) when the score endpoint
+  // fails.
+  const [lastFullTranscript, setLastFullTranscript] = useState<string>("");
 
-  // Source-of-truth mirror of `states` so completion paths can synchronously
-  // read the freshest values without depending on React's update timing.
   const statesRef = useRef<SentenceState[]>(states);
   const updateStates = useCallback(
     (updater: (prev: SentenceState[]) => SentenceState[]) => {
@@ -150,20 +175,32 @@ export function ShadowSentenceFlow({
   );
 
   const completedRef = useRef(false);
-  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playGenRef = useRef(0);
+  const fullPlayCancelRef = useRef<(() => void) | null>(null);
+  const recTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recAutoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recStartRef = useRef<number>(0);
+  const playbackWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // useAudioRecorder exposes lastRecordingUri as state, which means our
+  // async scoring callback closes over the value at the time the callback
+  // was created — i.e. usually `null` because the recording hadn't been
+  // captured yet. The state updates during stopRecording, but our running
+  // closure can't see the new value. Mirror the state into a ref so we
+  // always read the latest URI when assembling the onComplete payload.
+  const lastRecordingUriRef = useRef<string | null>(null);
+  useEffect(() => {
+    lastRecordingUriRef.current = lastRecordingUri;
+  }, [lastRecordingUri]);
 
-  // Refs for per-sentence auto-scroll. We measure each row against the
-  // ScrollView's inner content view so nested layouts (dialogue bubbles)
-  // resolve to the correct global y.
+  // Scroll refs for the per-sentence loop card.
   const scrollRef = useRef<ScrollView>(null);
   const contentRef = useRef<View>(null);
   const rowRefs = useRef<Map<number, View | null>>(new Map());
 
-  const stopAdvanceTimer = useCallback(() => {
-    if (advanceTimerRef.current) {
-      clearTimeout(advanceTimerRef.current);
-      advanceTimerRef.current = null;
+  const clearPlaybackWatchdog = useCallback(() => {
+    if (playbackWatchdogRef.current) {
+      clearTimeout(playbackWatchdogRef.current);
+      playbackWatchdogRef.current = null;
     }
   }, []);
 
@@ -182,256 +219,141 @@ export function ShadowSentenceFlow({
     };
   }, [sentences, voice, userId, articleId]);
 
-  const playbackWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearPlaybackWatchdog = useCallback(() => {
-    if (playbackWatchdogRef.current) {
-      clearTimeout(playbackWatchdogRef.current);
-      playbackWatchdogRef.current = null;
-    }
-  }, []);
-
   const playSentence = useCallback(
     (idx: number) => {
       if (idx >= sentences.length) return;
-      stopAdvanceTimer();
       clearPlaybackWatchdog();
       const gen = ++playGenRef.current;
       setPhase("playing");
       try {
         player.playTTS(sentences[idx], voice, () => {
-          // Ignore stale callbacks (user moved on / restarted playback).
           if (gen !== playGenRef.current) return;
           clearPlaybackWatchdog();
           setPhase("ready");
+          // Mark this sentence as listened the moment playback completes —
+          // this is the gate that unlocks the "Start full read" CTA.
+          updateStates((prev) =>
+            prev.map((s, i) => (i === idx ? { ...s, listened: true } : s))
+          );
         });
       } catch {
-        // playTTS threw synchronously — fall back to ready immediately so the
-        // mic doesn't stay locked.
-        if (gen === playGenRef.current) setPhase("ready");
+        if (gen === playGenRef.current) {
+          setPhase("ready");
+          updateStates((prev) =>
+            prev.map((s, i) => (i === idx ? { ...s, listened: true } : s))
+          );
+        }
         return;
       }
       // Safety net: if the playback callback never fires (TTS network error,
       // audio backend hiccup, etc.) the user would be stranded in "playing"
-      // with the mic disabled. Estimate a generous upper bound based on
-      // sentence length (~120 chars/sec for any language is plenty) and
-      // auto-recover to "ready" so the flow is never permanently stuck.
-      const estMs = Math.max(8000, Math.min(45000, sentences[idx].length * 250));
+      // with the mic disabled. Estimate a generous upper bound and auto-
+      // recover to "ready" so the flow is never permanently stuck.
+      const estMs = Math.max(8000, Math.min(60000, estimateTtsMs(sentences[idx]) * 2));
       playbackWatchdogRef.current = setTimeout(() => {
         if (gen !== playGenRef.current) return;
         playbackWatchdogRef.current = null;
         setPhase("ready");
+        updateStates((prev) =>
+          prev.map((s, i) => (i === idx ? { ...s, listened: true } : s))
+        );
       }, estMs);
     },
-    [sentences, voice, player, stopAdvanceTimer, clearPlaybackWatchdog]
+    [sentences, voice, player, clearPlaybackWatchdog, updateStates]
   );
 
   // Kick off the very first sentence on mount.
   useEffect(() => {
     if (sentences.length === 0) {
-      // Empty article — nothing to score. Report a 0 with empty per-sentence
-      // data so the result page doesn't get stuck in a bad state. (We send 0
-      // rather than a perfect score because there was no actual practice.)
+      // Empty article — nothing to score. Report a 0 so the result page
+      // doesn't get stuck in a bad state.
       if (!completedRef.current) {
         completedRef.current = true;
-        onComplete({ score: 0, feedback: "", perSentence: [] });
+        onComplete({ score: 0, feedback: "" });
       }
       return;
     }
     playSentence(0);
     return () => {
-      stopAdvanceTimer();
       clearPlaybackWatchdog();
-      player.stop();
+      try {
+        player.stop();
+      } catch {}
+      try {
+        recordingPlayer.stop();
+      } catch {}
+      if (recTickRef.current) clearInterval(recTickRef.current);
+      if (recAutoStopRef.current) clearTimeout(recAutoStopRef.current);
+      if (fullPlayCancelRef.current) fullPlayCancelRef.current();
     };
-    // Intentionally only run on mount — playSentence captures the latest
-    // sentence array via closure, and re-running this effect would restart
-    // playback every time state changes.
+    // Intentionally only run on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const finishFlow = useCallback(
-    (finalStates: SentenceState[]) => {
+  // ── leave-confirmation dialog ─────────────────────────────────────────
+  // Intercepts the screen-level "back" navigation so we can confirm before
+  // throwing away in-progress shadow practice. Once `completedRef.current`
+  // is set (the parent has switched to the result view) the listener
+  // becomes a no-op so navigating back from the result page is friction-
+  // less.
+  useEffect(() => {
+    const sub = navigation.addListener("beforeRemove", (e: unknown) => {
       if (completedRef.current) return;
-      completedRef.current = true;
-      stopAdvanceTimer();
-      player.stop();
+      const event = e as {
+        preventDefault: () => void;
+        data: { action: unknown };
+      };
+      event.preventDefault();
+      const isFullRecording =
+        phase === "full-recording" || phase === "full-scoring";
+      Alert.alert(
+        isFullRecording
+          ? t("session.shadow.leaveFullTitle")
+          : t("session.shadow.leaveTitle"),
+        isFullRecording
+          ? t("session.shadow.leaveFullBody")
+          : t("session.shadow.leaveBody"),
+        [
+          { text: t("session.shadow.leaveStay"), style: "cancel" },
+          {
+            text: t("session.shadow.leaveDiscard"),
+            style: "destructive",
+            onPress: () => {
+              completedRef.current = true;
+              (navigation as unknown as {
+                dispatch: (action: unknown) => void;
+              }).dispatch(event.data.action);
+            },
+          },
+        ]
+      );
+    });
+    return sub;
+  }, [navigation, phase, t]);
 
-      const perSentence: PerSentenceResult[] = finalStates.map((st, i) => ({
-        index: i,
-        score: st.score ?? 0,
-        passed: st.status === "passed",
-        transcript: st.transcript ?? "",
-        target: sentences[i] ?? "",
-        feedback: st.feedback,
-        mistakes: st.mistakes,
-      }));
-
-      // Strict mean across ALL sentences. Skipped / unattempted count as 0
-      // so they correctly drag the average down.
-      const denom = perSentence.length || 1;
-      const avg =
-        perSentence.reduce((s, p) => s + (p.score ?? 0), 0) / denom;
-      const score = Math.round(avg);
-
-      // Aggregate every sentence's feedback into the final summary so users
-      // see all of the model's notes. We surface struggling sentences first
-      // (lowest score → top) so the most actionable feedback isn't buried.
-      const feedback = perSentence
-        .filter((p) => !!p.feedback)
-        .slice()
-        .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
-        .map(
-          (p) =>
-            `${t("session.shadow.sentenceProgress", {
-              i: p.index + 1,
-              n: perSentence.length,
-            })}: ${p.feedback}`
-        )
-        .join("  ");
-
-      onComplete({ score, feedback, perSentence });
-    },
-    [onComplete, sentences, t, stopAdvanceTimer, player]
-  );
-
-  const advanceTo = useCallback(
-    (nextIdx: number) => {
-      stopAdvanceTimer();
-      // Free the previous sentence's recording before moving on — the
-      // "Play my recording" button is single-shot per sentence and a stale
-      // blob from sentence N-1 must never play while we're working on N.
-      clearLastRecording();
-      if (nextIdx >= sentences.length) {
-        setPhase("done");
-        finishFlow(statesRef.current);
-        return;
-      }
-      setCurrentIdx(nextIdx);
-      playSentence(nextIdx);
-    },
-    [sentences.length, playSentence, finishFlow, stopAdvanceTimer, clearLastRecording]
-  );
-
-  const scoreCurrent = useCallback(
-    async (transcript: string) => {
-      const idx = currentIdx;
-      const target = sentences[idx];
-      // Stash the transcript before the scoring attempt so the "retry score"
-      // path can reuse it without forcing the user to re-record.
-      setLastTranscript(transcript);
-      setPhase("scoring");
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      try {
-        const response = await fetch(`${BASE_URL}/api/language/score-pronunciation`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetText: target,
-            transcribedText: transcript,
-            language,
-          }),
-          signal: controller.signal,
-        });
-        const json: ScorePronunciationResponse = await response.json();
-        if (!json.success || !json.data) throw new Error("Scoring failed");
-        const d = json.data;
-        const score: number = typeof d.score === "number" ? d.score : 0;
-        const passed = score >= STAGE_PASS_SCORE;
-        const newState: SentenceState = {
-          status: passed ? "passed" : "failed",
-          score,
-          transcript,
-          feedback: typeof d.feedback === "string" ? d.feedback : undefined,
-          mistakes: Array.isArray(d.mistakes) ? d.mistakes.slice(0, 6) : undefined,
-        };
-        updateStates((prev) => prev.map((s, i) => (i === idx ? newState : s)));
-        Haptics.notificationAsync(
-          passed
-            ? Haptics.NotificationFeedbackType.Success
-            : Haptics.NotificationFeedbackType.Warning
-        );
-        if (passed) {
-          setPhase("passed-pause");
-          // Brief celebration pause, then advance + auto-play the next sentence.
-          advanceTimerRef.current = setTimeout(() => {
-            const next = idx + 1;
-            if (next >= sentences.length) {
-              finishFlow(statesRef.current);
-            } else {
-              advanceTo(next);
-            }
-          }, 1100);
-        } else {
-          setPhase("failed-options");
-        }
-      } catch {
-        // Keep `lastTranscript` populated so the inline "retry scoring" button
-        // can reuse it. We don't surface an Alert anymore — the inline error
-        // card below the mic gives the user a clear next step instead.
-        setPhase("error-score");
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-    [currentIdx, sentences, language, advanceTo, finishFlow, updateStates]
-  );
+  // ── per-sentence loop ─────────────────────────────────────────────────
 
   const handleMicPress = useCallback(async () => {
-    // Note: `phase === "playing"` is filtered out by `micDisabled` in render,
-    // so this handler only ever sees ready/recording/failed-options or one of
-    // the inline error states (which behave like `ready` for re-recording).
     if (phase === "recording") {
-      setPhase("transcribing");
-      // Cap stopRecording too — the underlying MediaRecorder.onstop / expo
-      // file read are usually instantaneous, but a stuck handler should not
-      // freeze the UI. Treat as "no audio" if it doesn't return in time.
-      // Track the timer so we clear it the moment stopRecording resolves —
-      // otherwise a fast happy-path would leave a 30s no-op timer pending.
-      let stopTimer: ReturnType<typeof setTimeout> | null = null;
-      const stopWithTimeout = await Promise.race<Blob | null>([
-        stopRecording().then((b) => {
-          if (stopTimer) clearTimeout(stopTimer);
-          return b;
-        }),
-        new Promise<null>((resolve) => {
-          stopTimer = setTimeout(() => resolve(null), REQUEST_TIMEOUT_MS);
-        }),
-      ]);
-      if (!stopWithTimeout) {
-        setPhase("error-no-audio");
-        return;
-      }
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      try {
-        const transcript = await transcribeAudio(stopWithTimeout, controller.signal);
-        if (!transcript || !transcript.trim()) {
-          setPhase("error-transcribe");
-          return;
-        }
-        await scoreCurrent(transcript.trim());
-      } catch {
-        setPhase("error-transcribe");
-      } finally {
-        clearTimeout(timer);
-      }
+      // Tap to stop. We stash the recording (the URI is exposed by the
+      // recorder hook for "Play my recording") and stay on the same
+      // sentence — no scoring, no auto-advance.
+      await stopRecording();
+      setPhase("ready");
+      updateStates((prev) =>
+        prev.map((s, i) => (i === currentIdx ? { ...s, recorded: true } : s))
+      );
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       return;
     }
-    if (
-      phase === "ready" ||
-      phase === "failed-options" ||
-      phase === "error-no-audio" ||
-      phase === "error-transcribe" ||
-      phase === "error-score"
-    ) {
-      // Force-stop any TTS before recording.
-      player.stop();
+    if (phase === "ready" || phase === "playing") {
+      // Force-stop any TTS before recording so the mic doesn't pick up the
+      // model voice's tail.
+      try {
+        player.stop();
+      } catch {}
       playGenRef.current++;
-      // Gate on mic permission first. If permission is anything other than
-      // "granted", `requestMicAccess` opens the in-app prompt and stashes
-      // this body to replay automatically once the user grants — so the user
-      // only ever taps the mic once. If granted, the body runs synchronously.
+      clearPlaybackWatchdog();
       requestMicAccess(async () => {
         const ok = await startRecording();
         if (!ok) return;
@@ -439,97 +361,100 @@ export function ShadowSentenceFlow({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       });
     }
-  }, [phase, player, stopRecording, startRecording, scoreCurrent, requestMicAccess]);
-
-  // Re-run scoring for the most recently transcribed sentence without forcing
-  // the user to re-record. Only meaningful in the `error-score` phase.
-  const handleRetryScore = useCallback(() => {
-    if (!lastTranscript) return;
-    scoreCurrent(lastTranscript);
-  }, [lastTranscript, scoreCurrent]);
+  }, [
+    phase,
+    player,
+    stopRecording,
+    startRecording,
+    requestMicAccess,
+    currentIdx,
+    updateStates,
+    clearPlaybackWatchdog,
+  ]);
 
   const handleReplayCurrent = useCallback(() => {
-    if (phase === "recording" || phase === "transcribing" || phase === "scoring") return;
+    if (phase === "recording") return;
     playSentence(currentIdx);
   }, [phase, playSentence, currentIdx]);
 
-  // Replay the user's just-finished recording for the current sentence.
-  // Stops any in-flight TTS first so the model voice and the user voice
-  // never overlap. Invalidates `playGenRef` so a stale `playTTS` callback
-  // can't bump us back to "ready" while the user is reviewing themselves.
   const handlePlayMyRecording = useCallback(() => {
     if (!lastRecordingUri) return;
-    if (phase === "recording" || phase === "transcribing" || phase === "scoring") return;
-    player.stop();
+    if (phase === "recording") return;
+    try {
+      player.stop();
+    } catch {}
     playGenRef.current++;
-    player.playRecording(lastRecordingUri);
-  }, [lastRecordingUri, phase, player]);
+    setIsPlayingMyRecording(true);
+    recordingPlayer.playRecording(lastRecordingUri, () => {
+      setIsPlayingMyRecording(false);
+    });
+  }, [lastRecordingUri, phase, player, recordingPlayer]);
 
-  // Replay any sentence (current or not). For a non-current sentence we play
-  // a one-shot TTS that does NOT mutate the flow phase, so users can review
-  // earlier passed sentences without disturbing where they are.
+  const handleStopMyRecording = useCallback(() => {
+    try {
+      recordingPlayer.stop();
+    } catch {}
+    setIsPlayingMyRecording(false);
+  }, [recordingPlayer]);
+
+  const goToSentence = useCallback(
+    (nextIdx: number) => {
+      if (nextIdx < 0 || nextIdx >= sentences.length) return;
+      if (phase === "recording") return;
+      try {
+        player.stop();
+      } catch {}
+      try {
+        recordingPlayer.stop();
+      } catch {}
+      setIsPlayingMyRecording(false);
+      // Discard the previous sentence's recording — "Play my recording" is
+      // a per-sentence convenience, not a history.
+      clearLastRecording();
+      setCurrentIdx(nextIdx);
+      playSentence(nextIdx);
+    },
+    [sentences.length, phase, player, recordingPlayer, clearLastRecording, playSentence]
+  );
+
+  const handleNext = useCallback(() => {
+    goToSentence(currentIdx + 1);
+  }, [currentIdx, goToSentence]);
+
+  const handlePrev = useCallback(() => {
+    goToSentence(currentIdx - 1);
+  }, [currentIdx, goToSentence]);
+
+  // Tapping any sentence in the article jumps to it (and starts playback).
   const replayAny = useCallback(
     (idx: number) => {
-      if (
-        phase === "recording" ||
-        phase === "transcribing" ||
-        phase === "scoring" ||
-        phase === "passed-pause"
-      )
-        return;
+      if (phase === "recording") return;
       if (idx === currentIdx) {
         playSentence(idx);
         return;
       }
-      // Invalidate any stale "playing" callback so it doesn't bump phase.
-      playGenRef.current++;
-      player.stop();
-      player.playTTS(sentences[idx], voice);
+      goToSentence(idx);
     },
-    [phase, currentIdx, playSentence, player, sentences, voice]
+    [phase, currentIdx, playSentence, goToSentence]
   );
 
   // Auto-scroll the current sentence into view whenever currentIdx changes.
-  //
-  // Why not `row.measureLayout(contentHandle, …)`?
-  //   - On the New Architecture (Fabric), calling `measureLayout` on a
-  //     `Pressable` ref throws "ref.measureLayout must be called with a ref
-  //     to a native component", which on mobile shows up as a red console
-  //     error banner.
-  //   - On `react-native-web`, the `Pressable` ref is a DOM element that
-  //     doesn't expose `measureLayout` at all, so the call throws a
-  //     synchronous TypeError that the surrounding `try/catch` *does*
-  //     catch — but earlier RN versions surfaced the failure path through
-  //     internal validation that bubbled up to the ErrorBoundary anyway,
-  //     producing the "Something went wrong" screen on Edge.
-  //
-  // Instead, we use `measureInWindow` on both the row and the content view
-  // and subtract to recover the row's offset within the scroll content.
-  // `measureInWindow` is implemented on both `react-native` (native) and
-  // `react-native-web`. As a final web safety net, we fall back to
-  // `Element.scrollIntoView` if the ref happens to be a plain DOM node
-  // without `measureInWindow`. Every callback is wrapped so a measurement
-  // failure can never propagate up to the ErrorBoundary or trigger a dev
-  // console error.
+  // See task-46 notes for why we use measureInWindow instead of
+  // measureLayout: avoids Fabric / react-native-web crashes.
   useEffect(() => {
     const row = rowRefs.current.get(currentIdx);
     const sv = scrollRef.current;
     const content = contentRef.current;
     if (!row || !sv || !content) return;
-
     type MeasureFn = (
       cb: (x: number, y: number, w: number, h: number) => void
     ) => void;
     type WebScrollFn = (opts?: { behavior?: string; block?: string }) => void;
-
     const rowAny = row as unknown as {
       measureInWindow?: MeasureFn;
       scrollIntoView?: WebScrollFn;
     };
     const contentAny = content as unknown as { measureInWindow?: MeasureFn };
-
-    // Defer one frame so layout has settled after the state change that
-    // triggered the scroll (new currentIdx, new row colors, etc.).
     const tid = setTimeout(() => {
       try {
         if (
@@ -542,87 +467,221 @@ export function ShadowSentenceFlow({
               rowAny.measureInWindow!((_rx, ry) => {
                 try {
                   if (!Number.isFinite(ry)) return;
-                  // ry - cy is the row's offset within the scroll content,
-                  // independent of the current scroll position because both
-                  // window-y values shift by the same amount as we scroll.
                   const target = Math.max(0, ry - cy - 24);
                   sv.scrollTo({ y: target, animated: true });
-                } catch {
-                  /* swallow — best-effort scroll */
-                }
+                } catch {}
               });
-            } catch {
-              /* swallow — best-effort scroll */
-            }
+            } catch {}
           });
           return;
         }
-
-        // Web fallback when measureInWindow is unavailable on the host node.
-        if (
-          Platform.OS === "web" &&
-          typeof rowAny.scrollIntoView === "function"
-        ) {
+        if (Platform.OS === "web" && typeof rowAny.scrollIntoView === "function") {
           rowAny.scrollIntoView({ behavior: "smooth", block: "center" });
         }
-      } catch {
-        /* swallow — never bubble layout failures to ErrorBoundary */
-      }
+      } catch {}
     }, 50);
     return () => clearTimeout(tid);
   }, [currentIdx]);
 
-  const handleSkip = useCallback(() => {
-    stopAdvanceTimer();
-    updateStates((prev) =>
-      prev.map((s, i) =>
-        i === currentIdx
-          ? { ...s, status: "failed" as SentenceStatus, score: s.score ?? 0 }
-          : s
-      )
-    );
-    const next = currentIdx + 1;
-    if (next >= sentences.length) {
-      finishFlow(statesRef.current);
-    } else {
-      advanceTo(next);
-    }
-  }, [currentIdx, sentences.length, advanceTo, finishFlow, stopAdvanceTimer, updateStates]);
+  // ── full read-through ─────────────────────────────────────────────────
 
-  const handleRetryCurrent = useCallback(async () => {
-    updateStates((prev) =>
-      prev.map((s, i) =>
-        i === currentIdx ? { status: "pending" as SentenceStatus } : s
-      )
-    );
-    // Start recording immediately so the user doesn't need a second tap.
-    player.stop();
+  const cancelFullPlay = useCallback(() => {
+    if (fullPlayCancelRef.current) {
+      fullPlayCancelRef.current();
+      fullPlayCancelRef.current = null;
+    }
+  }, []);
+
+  const enterFullReadIntro = useCallback(() => {
+    if (phase === "recording") return;
+    try {
+      player.stop();
+    } catch {}
     playGenRef.current++;
-    // If mic permission isn't granted yet, the gate opens the in-app prompt
-    // and replays this start-recording closure once the user allows. We park
-    // the phase at "ready" in the meantime so the UI doesn't look stuck.
-    const wasGranted = requestMicAccess(async () => {
-      const ok = await startRecording();
-      if (!ok) {
-        setPhase("ready");
+    clearPlaybackWatchdog();
+    try {
+      recordingPlayer.stop();
+    } catch {}
+    setIsPlayingMyRecording(false);
+    setPhase("full-read-intro");
+  }, [phase, player, recordingPlayer, clearPlaybackWatchdog]);
+
+  const playFullPassage = useCallback(() => {
+    cancelFullPlay();
+    let cancelled = false;
+    let i = 0;
+    const playNext = () => {
+      if (cancelled) return;
+      if (i >= sentences.length) {
+        fullPlayCancelRef.current = null;
+        setPhase("full-read-intro");
         return;
       }
-      setPhase("recording");
+      const idx = i++;
+      try {
+        player.playTTS(sentences[idx], voice, () => {
+          if (cancelled) return;
+          playNext();
+        });
+      } catch {
+        if (!cancelled) playNext();
+      }
+    };
+    fullPlayCancelRef.current = () => {
+      cancelled = true;
+      try {
+        player.stop();
+      } catch {}
+    };
+    setPhase("full-playing");
+    playNext();
+  }, [cancelFullPlay, sentences, voice, player]);
+
+  const stopFullPlayback = useCallback(() => {
+    cancelFullPlay();
+    setPhase("full-read-intro");
+  }, [cancelFullPlay]);
+
+  const scoreFullPassage = useCallback(
+    async (transcript: string) => {
+      setPhase("full-scoring");
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const response = await fetch(`${BASE_URL}/api/language/score-pronunciation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetText: text,
+            transcribedText: transcript,
+            language,
+          }),
+          signal: controller.signal,
+        });
+        const json: ScorePronunciationResponse = await response.json();
+        if (!json.success || !json.data) throw new Error("Scoring failed");
+        const d = json.data;
+        const score: number = typeof d.score === "number" ? d.score : 0;
+        const targetAnnotations =
+          sanitizeAnnotations(d.targetAnnotations as never, text) ?? undefined;
+        completedRef.current = true;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onComplete({
+          score,
+          feedback: typeof d.feedback === "string" ? d.feedback : "",
+          fluency: typeof d.fluency === "number" ? d.fluency : undefined,
+          accuracy: typeof d.accuracy === "number" ? d.accuracy : undefined,
+          targetAnnotations,
+          userTranscript: transcript,
+          recordingUri: lastRecordingUriRef.current ?? null,
+        });
+      } catch {
+        setPhase("full-error-score");
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    [text, language, onComplete]
+  );
+
+  const finalizeFullRecording = useCallback(async () => {
+    if (recTickRef.current) {
+      clearInterval(recTickRef.current);
+      recTickRef.current = null;
+    }
+    if (recAutoStopRef.current) {
+      clearTimeout(recAutoStopRef.current);
+      recAutoStopRef.current = null;
+    }
+    setPhase("full-scoring");
+    let stopTimer: ReturnType<typeof setTimeout> | null = null;
+    const blob = await Promise.race<Blob | null>([
+      stopRecording().then((b) => {
+        if (stopTimer) clearTimeout(stopTimer);
+        return b;
+      }),
+      new Promise<null>((resolve) => {
+        stopTimer = setTimeout(() => resolve(null), REQUEST_TIMEOUT_MS);
+      }),
+    ]);
+    if (!blob) {
+      setPhase("full-error-no-audio");
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const transcript = await transcribeAudio(blob, controller.signal);
+      if (!transcript || !transcript.trim()) {
+        setPhase("full-error-transcribe");
+        return;
+      }
+      const cleaned = transcript.trim();
+      setLastFullTranscript(cleaned);
+      await scoreFullPassage(cleaned);
+    } catch {
+      setPhase("full-error-transcribe");
+    } finally {
+      clearTimeout(timer);
+    }
+  }, [stopRecording, scoreFullPassage]);
+
+  const startFullRecording = useCallback(async () => {
+    cancelFullPlay();
+    try {
+      player.stop();
+    } catch {}
+    playGenRef.current++;
+    clearPlaybackWatchdog();
+    requestMicAccess(async () => {
+      const ok = await startRecording();
+      if (!ok) return;
+      setPhase("full-recording");
+      setRecElapsedMs(0);
+      recStartRef.current = Date.now();
+      // Tick the elapsed display every 250ms while we're recording.
+      if (recTickRef.current) clearInterval(recTickRef.current);
+      recTickRef.current = setInterval(() => {
+        setRecElapsedMs(Date.now() - recStartRef.current);
+      }, 250);
+      // Hard auto-stop at 2.5× the estimated TTS duration. Floors at 15s
+      // so very short passages still give the user time to start speaking.
+      const cap = Math.max(15000, Math.round(totalEstimatedMs * 2.5));
+      if (recAutoStopRef.current) clearTimeout(recAutoStopRef.current);
+      recAutoStopRef.current = setTimeout(() => {
+        finalizeFullRecording();
+      }, cap);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     });
-    if (!wasGranted) {
-      setPhase("ready");
-    }
-  }, [currentIdx, updateStates, player, startRecording, requestMicAccess]);
+  }, [
+    cancelFullPlay,
+    player,
+    clearPlaybackWatchdog,
+    requestMicAccess,
+    startRecording,
+    totalEstimatedMs,
+    finalizeFullRecording,
+  ]);
 
-  // ── rendering helpers ─────────────────────────────────────────────────
-  const isProcessing = phase === "transcribing" || phase === "scoring";
-  const showFailedOptions = phase === "failed-options";
-  const isPassedPause = phase === "passed-pause";
-  const isErrorPhase =
-    phase === "error-no-audio" ||
-    phase === "error-transcribe" ||
-    phase === "error-score";
+  const handleFullStop = useCallback(() => {
+    if (phase !== "full-recording") return;
+    finalizeFullRecording();
+  }, [phase, finalizeFullRecording]);
+
+  const handleRetryFullRecord = useCallback(() => {
+    setLastFullTranscript("");
+    setPhase("full-read-intro");
+  }, []);
+
+  const handleRetryFullScore = useCallback(() => {
+    if (!lastFullTranscript) {
+      setPhase("full-read-intro");
+      return;
+    }
+    scoreFullPassage(lastFullTranscript);
+  }, [lastFullTranscript, scoreFullPassage]);
+
+  // ── rendering ─────────────────────────────────────────────────────────
 
   const meta = CONTENT_TYPE_META[effectiveType];
   const Badge = meta.showBadge ? (
@@ -634,11 +693,7 @@ export function ShadowSentenceFlow({
     </View>
   ) : null;
 
-  const replayDisabled =
-    phase === "recording" ||
-    phase === "transcribing" ||
-    phase === "scoring" ||
-    phase === "passed-pause";
+  const replayDisabled = phase === "recording";
 
   const renderSentenceRow = (globalIdx: number, sent: string) => {
     const st = states[globalIdx];
@@ -651,20 +706,20 @@ export function ShadowSentenceFlow({
       bg = accentColor + "1F";
       color = accentColor;
       borderColor = accentColor + "55";
-    } else if (st.status === "passed") {
-      bg = "#10B98112";
-    } else if (st.status === "failed") {
-      bg = "#EF444412";
+    } else if (st?.listened) {
+      bg = colors.muted;
     } else {
       opacity = 0.55;
     }
-    const iconColor = isCurrent
+    // Status dot: filled accent when the user has recorded themselves on
+    // this sentence; muted dot when listened only; nothing when untouched.
+    // Deliberately neutral — no pass/fail signal here.
+    const dotColor = st?.recorded
       ? accentColor
-      : st.status === "passed"
-      ? "#10B981"
-      : st.status === "failed"
-      ? "#EF4444"
-      : colors.mutedForeground;
+      : st?.listened
+      ? colors.mutedForeground
+      : "transparent";
+    const playColor = isCurrent ? accentColor : colors.mutedForeground;
     return (
       <Pressable
         key={globalIdx}
@@ -687,28 +742,20 @@ export function ShadowSentenceFlow({
         <View
           style={[
             styles.playIconWrap,
-            { backgroundColor: iconColor + "1A", borderColor: iconColor + "33" },
+            { backgroundColor: playColor + "1A", borderColor: playColor + "33" },
           ]}
         >
-          {st.status === "passed" ? (
-            <Check size={12} color={iconColor} />
-          ) : st.status === "failed" ? (
-            <X size={12} color={iconColor} />
-          ) : (
-            <Play size={11} color={iconColor} fill={iconColor} />
-          )}
+          <Play size={11} color={playColor} fill={playColor} />
         </View>
         <Text style={[styles.sentText, { color }]}>{sent}</Text>
-        {st.score != null && (st.status === "passed" || st.status === "failed") ? (
-          <Text
-            style={[
-              styles.inlineScore,
-              { color: st.status === "passed" ? "#10B981" : "#EF4444" },
-            ]}
-          >
-            {st.score}
-          </Text>
-        ) : null}
+        <View
+          style={[
+            styles.statusDot,
+            dotColor === "transparent"
+              ? { backgroundColor: "transparent" }
+              : { backgroundColor: dotColor },
+          ]}
+        />
       </Pressable>
     );
   };
@@ -776,40 +823,53 @@ export function ShadowSentenceFlow({
     );
   };
 
-  const hint = (() => {
-    if (phase === "done") return t("session.shadow.allDone");
-    if (isProcessing) {
-      return phase === "transcribing"
-        ? t("session.processing.transcribing")
-        : t("session.processing.scoring");
+  if (sentences.length === 0) {
+    // Edge case handled in the mount effect; render an empty placeholder.
+    return <View />;
+  }
+
+  // Non-loop screens render their own self-contained UI.
+  if (
+    phase === "full-read-intro" ||
+    phase === "full-playing" ||
+    phase === "full-recording" ||
+    phase === "full-scoring" ||
+    phase === "full-error-no-audio" ||
+    phase === "full-error-transcribe" ||
+    phase === "full-error-score" ||
+    phase === "done"
+  ) {
+    return (
+      <View style={styles.wrap}>
+        {renderFullPassageScreen()}
+        {micPermissionModal}
+      </View>
+    );
+  }
+
+  // ── per-sentence loop screen ──────────────────────────────────────────
+  const allListened = states.length > 0 && states.every((s) => s.listened);
+  // First time the user has heard every sentence at least once, slide
+  // into the full-read intro card automatically — this is the "transition
+  // card" UX that signals the listening half is done. The flag prevents
+  // re-triggering if the user backs out of the intro and returns to the
+  // loop, so the CTA still works as a manual re-entry.
+  const autoIntroFiredRef = useRef(false);
+  useEffect(() => {
+    if (
+      allListened &&
+      !autoIntroFiredRef.current &&
+      (phase === "ready" || phase === "playing")
+    ) {
+      autoIntroFiredRef.current = true;
+      enterFullReadIntro();
     }
-    if (isPassedPause) return t("session.shadow.sentencePassed");
-    if (showFailedOptions) return t("session.shadow.sentenceFailed");
-    if (phase === "error-no-audio") return t("session.shadow.error.noAudio.title");
-    if (phase === "error-transcribe") return t("session.shadow.error.transcribe.title");
-    if (phase === "error-score") return t("session.shadow.error.score.title");
-    if (phase === "recording") return t("session.shadow.stopHint");
-    if (phase === "playing") return t("session.shadow.guidedHint");
-    return t("session.shadow.guidedHint");
-  })();
-
-  const micBg =
+  }, [allListened, phase, enterFullReadIntro]);
+  const loopHint =
     phase === "recording"
-      ? "#EF4444"
-      : isPassedPause
-      ? "#10B981"
-      : showFailedOptions || isErrorPhase
-      ? "#EF4444"
-      : accentColor;
-
-  const micIcon = phase === "recording" ? "square" : isPassedPause ? "check" : "mic";
-  // Mic is locked during initial sentence playback so users hear the model
-  // before recording. Tapping a sentence row to replay still works (it stops
-  // playback and re-arms `ready`), but the big mic button itself is inert.
-  // In error phases we keep the mic button enabled so a quick re-record is
-  // one tap away — the inline card below also exposes more granular actions.
-  const micDisabled =
-    isProcessing || isPassedPause || phase === "done" || phase === "playing";
+      ? t("session.shadow.stopHint")
+      : t("session.shadow.guidedHint");
+  const isLast = currentIdx >= sentences.length - 1;
 
   return (
     <View style={styles.wrap}>
@@ -818,14 +878,11 @@ export function ShadowSentenceFlow({
       >
         <View style={[styles.progressBarTrack, { backgroundColor: colors.muted }]}>
           {(() => {
+            const listenedCount = states.filter((s) => s.listened).length;
             const pct =
               sentences.length === 0
                 ? 0
-                : Math.round(
-                    (Math.min(currentIdx + (phase === "done" ? 1 : 0), sentences.length) /
-                      sentences.length) *
-                      100
-                  );
+                : Math.round((listenedCount / sentences.length) * 100);
             const widthValue: `${number}%` = `${pct}%`;
             return (
               <View
@@ -872,78 +929,244 @@ export function ShadowSentenceFlow({
       </View>
 
       <View style={styles.recordSection}>
-        {isProcessing ? (
-          <ActivityIndicator size="large" color={accentColor} />
-        ) : (
-          <TouchableOpacity
-            onPress={handleMicPress}
-            disabled={micDisabled}
-            style={[
-              styles.recordBtn,
-              {
-                backgroundColor: micBg,
-                shadowColor: micBg,
-                opacity: micDisabled && !isPassedPause ? 0.6 : 1,
-              },
-            ]}
-            activeOpacity={0.85}
-          >
-            <Icon name={micIcon} size={32} color="#fff" />
-          </TouchableOpacity>
-        )}
-        <Text style={[styles.hintText, { color: colors.mutedForeground }]}>{hint}</Text>
+        <TouchableOpacity
+          onPress={handleMicPress}
+          disabled={phase === "playing"}
+          style={[
+            styles.recordBtn,
+            {
+              backgroundColor: phase === "recording" ? "#EF4444" : accentColor,
+              shadowColor: phase === "recording" ? "#EF4444" : accentColor,
+              opacity: phase === "playing" ? 0.6 : 1,
+            },
+          ]}
+          activeOpacity={0.85}
+        >
+          <Icon name={phase === "recording" ? "square" : "mic"} size={32} color="#fff" />
+        </TouchableOpacity>
+        <Text style={[styles.hintText, { color: colors.mutedForeground }]}>{loopHint}</Text>
         {phase === "recording" ? <AudioWaveform isActive color="#EF4444" /> : null}
 
-        {showFailedOptions ? (
+        {phase !== "recording" ? (
           <View style={styles.optionRow}>
             <TouchableOpacity
-              onPress={handleReplayCurrent}
-              style={[styles.optBtn, { borderColor: colors.border }]}
+              onPress={handlePrev}
+              disabled={currentIdx === 0}
+              style={[
+                styles.optBtn,
+                { borderColor: colors.border, opacity: currentIdx === 0 ? 0.4 : 1 },
+              ]}
               activeOpacity={0.85}
             >
-              <Volume2 size={16} color={colors.foreground} />
+              <ArrowLeft size={14} color={colors.foreground} />
               <Text style={[styles.optBtnText, { color: colors.foreground }]}>
-                {t("session.shadow.replayThis")}
+                {t("session.shadow.prev")}
               </Text>
             </TouchableOpacity>
             {lastRecordingUri ? (
               <TouchableOpacity
-                onPress={handlePlayMyRecording}
+                onPress={isPlayingMyRecording ? handleStopMyRecording : handlePlayMyRecording}
                 style={[styles.optBtn, { borderColor: colors.border }]}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel={t("session.shadow.playMyRecording")}
               >
-                <Headphones size={16} color={colors.foreground} />
+                {isPlayingMyRecording ? (
+                  <Square size={14} color={colors.foreground} />
+                ) : (
+                  <Headphones size={14} color={colors.foreground} />
+                )}
                 <Text style={[styles.optBtnText, { color: colors.foreground }]}>
                   {t("session.shadow.playMyRecording")}
                 </Text>
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity
-              onPress={handleRetryCurrent}
-              style={[styles.optBtn, { borderColor: accentColor, backgroundColor: accentColor + "15" }]}
+              onPress={handleNext}
+              disabled={isLast}
+              style={[
+                styles.optBtn,
+                {
+                  borderColor: accentColor,
+                  backgroundColor: accentColor + "15",
+                  opacity: isLast ? 0.4 : 1,
+                },
+              ]}
               activeOpacity={0.85}
             >
-              <RotateCcw size={16} color={accentColor} />
               <Text style={[styles.optBtnText, { color: accentColor }]}>
-                {t("session.shadow.retryThis")}
+                {t("session.shadow.next")}
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleSkip}
-              style={[styles.optBtn, { borderColor: colors.border }]}
-              activeOpacity={0.85}
-            >
-              <SkipForward size={16} color={colors.mutedForeground} />
-              <Text style={[styles.optBtnText, { color: colors.mutedForeground }]}>
-                {t("session.shadow.skip")}
-              </Text>
+              <ArrowRight size={14} color={accentColor} />
             </TouchableOpacity>
           </View>
         ) : null}
+      </View>
 
-        {isErrorPhase ? (
+      {/* CTA to (re-)enter the mandatory full read-through. Locked until
+          every sentence has been heard at least once so the hint copy and
+          button state stay consistent. The first unlock auto-opens the
+          intro card; this CTA exists so users can return to it after
+          backing out. */}
+      <TouchableOpacity
+        onPress={enterFullReadIntro}
+        disabled={!allListened || phase === "recording"}
+        style={[
+          styles.fullReadCta,
+          {
+            backgroundColor: allListened ? accentColor : accentColor + "55",
+            opacity: !allListened || phase === "recording" ? 0.6 : 1,
+          },
+        ]}
+        activeOpacity={0.85}
+      >
+        <Headphones size={18} color="#fff" />
+        <Text style={styles.fullReadCtaText}>{t("session.shadow.startFullRead")}</Text>
+      </TouchableOpacity>
+      {!allListened ? (
+        <Text style={[styles.fullReadHint, { color: colors.mutedForeground }]}>
+          {t("session.shadow.fullReadHint")}
+        </Text>
+      ) : null}
+
+      {micPermissionModal}
+    </View>
+  );
+
+  // ── full-passage screen renderer ──────────────────────────────────────
+  function renderFullPassageScreen(): React.ReactNode {
+    if (phase === "full-scoring") {
+      return (
+        <View style={[styles.centerBox, { padding: 30 }]}>
+          <ActivityIndicator size="large" color={accentColor} />
+          <Text style={[styles.centerText, { color: colors.mutedForeground }]}>
+            {t("session.processing.scoring")}
+          </Text>
+        </View>
+      );
+    }
+
+    if (phase === "full-read-intro" || phase === "full-playing") {
+      const isPlaying = phase === "full-playing";
+      return (
+        <View style={styles.fullIntroWrap}>
+          <View
+            style={[
+              styles.fullIntroCard,
+              { backgroundColor: accentColor + "15", borderColor: accentColor + "55" },
+            ]}
+          >
+            <Text style={styles.fullIntroEmoji}>👏</Text>
+            <Text style={[styles.fullIntroTitle, { color: accentColor }]}>
+              {t("session.shadow.fullIntro.title")}
+            </Text>
+            <Text style={[styles.fullIntroBody, { color: colors.foreground }]}>
+              {t("session.shadow.fullIntro.body")}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.passagePreview,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <ScrollView style={{ maxHeight: 220 }} showsVerticalScrollIndicator>
+              <Text style={[styles.passagePreviewText, { color: colors.foreground }]}>
+                {text}
+              </Text>
+            </ScrollView>
+          </View>
+          <View style={styles.fullIntroActions}>
+            <TouchableOpacity
+              onPress={isPlaying ? stopFullPlayback : playFullPassage}
+              style={[styles.optBtn, { borderColor: colors.border, paddingVertical: 12 }]}
+              activeOpacity={0.85}
+            >
+              {isPlaying ? (
+                <Square size={16} color={colors.foreground} />
+              ) : (
+                <Volume2 size={16} color={colors.foreground} />
+              )}
+              <Text style={[styles.optBtnText, { color: colors.foreground }]}>
+                {isPlaying
+                  ? t("session.shadow.fullIntro.stopListen")
+                  : t("session.shadow.fullIntro.listen")}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={startFullRecording}
+              disabled={isPlaying}
+              style={[
+                styles.fullStartBtn,
+                { backgroundColor: accentColor, opacity: isPlaying ? 0.5 : 1 },
+              ]}
+              activeOpacity={0.85}
+            >
+              <Icon name="mic" size={18} color="#fff" />
+              <Text style={styles.fullStartBtnText}>
+                {t("session.shadow.fullIntro.start")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    if (phase === "full-recording") {
+      const seconds = Math.floor(recElapsedMs / 1000);
+      const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+      const ss = String(seconds % 60).padStart(2, "0");
+      return (
+        <View style={styles.fullRecordWrap}>
+          <View
+            style={[
+              styles.passageCard,
+              { backgroundColor: colors.card, borderColor: accentColor + "55" },
+            ]}
+          >
+            <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator>
+              <Text style={[styles.passageBodyText, { color: colors.foreground }]}>
+                {text}
+              </Text>
+            </ScrollView>
+          </View>
+          <View style={styles.fullRecordCenter}>
+            <Text style={[styles.timerText, { color: "#EF4444" }]}>{`${mm}:${ss}`}</Text>
+            <AudioWaveform isActive color="#EF4444" barCount={9} />
+            <TouchableOpacity
+              onPress={handleFullStop}
+              style={[styles.recordBtn, { backgroundColor: "#EF4444", shadowColor: "#EF4444" }]}
+              activeOpacity={0.85}
+            >
+              <Square size={32} color="#fff" />
+            </TouchableOpacity>
+            <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
+              {t("session.shadow.fullStopHint")}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (
+      phase === "full-error-no-audio" ||
+      phase === "full-error-transcribe" ||
+      phase === "full-error-score"
+    ) {
+      const titleKey =
+        phase === "full-error-no-audio"
+          ? "session.shadow.fullError.noAudio.title"
+          : phase === "full-error-transcribe"
+          ? "session.shadow.fullError.transcribe.title"
+          : "session.shadow.fullError.score.title";
+      const descKey =
+        phase === "full-error-no-audio"
+          ? "session.shadow.fullError.noAudio.desc"
+          : phase === "full-error-transcribe"
+          ? "session.shadow.fullError.transcribe.desc"
+          : "session.shadow.fullError.score.desc";
+      return (
+        <View style={styles.fullIntroWrap}>
           <View
             style={[
               styles.errorCard,
@@ -951,130 +1174,43 @@ export function ShadowSentenceFlow({
             ]}
           >
             <View style={styles.errorHeader}>
-              <AlertTriangle size={14} color="#EF4444" />
-              <Text style={[styles.errorDesc, { color: colors.mutedForeground }]}>
-                {phase === "error-no-audio"
-                  ? t("session.shadow.error.noAudio.desc")
-                  : phase === "error-transcribe"
-                  ? t("session.shadow.error.transcribe.desc")
-                  : t("session.shadow.error.score.desc")}
-              </Text>
+              <AlertTriangle size={16} color="#EF4444" />
+              <Text style={[styles.errorTitle, { color: "#EF4444" }]}>{t(titleKey)}</Text>
             </View>
-            <View style={styles.optionRow}>
-              {phase === "error-score" ? (
-                <TouchableOpacity
-                  onPress={handleRetryScore}
-                  style={[
-                    styles.optBtn,
-                    { borderColor: accentColor, backgroundColor: accentColor + "15" },
-                  ]}
-                  activeOpacity={0.85}
-                >
-                  <RotateCcw size={16} color={accentColor} />
-                  <Text style={[styles.optBtnText, { color: accentColor }]}>
-                    {t("session.shadow.error.retryScore")}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-              {phase === "error-transcribe" ? (
-                <TouchableOpacity
-                  onPress={handleReplayCurrent}
-                  style={[styles.optBtn, { borderColor: colors.border }]}
-                  activeOpacity={0.85}
-                >
-                  <Volume2 size={16} color={colors.foreground} />
-                  <Text style={[styles.optBtnText, { color: colors.foreground }]}>
-                    {t("session.shadow.replayThis")}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-              {/* Re-listen to the just-recorded audio. error-no-audio means
-                  no playable URI was captured, so the button stays hidden
-                  there; for transcribe / score errors the bytes are valid
-                  even though downstream processing failed, so users can
-                  still review what they actually said. */}
-              {lastRecordingUri && phase !== "error-no-audio" ? (
-                <TouchableOpacity
-                  onPress={handlePlayMyRecording}
-                  style={[styles.optBtn, { borderColor: colors.border }]}
-                  activeOpacity={0.85}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("session.shadow.playMyRecording")}
-                >
-                  <Headphones size={16} color={colors.foreground} />
-                  <Text style={[styles.optBtnText, { color: colors.foreground }]}>
-                    {t("session.shadow.playMyRecording")}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                onPress={handleRetryCurrent}
-                style={[
-                  styles.optBtn,
-                  phase === "error-score"
-                    ? { borderColor: colors.border }
-                    : { borderColor: accentColor, backgroundColor: accentColor + "15" },
-                ]}
-                activeOpacity={0.85}
-              >
-                <RotateCcw
-                  size={16}
-                  color={phase === "error-score" ? colors.foreground : accentColor}
-                />
-                <Text
-                  style={[
-                    styles.optBtnText,
-                    {
-                      color:
-                        phase === "error-score" ? colors.foreground : accentColor,
-                    },
-                  ]}
-                >
-                  {t("session.shadow.error.recordAgain")}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleSkip}
-                style={[styles.optBtn, { borderColor: colors.border }]}
-                activeOpacity={0.85}
-              >
-                <SkipForward size={16} color={colors.mutedForeground} />
-                <Text style={[styles.optBtnText, { color: colors.mutedForeground }]}>
-                  {t("session.shadow.skip")}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={[styles.errorDesc, { color: colors.mutedForeground }]}>
+              {t(descKey)}
+            </Text>
           </View>
-        ) : null}
-
-        {isPassedPause ? (
-          <View style={styles.passedRow}>
-            <View style={styles.passedBadge}>
-              <Check size={14} color="#10B981" />
-              <Text style={[styles.passedBadgeText, { color: "#10B981" }]}>
-                {states[currentIdx]?.score ?? 0}
-              </Text>
-            </View>
-            {lastRecordingUri ? (
+          <View style={styles.fullIntroActions}>
+            {phase === "full-error-score" ? (
               <TouchableOpacity
-                onPress={handlePlayMyRecording}
-                style={[styles.optBtn, { borderColor: colors.border }]}
+                onPress={handleRetryFullScore}
+                style={[styles.fullStartBtn, { backgroundColor: accentColor }]}
                 activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel={t("session.shadow.playMyRecording")}
               >
-                <Headphones size={14} color={colors.foreground} />
-                <Text style={[styles.optBtnText, { color: colors.foreground }]}>
-                  {t("session.shadow.playMyRecording")}
+                <RotateCcw size={16} color="#fff" />
+                <Text style={styles.fullStartBtnText}>
+                  {t("session.shadow.fullError.retryScore")}
                 </Text>
               </TouchableOpacity>
             ) : null}
+            <TouchableOpacity
+              onPress={handleRetryFullRecord}
+              style={[styles.optBtn, { borderColor: colors.border, paddingVertical: 12 }]}
+              activeOpacity={0.85}
+            >
+              <RotateCcw size={16} color={colors.foreground} />
+              <Text style={[styles.optBtnText, { color: colors.foreground }]}>
+                {t("session.shadow.fullError.retryRead")}
+              </Text>
+            </TouchableOpacity>
           </View>
-        ) : null}
-      </View>
-      {micPermissionModal}
-    </View>
-  );
+        </View>
+      );
+    }
+
+    return null;
+  }
 }
 
 const styles = StyleSheet.create({
@@ -1121,13 +1257,12 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     lineHeight: 22,
   },
-  inlineScore: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-    marginLeft: 6,
-    marginTop: 4,
-    minWidth: 22,
-    textAlign: "right",
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 8,
+    marginLeft: 4,
   },
   paragraphBlock: {
     marginBottom: 6,
@@ -1240,44 +1375,148 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
   },
+  fullReadCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 6,
+      },
+      android: { elevation: 3 },
+      default: {},
+    }),
+  },
+  fullReadCtaText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.3,
+  },
+  fullReadHint: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    marginTop: -4,
+  },
+  centerBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+    paddingVertical: 40,
+  },
+  centerText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+  },
+  fullIntroWrap: {
+    gap: 16,
+  },
+  fullIntroCard: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    padding: 20,
+    alignItems: "center",
+    gap: 8,
+  },
+  fullIntroEmoji: {
+    fontSize: 32,
+  },
+  fullIntroTitle: {
+    fontSize: 17,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+  },
+  fullIntroBody: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  passagePreview: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+  },
+  passagePreviewText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 22,
+  },
+  fullIntroActions: {
+    gap: 10,
+  },
+  fullStartBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  fullStartBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+  },
+  fullRecordWrap: {
+    gap: 16,
+  },
+  passageCard: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 16,
+  },
+  passageBodyText: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 24,
+  },
+  fullRecordCenter: {
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 16,
+  },
+  timerText: {
+    fontSize: 28,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1,
+  },
   errorCard: {
     width: "100%",
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    gap: 10,
-    marginTop: 4,
+    gap: 8,
   },
   errorHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 8,
+  },
+  errorTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
   },
   errorDesc: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-    fontFamily: "Inter_500Medium",
-  },
-  passedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 8,
-  },
-  passedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "#10B98115",
-  },
-  passedBadgeText: {
     fontSize: 13,
-    fontFamily: "Inter_700Bold",
+    lineHeight: 19,
+    fontFamily: "Inter_400Regular",
   },
 });

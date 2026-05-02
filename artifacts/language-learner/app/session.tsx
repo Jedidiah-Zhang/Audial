@@ -103,10 +103,20 @@ export default function SessionScreen() {
     targetAnnotations?: Annotation[];
     userAnnotations?: Annotation[];
     userTranscript?: string;
+    // perSentence is only used by recitation (stage 2) — shadowing (stage 0)
+    // is now a single passage-level score, dictation (stage 1) is one
+    // submission, so neither populates this.
     perSentence?: PerSentenceRow[];
   } | null>(null);
   const [memorizeCountdown, setMemorizeCountdown] = useState(30);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Stage 0 (shadow) owns its own recorder inside ShadowSentenceFlow, so
+  // its recording URI can't be read off the session-level useAudioRecorder.
+  // We capture it from the flow's onComplete payload and use it for the
+  // "Play my recording" button on the result page.
+  const [shadowRecordingUri, setShadowRecordingUri] = useState<string | null>(
+    null
+  );
 
   // Result-page word player: lets users tap a wrong/missed token to hear it.
   // We keep one player instance and a single "active word" pointer that
@@ -196,8 +206,13 @@ export default function SessionScreen() {
   // other result-page playback first so the model TTS and the user's voice
   // never overlap. Tapping while the recording is already playing toggles
   // it off (matches the behavior of the word / sentence taps above).
+  // Pick the right recording URI for the current stage. Stage 0 (shadow)
+  // is recorded inside ShadowSentenceFlow on its own recorder hook, so
+  // its URI gets piped through `shadowRecordingUri`. Stage 2 (recitation)
+  // uses the session-level recorder, exposing it as `lastRecordingUri`.
+  const activeRecordingUri = stageIdx === 0 ? shadowRecordingUri : lastRecordingUri;
   const handlePlayMyRecording = () => {
-    if (!lastRecordingUri) return;
+    if (!activeRecordingUri) return;
     if (isPlayingRecording) {
       recordingPlayer.stop();
       setIsPlayingRecording(false);
@@ -208,7 +223,7 @@ export default function SessionScreen() {
     sentencePlayer.stop();
     setActiveSentenceIndex(null);
     setIsPlayingRecording(true);
-    recordingPlayer.playRecording(lastRecordingUri, () => {
+    recordingPlayer.playRecording(activeRecordingUri, () => {
       setIsPlayingRecording(false);
     });
   };
@@ -370,30 +385,25 @@ export default function SessionScreen() {
     if (!text) return;
     const score = flow.score;
     const passed = score >= STAGE_PASS_SCORE;
+    // Stage 0 (shadow) now produces a single passage-level score with two
+    // optional sub-scores from the model. We surface them in the same
+    // details strip that the other stages use so users get a quick glance
+    // at fluency vs accuracy without digging into per-sentence rows.
     const details: Record<string, string | number> = {};
-    const perSentence: PerSentenceRow[] = flow.perSentence.map((p) => ({
-      index: p.index,
-      score: p.score,
-      passed: p.passed,
-      target: p.target,
-      transcript: p.transcript,
-    }));
-    // Concatenate transcripts so the result page still has *something* to
-    // anchor the (hidden) annotated-text fallback against.
-    const userTranscript = flow.perSentence
-      .map((p) => p.transcript)
-      .filter(Boolean)
-      .join(" ");
+    if (typeof flow.fluency === "number") {
+      details[t("session.detail.fluency")] = `${flow.fluency}%`;
+    }
+    if (typeof flow.accuracy === "number") {
+      details[t("session.detail.accuracy")] = `${flow.accuracy}%`;
+    }
 
     const persistedDetails: Record<string, unknown> = { ...details };
-    persistedDetails.perSentence = flow.perSentence.map((p) => ({
-      index: p.index,
-      score: p.score,
-      passed: p.passed,
-      transcript: p.transcript,
-      target: p.target,
-    }));
-    if (userTranscript) persistedDetails.userTranscript = userTranscript;
+    if (typeof flow.fluency === "number") persistedDetails.fluency = flow.fluency;
+    if (typeof flow.accuracy === "number") persistedDetails.accuracy = flow.accuracy;
+    if (flow.targetAnnotations) {
+      persistedDetails.targetAnnotations = flow.targetAnnotations;
+    }
+    if (flow.userTranscript) persistedDetails.userTranscript = flow.userTranscript;
 
     // Persistence is best-effort: even if writing to local storage fails we
     // still want to surface the result page so the user sees their score.
@@ -412,13 +422,14 @@ export default function SessionScreen() {
       console.warn("[session] failed to persist shadow result", err);
     }
 
+    setShadowRecordingUri(flow.recordingUri ?? null);
     setResult({
       score,
       feedback: flow.feedback,
       details,
       passed,
-      userTranscript: userTranscript || undefined,
-      perSentence,
+      userTranscript: flow.userTranscript || undefined,
+      targetAnnotations: flow.targetAnnotations,
     });
     Haptics.notificationAsync(
       passed ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
@@ -437,6 +448,7 @@ export default function SessionScreen() {
   const handleRetry = () => {
     setResult(null);
     setDictationInput("");
+    setShadowRecordingUri(null);
     setPhase("intro");
   };
 
@@ -508,12 +520,13 @@ export default function SessionScreen() {
     }
   }, [result, stageIdx, text?.id]);
 
-  const analysisLocked =
-    !!result &&
-    !isPro &&
-    stageIdx === 0 &&
-    !!currentResultKeyRef.current &&
-    !isAnalysisUnlocked(currentResultKeyRef.current);
+  // Stage 0 used to gate its per-sentence analysis behind a rewarded ad,
+  // but the shadow flow no longer produces per-sentence rows — the result
+  // is a single passage-level score with optional fluency / accuracy
+  // sub-scores, all of which we show free. No stage currently triggers
+  // the gate; we keep the helpers wired up so we can re-enable it for a
+  // different stage in the future without re-plumbing.
+  const analysisLocked = false;
 
   if (!text) {
     return (
@@ -764,7 +777,7 @@ export default function SessionScreen() {
                     {result.score}
                   </Text>
                 </View>
-                {stageIdx === 0 ? null : (() => {
+                {(() => {
                   const targetTitle = t("session.annot.target");
                   const userTitle =
                     stageIdx === 1
@@ -854,12 +867,12 @@ export default function SessionScreen() {
                   onUnlockAnalysis={handleAnalysisUnlock}
                   isUnlocking={analysisUnlocking}
                 />
-                {/* Recitation-only: let users replay their own audio so they
-                    can compare it against the model TTS already exposed via
-                    the per-sentence rows above. Stage 0 (shadowing) shows
-                    its own per-sentence "Play my recording" inside the
-                    ShadowSentenceFlow; stage 1 (dictation) has no audio. */}
-                {stageIdx === 2 && lastRecordingUri ? (
+                {/* Recitation (stage 2) and the new shadow flow (stage 0)
+                    both produce a single full-passage recording the user
+                    can replay against the highlighted target text. Stage 1
+                    (dictation) has no audio so the button is suppressed
+                    there. */}
+                {(stageIdx === 0 || stageIdx === 2) && activeRecordingUri ? (
                   <TouchableOpacity
                     onPress={handlePlayMyRecording}
                     style={[

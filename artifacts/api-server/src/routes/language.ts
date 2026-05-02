@@ -483,7 +483,9 @@ router.post("/language/score-pronunciation", requireDeepseek, async (req, res) =
         {
           role: "system",
           content: `You are a language pronunciation and reading accuracy judge. Compare the target text with what was transcribed from the user's speech recording. Return JSON with:
-- "score": 0-100 accuracy score
+- "score": 0-100 overall accuracy score
+- "fluency": 0-100 numeric sub-score for how smoothly the user read (rhythm, hesitations, completeness). Lower if many words were skipped or the reading sounds halting.
+- "accuracy": 0-100 numeric sub-score for word-level pronunciation correctness. Lower if specific words were mispronounced or substituted.
 - "feedback": 1-2 sentences of constructive feedback in the user's native language (${language})
 - "mistakes": array of specific words/phrases that were wrong or missing (max 3)
 - "praise": one specific thing they did well
