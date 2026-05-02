@@ -168,8 +168,9 @@ export function ShadowSentenceFlow({
   // Kick off the very first sentence on mount.
   useEffect(() => {
     if (sentences.length === 0) {
-      // Empty article — nothing to do; report a perfect score so the result
-      // page doesn't get stuck in a bad state.
+      // Empty article — nothing to score. Report a 0 with empty per-sentence
+      // data so the result page doesn't get stuck in a bad state. (We send 0
+      // rather than a perfect score because there was no actual practice.)
       if (!completedRef.current) {
         completedRef.current = true;
         onComplete({ score: 0, feedback: "", perSentence: [] });
@@ -211,15 +212,21 @@ export function ShadowSentenceFlow({
         perSentence.reduce((s, p) => s + (p.score ?? 0), 0) / denom;
       const score = Math.round(avg);
 
-      const feedbackParts: string[] = [];
-      perSentence.forEach((p) => {
-        if (!p.feedback) return;
-        if (p.passed && (p.score ?? 0) >= 90) return;
-        feedbackParts.push(
-          `${t("session.shadow.sentenceProgress", { i: p.index + 1, n: perSentence.length })}: ${p.feedback}`
-        );
-      });
-      const feedback = feedbackParts.slice(0, 4).join("  ");
+      // Aggregate every sentence's feedback into the final summary so users
+      // see all of the model's notes. We surface struggling sentences first
+      // (lowest score → top) so the most actionable feedback isn't buried.
+      const feedback = perSentence
+        .filter((p) => !!p.feedback)
+        .slice()
+        .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
+        .map(
+          (p) =>
+            `${t("session.shadow.sentenceProgress", {
+              i: p.index + 1,
+              n: perSentence.length,
+            })}: ${p.feedback}`
+        )
+        .join("  ");
 
       onComplete({ score, feedback, perSentence });
     },
