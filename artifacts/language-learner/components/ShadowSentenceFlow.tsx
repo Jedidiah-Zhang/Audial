@@ -25,6 +25,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useAudioPlayer, useAudioRecorder, prefetchTTS } from "@/hooks/useAudio";
+import { VOICE_OPTIONS } from "@/types";
 import { useMicPermissionGate } from "@/components/MicPermissionPrompt";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { Icon } from "@/components/Icon";
@@ -121,9 +122,15 @@ interface Props {
   onComplete: (result: ShadowFlowResult) => void;
 }
 
+const SPEED_OPTIONS: { label: string; value: number }[] = [
+  { label: "0.5x", value: 0.5 },
+  { label: "0.75x", value: 0.75 },
+  { label: "1x", value: 1.0 },
+];
+
 export function ShadowSentenceFlow({
   text,
-  voice,
+  voice: voiceProp,
   accentColor,
   contentType,
   articleId,
@@ -133,9 +140,33 @@ export function ShadowSentenceFlow({
   const colors = useColors();
   const t = useT();
   const navigation = useNavigation();
-  const { userId, settings } = useApp();
+  const { userId, settings, updateSettings } = useApp();
+  // Voice / rate are user-tunable from inside the shadowing stage. The
+  // article screen no longer exposes these controls (Task #72), so the
+  // learner needs to be able to pick them here. Initial voice mirrors
+  // what the parent passes (which is `settings.preferredVoice`); when
+  // the user picks a different one we both update local state and
+  // persist the choice via `updateSettings` so it sticks across
+  // sessions, matching SentenceArticle's behaviour.
+  const [voice, setVoice] = useState<string>(voiceProp);
+  const [rate, setRateState] = useState<number>(1);
   const player = useAudioPlayer({ articleId, userId });
   const recordingPlayer = useAudioPlayer({ articleId, userId });
+  const handleSelectVoice = useCallback(
+    (newVoice: string) => {
+      setVoice(newVoice);
+      player.stop();
+      updateSettings({ preferredVoice: newVoice, preferredVoiceUserSet: true });
+    },
+    [player, updateSettings]
+  );
+  const handleSelectRate = useCallback(
+    (newRate: number) => {
+      setRateState(newRate);
+      player.setRate(newRate);
+    },
+    [player]
+  );
   const {
     startRecording,
     stopRecording,
@@ -983,6 +1014,94 @@ export function ShadowSentenceFlow({
 
   return (
     <View style={styles.wrap}>
+      <View style={styles.controls}>
+        <View style={styles.voiceSection}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+            {t("sentence.voice")}
+          </Text>
+          <View style={styles.voiceGrid}>
+            {VOICE_OPTIONS.map((opt) => {
+              const active = voice === opt.id;
+              const genderLabel =
+                opt.gender === "female" ? "♀" : opt.gender === "male" ? "♂" : "·";
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  onPress={() => handleSelectVoice(opt.id)}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.voiceChip,
+                    {
+                      backgroundColor: active ? accentColor : colors.muted,
+                      borderColor: active ? accentColor : colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.voiceChipGender,
+                      { color: active ? "#fff" : colors.mutedForeground },
+                    ]}
+                  >
+                    {genderLabel}
+                  </Text>
+                  <View style={styles.voiceChipTextWrap}>
+                    <Text
+                      style={[
+                        styles.voiceChipName,
+                        { color: active ? "#fff" : colors.foreground },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.voiceChipDesc,
+                        {
+                          color: active ? "rgba(255,255,255,0.85)" : colors.mutedForeground,
+                        },
+                      ]}
+                    >
+                      {opt.description}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
+          <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>
+            {t("sentence.speed")}
+          </Text>
+          {SPEED_OPTIONS.map((opt) => {
+            const active = rate === opt.value;
+            return (
+              <TouchableOpacity
+                key={opt.value}
+                onPress={() => handleSelectRate(opt.value)}
+                activeOpacity={0.8}
+                style={[
+                  styles.speedBtn,
+                  active && { backgroundColor: accentColor },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.speedBtnText,
+                    { color: active ? "#fff" : colors.foreground },
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
       <View
         style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}
       >
@@ -1327,6 +1446,78 @@ export function ShadowSentenceFlow({
 
 const styles = StyleSheet.create({
   wrap: { gap: 16 },
+  controls: {
+    gap: 10,
+  },
+  voiceSection: {
+    gap: 6,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    paddingHorizontal: 2,
+  },
+  voiceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  voiceChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexBasis: "32%",
+    flexGrow: 1,
+    minWidth: 0,
+  },
+  voiceChipGender: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    width: 12,
+    textAlign: "center",
+  },
+  voiceChipTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  voiceChipName: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  voiceChipDesc: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    marginTop: 1,
+  },
+  speedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: "center",
+  },
+  speedLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    marginRight: 4,
+  },
+  speedBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
+    minWidth: 44,
+    alignItems: "center",
+  },
+  speedBtnText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
   textCard: {
     borderRadius: 16,
     padding: 16,
