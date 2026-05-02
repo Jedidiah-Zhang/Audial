@@ -13,7 +13,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import { translate } from "@/utils/i18n";
-import { isRTL, rtlFlipStyle } from "@/utils/rtl";
+import { isRTL, rtlFlipStyle, rtlTextStyle } from "@/utils/rtl";
 
 export function LanguageOnboarding() {
   const colors = useColors();
@@ -65,11 +65,14 @@ export function LanguageOnboarding() {
                   >
                     <View style={{ flex: 1 }}>
                       <Text
-                        style={{
-                          color: isSelected ? colors.primary : colors.foreground,
-                          fontSize: 15,
-                          fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_500Medium",
-                        }}
+                        style={[
+                          {
+                            color: isSelected ? colors.primary : colors.foreground,
+                            fontSize: 15,
+                            fontFamily: isSelected ? "Inter_600SemiBold" : "Inter_500Medium",
+                          },
+                          rtlTextStyle(lang.name),
+                        ]}
                       >
                         {lang.name}
                       </Text>
