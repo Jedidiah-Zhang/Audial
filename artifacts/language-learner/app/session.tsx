@@ -82,6 +82,17 @@ export default function SessionScreen() {
   );
   activeWordRef.current = activeWord;
 
+  // Result-page sentence player: lets users tap a failed sentence row in the
+  // per-sentence breakdown to hear the model TTS read it again. Kept separate
+  // from `wordPlayer` so the two playback contexts don't fight over a shared
+  // active pointer.
+  const sentencePlayer = useAudioPlayer({ articleId: text?.id, userId });
+  const [activeSentenceIndex, setActiveSentenceIndex] = useState<number | null>(
+    null
+  );
+  const activeSentenceIndexRef = useRef<number | null>(null);
+  activeSentenceIndexRef.current = activeSentenceIndex;
+
   const handleWordPress = (side: "target" | "user") => (
     spoken: string,
     index: number
@@ -106,15 +117,35 @@ export default function SessionScreen() {
     });
   };
 
-  // Stop word playback and clear the highlight whenever we leave the result
-  // phase (e.g. user taps Try Again or Continue) so nothing keeps playing in
-  // the background.
+  const handleSentencePress = (row: PerSentenceRow) => {
+    const target = row.target?.trim();
+    if (!target) return;
+    // Tapping the currently-playing sentence stops playback.
+    if (activeSentenceIndexRef.current === row.index) {
+      sentencePlayer.stop();
+      setActiveSentenceIndex(null);
+      return;
+    }
+    setActiveSentenceIndex(row.index);
+    const voice = settings.preferredVoice ?? "nova";
+    sentencePlayer.playTTS(target, voice, () => {
+      if (activeSentenceIndexRef.current === row.index) {
+        setActiveSentenceIndex(null);
+      }
+    });
+  };
+
+  // Stop word/sentence playback and clear highlights whenever we leave the
+  // result phase (e.g. user taps Try Again or Continue) so nothing keeps
+  // playing in the background.
   useEffect(() => {
     if (phase !== "result") {
       wordPlayer.stop();
       setActiveWord(null);
+      sentencePlayer.stop();
+      setActiveSentenceIndex(null);
     }
-  }, [phase, wordPlayer]);
+  }, [phase, wordPlayer, sentencePlayer]);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
@@ -663,6 +694,8 @@ export default function SessionScreen() {
                   details={result.details}
                   mode={stage.mode as LearningMode}
                   perSentence={result.perSentence}
+                  onSentencePress={handleSentencePress}
+                  playingIndex={activeSentenceIndex}
                 />
               </>
             ) : (

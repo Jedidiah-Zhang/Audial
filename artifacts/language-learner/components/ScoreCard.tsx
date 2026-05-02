@@ -1,6 +1,6 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Check, X } from "lucide-react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
+import { Check, X, Volume2 } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT, getModeLabel } from "@/utils/i18n";
 import { useApp } from "@/context/AppContext";
@@ -19,9 +19,19 @@ interface ScoreCardProps {
   details?: Record<string, string | number>;
   mode: "shadowing" | "dictation" | "recitation";
   perSentence?: PerSentenceRow[];
+  onSentencePress?: (row: PerSentenceRow) => void;
+  playingIndex?: number | null;
 }
 
-export function ScoreCard({ score, feedback, details, mode, perSentence }: ScoreCardProps) {
+export function ScoreCard({
+  score,
+  feedback,
+  details,
+  mode,
+  perSentence,
+  onSentencePress,
+  playingIndex,
+}: ScoreCardProps) {
   const colors = useColors();
   const t = useT();
   const { settings } = useApp();
@@ -93,11 +103,10 @@ export function ScoreCard({ score, feedback, details, mode, perSentence }: Score
           {perSentence.map((p) => {
             const tone = p.passed ? "#10B981" : "#EF4444";
             const preview = p.target.length > 36 ? p.target.slice(0, 36) + "…" : p.target;
-            return (
-              <View
-                key={p.index}
-                style={[styles.perRow, { borderTopColor: colors.border }]}
-              >
+            const tappable = !p.passed && !!onSentencePress;
+            const isPlaying = playingIndex === p.index;
+            const rowContent = (
+              <>
                 <View style={[styles.perBadge, { backgroundColor: tone + "1A" }]}>
                   {p.passed ? (
                     <Check size={12} color={tone} />
@@ -121,7 +130,42 @@ export function ScoreCard({ score, feedback, details, mode, perSentence }: Score
                     {preview}
                   </Text>
                 </View>
+                {tappable ? (
+                  <View style={styles.perPlayIcon}>
+                    {isPlaying ? (
+                      <ActivityIndicator size="small" color={tone} />
+                    ) : (
+                      <Volume2 size={16} color={tone} />
+                    )}
+                  </View>
+                ) : null}
                 <Text style={[styles.perScore, { color: tone }]}>{p.score}</Text>
+              </>
+            );
+            if (tappable) {
+              return (
+                <TouchableOpacity
+                  key={p.index}
+                  onPress={() => onSentencePress?.(p)}
+                  activeOpacity={0.7}
+                  style={[
+                    styles.perRow,
+                    {
+                      borderTopColor: colors.border,
+                      backgroundColor: isPlaying ? tone + "12" : "transparent",
+                    },
+                  ]}
+                >
+                  {rowContent}
+                </TouchableOpacity>
+              );
+            }
+            return (
+              <View
+                key={p.index}
+                style={[styles.perRow, { borderTopColor: colors.border }]}
+              >
+                {rowContent}
               </View>
             );
           })}
@@ -244,5 +288,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     minWidth: 32,
     textAlign: "right",
+  },
+  perPlayIcon: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
