@@ -205,6 +205,26 @@ export default function PracticeScreen() {
     return () => sub.remove();
   }, [hasGeom]);
 
+  // Coordinate-space compensation between the home screen and the
+  // practice screen on Android.
+  //
+  // Home calls `measureInWindow` on the tapped card and reports y values
+  // relative to the *activity window*, which on Android starts below the
+  // status bar. The practice screen is presented with
+  // `presentation: "transparentModal"`, which on Android wraps it in a
+  // Dialog whose Window covers the *full* screen — including the status
+  // bar area. So an overlay positioned at `top: initialGeom.y` inside
+  // the Dialog lands `insets.top` pixels higher than where the actual
+  // card sits in the activity window beneath. We add the top safe-area
+  // inset back in to put the overlay's frame in the same coordinate
+  // space as the source card. Multiplying by `inv` (1 − progress)
+  // collapses this offset to 0 at p=1, so the fully-open state still
+  // covers the entire screen edge-to-edge.
+  //
+  // iOS and web don't have this Dialog-vs-activity-window split, so no
+  // compensation is needed there.
+  const verticalOffset = Platform.OS === "android" ? insets.top : 0;
+
   // Background layer: a card-colored panel that interpolates from the
   // originating card's geometry to the full screen. Border + radius shrink
   // to 0 by the time it fills the screen so no stray edge or corner remains
@@ -220,7 +240,7 @@ export default function PracticeScreen() {
     // crossfaded in underneath.
     const bgOp = p <= 0.85 ? 1 : Math.max(0, 1 - (p - 0.85) / 0.15);
     return {
-      top: initialGeom.y * inv,
+      top: (initialGeom.y + verticalOffset) * inv,
       left: initialGeom.x * inv,
       width: initialGeom.width + (screenW - initialGeom.width) * p,
       height: initialGeom.height + (screenH - initialGeom.height) * p,
@@ -237,6 +257,7 @@ export default function PracticeScreen() {
     screenW,
     screenH,
     overlayMaxBorder,
+    verticalOffset,
   ]);
 
   // Snapshot layer: rendered as a child of the background layer so it
