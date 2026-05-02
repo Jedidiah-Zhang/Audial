@@ -1,0 +1,384 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`AnnotatedText > CJK script (without spacing) > renders all four statuses without inserting spaces between CJK tokens 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Test
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        你好
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(239, 68, 68); background-color: rgba(239, 68, 68, 0.13); text-decoration: underline; text-decoration-color: rgb(239, 68, 68);"
+      >
+        世届
+      </span>
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(34, 197, 94); font-style: italic;"
+      >
+         
+        (
+        世界
+        )
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(239, 68, 68); background-color: rgba(239, 68, 68, 0.07); text-decoration: line-through; text-decoration-color: rgb(239, 68, 68);"
+      >
+        的
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(100, 116, 139); text-decoration: line-through; text-decoration-color: rgb(100, 116, 139);"
+      >
+        啊
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > CJK script (without spacing) > renders the ok-only CJK baseline 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Test
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        今天
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        天气
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        很好
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > Latin script (with spacing) > renders a single extra token 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Test
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(100, 116, 139); text-decoration: line-through; text-decoration-color: rgb(100, 116, 139);"
+      >
+        uhh
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > Latin script (with spacing) > renders a single missed token 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Test
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(239, 68, 68); background-color: rgba(239, 68, 68, 0.07); text-decoration: line-through; text-decoration-color: rgb(239, 68, 68);"
+      >
+        skipped
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > Latin script (with spacing) > renders a single wrong token with its correction inline 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Test
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(239, 68, 68); background-color: rgba(239, 68, 68, 0.13); text-decoration: underline; text-decoration-color: rgb(239, 68, 68);"
+      >
+        teh
+      </span>
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(34, 197, 94); font-style: italic;"
+      >
+         
+        (
+        the
+        )
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > Latin script (with spacing) > renders all four statuses with leading spaces between words 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Test
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        Hello
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+       
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(239, 68, 68); background-color: rgba(239, 68, 68, 0.13); text-decoration: underline; text-decoration-color: rgb(239, 68, 68);"
+      >
+        wrold
+      </span>
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(34, 197, 94); font-style: italic;"
+      >
+         
+        (
+        world
+        )
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+       
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(239, 68, 68); background-color: rgba(239, 68, 68, 0.07); text-decoration: line-through; text-decoration-color: rgb(239, 68, 68);"
+      >
+        the
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+       
+      <span
+        class="css-textHasAncestor-1jxf684"
+        style="color: rgb(100, 116, 139); text-decoration: line-through; text-decoration-color: rgb(100, 116, 139);"
+      >
+        umm
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > Latin script (with spacing) > renders the ok-only Latin baseline 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Test
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        Good
+      </span>
+    </span>
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+       
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        morning
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > fallback rendering > falls back to plain text when annotations are null 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Fallback
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(15, 23, 42);"
+  >
+    <span
+      class="css-textHasAncestor-1jxf684"
+    >
+      <span
+        class="css-textHasAncestor-1jxf684"
+      >
+        Plain text fallback
+      </span>
+    </span>
+  </div>
+</div>
+`;
+
+exports[`AnnotatedText > fallback rendering > renders the empty placeholder when neither annotations nor fallback are provided 1`] = `
+<div
+  class="css-view-g5y9jx r-borderRadius-t23y2h r-borderWidth-rs99b7 r-gap-1cmwbt1 r-padding-1slz7xr"
+  style="background-color: rgb(255, 255, 255); border-top-color: rgb(226, 232, 240); border-right-color: rgb(226, 232, 240); border-bottom-color: rgb(226, 232, 240); border-left-color: rgb(226, 232, 240);"
+>
+  <div
+    class="css-text-146c3p1 r-fontFamily-1bxoz39 r-fontSize-1gkfh8e r-letterSpacing-1ikidpy r-textTransform-tsynxw"
+    dir="auto"
+    style="color: rgb(100, 116, 139);"
+  >
+    Empty
+  </div>
+  <div
+    class="css-text-146c3p1 r-fontFamily-vsb09d r-fontSize-a023e6 r-lineHeight-eaezby"
+    dir="auto"
+    style="color: rgb(100, 116, 139); font-style: italic;"
+  >
+    No data
+  </div>
+</div>
+`;
