@@ -187,8 +187,19 @@ export function useAudioPlayer() {
           }
         } else {
           const { createAudioPlayer } = await import("expo-audio");
-          const base64 = _arrayBufferToBase64(buffer);
-          const uri = `data:audio/mpeg;base64,${base64}`;
+          const FileSystem = await import("expo-file-system");
+          let uri: string;
+          try {
+            const { File, Paths } = FileSystem as any;
+            const file = new File(Paths.cache, `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+            try { file.delete(); } catch {}
+            file.create();
+            file.write(new Uint8Array(buffer));
+            uri = file.uri;
+          } catch {
+            const base64 = _arrayBufferToBase64(buffer);
+            uri = `data:audio/mpeg;base64,${base64}`;
+          }
           const player = createAudioPlayer({ uri });
           expoPlayerRef.current = player;
           try {

@@ -71,8 +71,19 @@ export function useAmbientPlayer() {
         }
       } else {
         const { createAudioPlayer } = await import("expo-audio");
+        const FileSystem = await import("expo-file-system");
         if (token !== playTokenRef.current) return;
-        const player = createAudioPlayer({ uri: getAmbientDataUri(scene) });
+        let uri = getAmbientDataUri(scene);
+        try {
+          const { File, Paths } = FileSystem as any;
+          const file = new File(Paths.cache, `ambient-${scene}.wav`);
+          if (!file.exists) {
+            file.create();
+            file.write(new Uint8Array(getAmbientWav(scene)));
+          }
+          uri = file.uri;
+        } catch {}
+        const player = createAudioPlayer({ uri });
         if (token !== playTokenRef.current) {
           try { player.remove?.(); } catch {}
           return;
