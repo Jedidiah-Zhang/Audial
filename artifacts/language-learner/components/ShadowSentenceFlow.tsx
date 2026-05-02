@@ -658,15 +658,18 @@ export function ShadowSentenceFlow({
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
+      console.log("[REC] finalizeFullRecording: blob size=", blob.size, "type=", blob.type);
       const transcript = await transcribeAudio(blob, controller.signal);
       if (!transcript || !transcript.trim()) {
+        console.warn("[REC] finalizeFullRecording: empty transcript");
         setPhase("full-error-transcribe");
         return;
       }
       const cleaned = transcript.trim();
       setLastFullTranscript(cleaned);
       await scoreFullPassage(cleaned);
-    } catch {
+    } catch (e) {
+      console.warn("[REC] finalizeFullRecording: transcribe/score threw", e);
       setPhase("full-error-transcribe");
     } finally {
       clearTimeout(timer);

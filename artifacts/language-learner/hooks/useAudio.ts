@@ -848,7 +848,11 @@ export function useAudioRecorder() {
         // overwritten on the next `recorder.record()`).
         lastRecordingUriRef.current = uri;
         setLastRecordingUri(uri);
-        return new Blob([byteArray], { type: "audio/wav" });
+        // Both Android and iOS native paths capture m4a/aac via expo-audio's
+        // HIGH_QUALITY preset (`.m4a` extension). Tag the blob accordingly —
+        // the server also sniffs magic bytes via `ensureCompatibleFormat`,
+        // so this just helps any consumer that trusts Content-Type.
+        return new Blob([byteArray], { type: "audio/mp4" });
       }
     } catch {
       return null;
@@ -872,16 +876,35 @@ export async function transcribeAudio(
   audioBlob: Blob,
   signal?: AbortSignal,
 ): Promise<string> {
-  const arrayBuffer = await audioBlob.arrayBuffer();
+  const url = `${BASE_URL}/api/language/stt`;
+  const contentType = audioBlob.type || "audio/webm";
+  console.log("[REC] transcribeAudio: POST", url, "size=", audioBlob.size, "type=", contentType);
 
-  const response = await fetch(`${BASE_URL}/api/language/stt`, {
-    method: "POST",
-    headers: { "Content-Type": audioBlob.type || "audio/webm" },
-    body: arrayBuffer,
-    signal,
-  });
+  let response: Response;
+  try {
+    // React Native's fetch does NOT reliably accept ArrayBuffer as body —
+    // it can silently drop the payload or throw. Passing the Blob directly
+    // is supported on both web and RN (RN turns it into a multipart-style
+    // upload internally). On web this is also the natural shape.
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": contentType },
+      body: audioBlob,
+      signal,
+    });
+  } catch (e) {
+    console.warn("[REC] transcribeAudio fetch THREW", e);
+    throw e;
+  }
 
-  if (!response.ok) throw new Error("Transcription failed");
+  console.log("[REC] transcribeAudio response status=", response.status);
+  if (!response.ok) {
+    let bodyText = "";
+    try { bodyText = await response.text(); } catch {}
+    console.warn("[REC] transcribeAudio non-OK", response.status, bodyText.slice(0, 200));
+    throw new Error("Transcription failed");
+  }
   const data = await response.json() as { success: boolean; transcript: string };
+  console.log("[REC] transcribeAudio transcript len=", (data.transcript || "").length);
   return data.transcript;
 }
