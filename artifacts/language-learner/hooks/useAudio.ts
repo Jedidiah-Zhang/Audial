@@ -4,6 +4,7 @@ import {
   AudioModule,
   RecordingPresets,
   createAudioPlayer,
+  setAudioModeAsync,
   useAudioRecorder as useExpoAudioRecorder,
 } from "expo-audio";
 import { File, Paths } from "expo-file-system";
@@ -682,6 +683,26 @@ export function useAudioRecorder() {
         setIsRecording(true);
         return true;
       } else {
+        // iOS requires the audio session to be in a recording-capable mode
+        // before `recorder.record()` will succeed. The app sets
+        // `allowsRecording: false` at startup (see `app/_layout.tsx`) so
+        // playback works correctly in silent mode, so we have to flip it on
+        // here and restore it in `stopRecording`. Without this, the system
+        // permission prompt grants successfully but `recorder.record()`
+        // throws and gets swallowed by the catch below — the user sees the
+        // mic button do nothing and assumes permission wasn't granted.
+        try {
+          await setAudioModeAsync({
+            playsInSilentMode: true,
+            shouldPlayInBackground: false,
+            interruptionMode: "duckOthers",
+            shouldRouteThroughEarpiece: false,
+            allowsRecording: true,
+          });
+        } catch {
+          /* Best-effort — if this fails the recorder.record() below will
+             throw and we'll fall into the existing error path. */
+        }
         await recorder.record();
         setIsRecording(true);
         return true;
@@ -722,8 +743,32 @@ export function useAudioRecorder() {
           mediaRecorder.stop();
         });
       } else {
-        await recorder.stop();
-        const uri = recorder.uri;
+        let uri: string | null | undefined;
+        try {
+          await recorder.stop();
+          uri = recorder.uri;
+        } finally {
+          // Restore the playback-friendly audio mode so subsequent TTS
+          // playback (scoring screen, sentence taps, etc.) plays at full
+          // volume even on iOS devices with the silent switch on. Mirror
+          // of the toggle in `startRecording` above. Wrapped in `finally`
+          // so we never leave the audio session stuck in recording mode
+          // even if `recorder.stop()` throws — otherwise all subsequent
+          // playback would route through the earpiece / be near-silent.
+          try {
+            await setAudioModeAsync({
+              playsInSilentMode: true,
+              shouldPlayInBackground: false,
+              interruptionMode: "duckOthers",
+              shouldRouteThroughEarpiece: false,
+              allowsRecording: false,
+            });
+          } catch {
+            /* Non-fatal — playback may be quieter on iOS until the next
+               successful `setAudioModeAsync` call, but recording /
+               transcript flow still completes. */
+          }
+        }
         if (!uri) return null;
 
         const file = new File(uri);
