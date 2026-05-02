@@ -128,8 +128,10 @@ export function MicPermissionPrompt({
             </>
           ) : isWeb ? (
             // On web there is no API to deep-link into browser site settings,
-            // so the hint text above is the actual instruction. We just give
-            // the user a single dismiss button.
+            // so the hint text above is the actual instruction. The single
+            // button is an acknowledge-and-dismiss ("Got it") rather than a
+            // generic "Confirm" so the user understands no action is being
+            // committed by tapping it.
             <Pressable
               onPress={onClose}
               style={({ pressed }) => [
@@ -141,7 +143,7 @@ export function MicPermissionPrompt({
               ]}
             >
               <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
-                {t("common.confirm")}
+                {t("session.permission.gotIt")}
               </Text>
             </Pressable>
           ) : (
