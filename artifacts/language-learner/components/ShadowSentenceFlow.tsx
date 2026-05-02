@@ -586,6 +586,7 @@ export function ShadowSentenceFlow({
   };
 
   const hint = (() => {
+    if (phase === "done") return t("session.shadow.allDone");
     if (isProcessing) {
       return phase === "transcribing"
         ? t("session.processing.transcribing")
@@ -619,6 +620,25 @@ export function ShadowSentenceFlow({
       <View
         style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}
       >
+        <View style={[styles.progressBarTrack, { backgroundColor: colors.muted }]}>
+          <View
+            style={[
+              styles.progressBarFill,
+              {
+                backgroundColor: accentColor,
+                width: `${
+                  sentences.length === 0
+                    ? 0
+                    : Math.round(
+                        (Math.min(currentIdx + (phase === "done" ? 1 : 0), sentences.length) /
+                          sentences.length) *
+                          100
+                      )
+                }%` as any,
+              },
+            ]}
+          />
+        </View>
         <ScrollView
           ref={scrollRef}
           style={{ maxHeight: 320 }}
@@ -731,6 +751,17 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     maxHeight: 380,
+  },
+  progressBarTrack: {
+    width: "100%",
+    height: 4,
+    borderRadius: 2,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 2,
   },
   sentRow: {
     flexDirection: "row",
