@@ -1,5 +1,4 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "_P65AANFrfDcQwQ-jRHuU"
@@ -24,3 +23,9 @@ id = "ENtYtQgOWcjf4_cOgdv6F"
 uri = "file://attached_assets/generated_images/audial_fish_v2.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "biYEemwyYwu-r3eJ6Zcko"
+uri = "file://artifacts/language-learner/assets/images/icon.png"
+type = "image"
+title = "Audial Logo (icon.png)"
