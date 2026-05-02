@@ -20,16 +20,11 @@ export type AdPlacement =
  * - `rewarded`: the user finished the rewarded ad and earned the reward.
  * - `dismissed`: the user closed the ad early — no reward should be
  *    granted.
- * - `unavailable`: an ad was not available (no fill / SDK not configured).
- *    Callers may either fall back to the paywall or silently grant the
- *    reward in dev (handled by the simulator).
- * - `error`: an exception happened in the SDK / network call.
+ * - `unavailable`: an ad was not available (no fill / SDK not configured
+ *    / SDK error). Callers may either fall back to the paywall or
+ *    silently grant the reward in dev (handled by the simulator).
  */
-export type AdShowOutcome =
-  | "rewarded"
-  | "dismissed"
-  | "unavailable"
-  | "error";
+export type AdShowOutcome = "rewarded" | "dismissed" | "unavailable";
 
 export interface UseRewardedAdResult {
   /** Whether an ad is currently loaded & ready to show. */
@@ -209,7 +204,7 @@ async function showRealRewardedAd(
 
       cleanups.push(
         rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => {
-          rewarded.show().catch(() => finish("error"));
+          rewarded.show().catch(() => finish("unavailable"));
         }),
       );
       cleanups.push(
@@ -224,13 +219,13 @@ async function showRealRewardedAd(
       );
       cleanups.push(
         rewarded.addAdEventListener(AdEventType.ERROR, () => {
-          finish("error");
+          finish("unavailable");
         }),
       );
 
       rewarded.load();
     } catch {
-      finish("error");
+      finish("unavailable");
     }
   });
 }
@@ -260,8 +255,8 @@ export function useRewardedAd(placement: AdPlacement): UseRewardedAdResult {
       //    active we NEVER fall through to the simulator — falling
       //    through would let a misconfigured production build silently
       //    grant rewards without showing an ad. Surface the SDK outcome
-      //    (`unavailable` / `error` / `dismissed`) and let the caller
-      //    decide (typically: show the paywall).
+      //    (`unavailable` / `dismissed`) and let the caller decide
+      //    (typically: show the paywall).
       if (isRealAdMobActive()) {
         return await showRealRewardedAd(placement);
       }
