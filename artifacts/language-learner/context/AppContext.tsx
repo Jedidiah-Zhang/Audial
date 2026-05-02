@@ -83,6 +83,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   preferredVoiceUserSet: false,
   autoPlayAudio: true,
   onboarded: false,
+  themePreference: "system",
 };
 
 // One-shot migration: any persisted "en" code (settings + texts) is rewritten
@@ -221,7 +222,7 @@ interface AppContextValue {
   renameLocalAccount: (id: string, name: string) => Promise<void>;
 }
 
-const AppContext = createContext<AppContextValue | null>(null);
+export const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { isLoaded: authLoaded, userId: clerkUserId } = useAuth();

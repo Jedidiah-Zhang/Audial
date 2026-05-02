@@ -26,7 +26,10 @@ import { PaywallModal } from "@/components/PaywallModal";
 
 const DIFFICULTIES: Difficulty[] = ["beginner", "elementary", "intermediate", "advanced"];
 
-type PickerKind = "ui" | "target" | "voice" | "difficulty" | null;
+type ThemePreference = "system" | "light" | "dark";
+const THEME_PREFERENCES: ThemePreference[] = ["system", "light", "dark"];
+
+type PickerKind = "ui" | "target" | "voice" | "difficulty" | "theme" | null;
 
 export default function SettingsScreen() {
   const colors = useColors();
@@ -42,6 +45,7 @@ export default function SettingsScreen() {
   const currentTarget = LANGUAGES.find((l) => l.code === settings.targetLanguage);
   const currentUi = LANGUAGES.find((l) => l.code === settings.nativeLanguage);
   const currentVoice = VOICE_OPTIONS.find((v) => v.id === settings.preferredVoice);
+  const themePreference: ThemePreference = settings.themePreference ?? "system";
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -117,6 +121,16 @@ export default function SettingsScreen() {
           />
         </Section>
 
+        <Section title={t("settings.section.appearance")} colors={colors}>
+          <Row
+            colors={colors}
+            icon="moon"
+            label={t("settings.theme")}
+            value={t(`settings.theme.${themePreference}`)}
+            onPress={() => setPicker("theme")}
+          />
+        </Section>
+
         <Section title={t("settings.section.audio")} colors={colors}>
           <Row
             colors={colors}
@@ -149,6 +163,8 @@ export default function SettingsScreen() {
                   ? t("settings.changeTarget")
                   : picker === "voice"
                   ? t("settings.changeVoice")
+                  : picker === "theme"
+                  ? t("settings.changeTheme")
                   : t("settings.difficulty")}
               </Text>
               <TouchableOpacity onPress={closePicker} hitSlop={10}>
@@ -246,6 +262,32 @@ export default function SettingsScreen() {
                         </Text>
                         <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }} numberOfLines={1}>
                           {item.description}
+                        </Text>
+                      </View>
+                      {selected && <Check size={18} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            )}
+
+            {picker === "theme" && (
+              <FlatList
+                data={THEME_PREFERENCES}
+                keyExtractor={(p) => p}
+                renderItem={({ item }) => {
+                  const selected = item === themePreference;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.row, { borderBottomColor: colors.border }, selected && { backgroundColor: colors.primary + "15" }]}
+                      onPress={async () => {
+                        await updateSettings({ themePreference: item });
+                        closePicker();
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: selected ? colors.primary : colors.foreground, fontSize: 15, fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium" }}>
+                          {t(`settings.theme.${item}`)}
                         </Text>
                       </View>
                       {selected && <Check size={18} color={colors.primary} />}

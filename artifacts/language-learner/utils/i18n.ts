@@ -318,6 +318,12 @@ const en: Dict = {
   "auth.local.rename": "Rename profile",
   "auth.local.delete": "Delete profile",
   "auth.local.deleteMsg": "Delete \"{name}\"? All articles and progress under this profile on this device will be removed.",
+  "settings.section.appearance": "Appearance",
+  "settings.theme": "Theme",
+  "settings.theme.system": "Follow system",
+  "settings.theme.light": "Light",
+  "settings.theme.dark": "Dark",
+  "settings.changeTheme": "Choose Theme",
 };
 
 const zh: Dict = {
@@ -628,6 +634,12 @@ const zh: Dict = {
   "auth.local.rename": "重命名账户",
   "auth.local.delete": "删除账户",
   "auth.local.deleteMsg": "确认删除「{name}」吗？该账户在本机的全部文章与学习记录都会被一并删除。",
+  "settings.section.appearance": "外观",
+  "settings.theme": "主题",
+  "settings.theme.system": "跟随系统",
+  "settings.theme.light": "浅色",
+  "settings.theme.dark": "深色",
+  "settings.changeTheme": "选择主题",
 };
 
 const ja: Dict = {
@@ -866,6 +878,12 @@ const ja: Dict = {
   "auth.local.rename": "プロフィール名を変更",
   "auth.local.delete": "プロフィールを削除",
   "auth.local.deleteMsg": "「{name}」を削除しますか？このプロフィールの記事と進捗はすべてこの端末から削除されます。",
+  "settings.section.appearance": "外観",
+  "settings.theme": "テーマ",
+  "settings.theme.system": "システムに合わせる",
+  "settings.theme.light": "ライト",
+  "settings.theme.dark": "ダーク",
+  "settings.changeTheme": "テーマを選択",
 };
 
 const ko: Dict = {
@@ -1104,6 +1122,12 @@ const ko: Dict = {
   "auth.local.rename": "프로필 이름 변경",
   "auth.local.delete": "프로필 삭제",
   "auth.local.deleteMsg": "「{name}」을(를) 삭제하시겠습니까? 이 기기의 이 프로필 아래에 있는 모든 기사와 진행 상황이 제거됩니다.",
+  "settings.section.appearance": "모양",
+  "settings.theme": "테마",
+  "settings.theme.system": "시스템 설정 따르기",
+  "settings.theme.light": "라이트",
+  "settings.theme.dark": "다크",
+  "settings.changeTheme": "테마 선택",
 };
 
 const es: Dict = {
@@ -1342,6 +1366,12 @@ const es: Dict = {
   "auth.local.rename": "Renombrar perfil",
   "auth.local.delete": "Eliminar perfil",
   "auth.local.deleteMsg": "¿Eliminar «{name}»? Se borrarán todos los artículos y progreso de este perfil en este dispositivo.",
+  "settings.section.appearance": "Apariencia",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Seguir el sistema",
+  "settings.theme.light": "Claro",
+  "settings.theme.dark": "Oscuro",
+  "settings.changeTheme": "Elegir tema",
 };
 
 const fr: Dict = {
@@ -1580,6 +1610,12 @@ const fr: Dict = {
   "auth.local.rename": "Renommer le profil",
   "auth.local.delete": "Supprimer le profil",
   "auth.local.deleteMsg": "Supprimer « {name} » ? Tous les articles et la progression de ce profil sur cet appareil seront supprimés.",
+  "settings.section.appearance": "Apparence",
+  "settings.theme": "Thème",
+  "settings.theme.system": "Suivre le système",
+  "settings.theme.light": "Clair",
+  "settings.theme.dark": "Sombre",
+  "settings.changeTheme": "Choisir le thème",
 };
 
 const de: Dict = {
@@ -1818,6 +1854,12 @@ const de: Dict = {
   "auth.local.rename": "Profil umbenennen",
   "auth.local.delete": "Profil löschen",
   "auth.local.deleteMsg": "„{name}“ löschen? Alle Artikel und Fortschritte dieses Profils auf diesem Gerät werden entfernt.",
+  "settings.section.appearance": "Darstellung",
+  "settings.theme": "Design",
+  "settings.theme.system": "System folgen",
+  "settings.theme.light": "Hell",
+  "settings.theme.dark": "Dunkel",
+  "settings.changeTheme": "Design auswählen",
 };
 
 const ru: Dict = {
@@ -2056,6 +2098,12 @@ const ru: Dict = {
   "auth.local.rename": "Переименовать профиль",
   "auth.local.delete": "Удалить профиль",
   "auth.local.deleteMsg": "Удалить «{name}»? Все статьи и прогресс этого профиля на устройстве будут удалены.",
+  "settings.section.appearance": "Внешний вид",
+  "settings.theme": "Тема",
+  "settings.theme.system": "Как в системе",
+  "settings.theme.light": "Светлая",
+  "settings.theme.dark": "Тёмная",
+  "settings.changeTheme": "Выбрать тему",
 };
 
 const hu: Dict = {
@@ -2294,6 +2342,12 @@ const hu: Dict = {
   "auth.local.rename": "Profil átnevezése",
   "auth.local.delete": "Profil törlése",
   "auth.local.deleteMsg": "Törlöd: „{name}”? A profilhoz tartozó összes cikk és haladás törlődik a készülékről.",
+  "settings.section.appearance": "Megjelenés",
+  "settings.theme": "Téma",
+  "settings.theme.system": "Rendszer szerint",
+  "settings.theme.light": "Világos",
+  "settings.theme.dark": "Sötét",
+  "settings.changeTheme": "Téma választása",
 };
 
 const it: Dict = {
@@ -2532,6 +2586,12 @@ const it: Dict = {
   "auth.local.rename": "Rinomina profilo",
   "auth.local.delete": "Elimina profilo",
   "auth.local.deleteMsg": "Eliminare «{name}»? Tutti gli articoli e i progressi di questo profilo sul dispositivo verranno rimossi.",
+  "settings.section.appearance": "Aspetto",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Segui il sistema",
+  "settings.theme.light": "Chiaro",
+  "settings.theme.dark": "Scuro",
+  "settings.changeTheme": "Scegli tema",
 };
 
 const pt: Dict = {
@@ -2770,6 +2830,12 @@ const pt: Dict = {
   "auth.local.rename": "Renomear perfil",
   "auth.local.delete": "Excluir perfil",
   "auth.local.deleteMsg": "Excluir «{name}»? Todos os artigos e o progresso deste perfil neste dispositivo serão removidos.",
+  "settings.section.appearance": "Aparência",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Seguir o sistema",
+  "settings.theme.light": "Claro",
+  "settings.theme.dark": "Escuro",
+  "settings.changeTheme": "Escolher tema",
 };
 
 const ar: Dict = {
@@ -3008,6 +3074,12 @@ const ar: Dict = {
   "auth.local.rename": "إعادة تسمية الملف الشخصي",
   "auth.local.delete": "حذف الملف الشخصي",
   "auth.local.deleteMsg": "حذف «{name}»؟ ستُزال جميع المقالات والتقدم لهذا الملف الشخصي على الجهاز.",
+  "settings.section.appearance": "المظهر",
+  "settings.theme": "السمة",
+  "settings.theme.system": "حسب النظام",
+  "settings.theme.light": "فاتح",
+  "settings.theme.dark": "داكن",
+  "settings.changeTheme": "اختيار السمة",
 };
 
 const pl: Dict = {
@@ -3246,6 +3318,12 @@ const pl: Dict = {
   "auth.local.rename": "Zmień nazwę profilu",
   "auth.local.delete": "Usuń profil",
   "auth.local.deleteMsg": "Usunąć „{name}”? Wszystkie artykuły i postępy tego profilu na tym urządzeniu zostaną usunięte.",
+  "settings.section.appearance": "Wygląd",
+  "settings.theme": "Motyw",
+  "settings.theme.system": "Zgodny z systemem",
+  "settings.theme.light": "Jasny",
+  "settings.theme.dark": "Ciemny",
+  "settings.changeTheme": "Wybierz motyw",
 };
 
 const nl: Dict = {
@@ -3484,6 +3562,12 @@ const nl: Dict = {
   "auth.local.rename": "Profiel hernoemen",
   "auth.local.delete": "Profiel verwijderen",
   "auth.local.deleteMsg": "'{name}' verwijderen? Alle artikelen en voortgang van dit profiel op dit apparaat worden verwijderd.",
+  "settings.section.appearance": "Weergave",
+  "settings.theme": "Thema",
+  "settings.theme.system": "Systeem volgen",
+  "settings.theme.light": "Licht",
+  "settings.theme.dark": "Donker",
+  "settings.changeTheme": "Thema kiezen",
 };
 
 const sv: Dict = {
@@ -3722,6 +3806,12 @@ const sv: Dict = {
   "auth.local.rename": "Byt namn på profil",
   "auth.local.delete": "Ta bort profil",
   "auth.local.deleteMsg": "Ta bort ”{name}”? Alla artiklar och utveckling för den här profilen på enheten tas bort.",
+  "settings.section.appearance": "Utseende",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Följ systemet",
+  "settings.theme.light": "Ljust",
+  "settings.theme.dark": "Mörkt",
+  "settings.changeTheme": "Välj tema",
 };
 
 const no: Dict = {
@@ -3960,6 +4050,12 @@ const no: Dict = {
   "auth.local.rename": "Gi profilen nytt navn",
   "auth.local.delete": "Slett profil",
   "auth.local.deleteMsg": "Slette «{name}»? Alle artikler og fremgang for denne profilen på enheten fjernes.",
+  "settings.section.appearance": "Utseende",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Følg systemet",
+  "settings.theme.light": "Lyst",
+  "settings.theme.dark": "Mørkt",
+  "settings.changeTheme": "Velg tema",
 };
 
 const da: Dict = {
@@ -4198,6 +4294,12 @@ const da: Dict = {
   "auth.local.rename": "Omdøb profil",
   "auth.local.delete": "Slet profil",
   "auth.local.deleteMsg": "Slet „{name}“? Alle artikler og fremgang for denne profil på enheden fjernes.",
+  "settings.section.appearance": "Udseende",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Følg systemet",
+  "settings.theme.light": "Lyst",
+  "settings.theme.dark": "Mørkt",
+  "settings.changeTheme": "Vælg tema",
 };
 
 const fi: Dict = {
@@ -4436,6 +4538,12 @@ const fi: Dict = {
   "auth.local.rename": "Nimeä profiili uudelleen",
   "auth.local.delete": "Poista profiili",
   "auth.local.deleteMsg": "Poistetaanko ”{name}”? Kaikki profiilin artikkelit ja edistys tällä laitteella poistetaan.",
+  "settings.section.appearance": "Ulkoasu",
+  "settings.theme": "Teema",
+  "settings.theme.system": "Järjestelmän mukainen",
+  "settings.theme.light": "Vaalea",
+  "settings.theme.dark": "Tumma",
+  "settings.changeTheme": "Valitse teema",
 };
 
 const cs: Dict = {
@@ -4674,6 +4782,12 @@ const cs: Dict = {
   "auth.local.rename": "Přejmenovat profil",
   "auth.local.delete": "Smazat profil",
   "auth.local.deleteMsg": "Smazat „{name}“? Všechny články a pokrok tohoto profilu na tomto zařízení budou odstraněny.",
+  "settings.section.appearance": "Vzhled",
+  "settings.theme": "Motiv",
+  "settings.theme.system": "Podle systému",
+  "settings.theme.light": "Světlý",
+  "settings.theme.dark": "Tmavý",
+  "settings.changeTheme": "Vybrat motiv",
 };
 
 const ro: Dict = {
@@ -4912,6 +5026,12 @@ const ro: Dict = {
   "auth.local.rename": "Redenumește profilul",
   "auth.local.delete": "Șterge profilul",
   "auth.local.deleteMsg": "Ștergi „{name}\"? Toate articolele și progresul din acest profil de pe acest dispozitiv vor fi eliminate.",
+  "settings.section.appearance": "Aspect",
+  "settings.theme": "Temă",
+  "settings.theme.system": "După sistem",
+  "settings.theme.light": "Luminos",
+  "settings.theme.dark": "Întunecat",
+  "settings.changeTheme": "Alege tema",
 };
 
 const el: Dict = {
@@ -5150,6 +5270,12 @@ const el: Dict = {
   "auth.local.rename": "Μετονομασία προφίλ",
   "auth.local.delete": "Διαγραφή προφίλ",
   "auth.local.deleteMsg": "Διαγραφή «{name}»; Όλα τα άρθρα και η πρόοδος σε αυτό το προφίλ σε αυτή τη συσκευή θα αφαιρεθούν.",
+  "settings.section.appearance": "Εμφάνιση",
+  "settings.theme": "Θέμα",
+  "settings.theme.system": "Όπως το σύστημα",
+  "settings.theme.light": "Φωτεινό",
+  "settings.theme.dark": "Σκοτεινό",
+  "settings.changeTheme": "Επιλογή θέματος",
 };
 
 const tr: Dict = {
@@ -5388,6 +5514,12 @@ const tr: Dict = {
   "auth.local.rename": "Profili yeniden adlandır",
   "auth.local.delete": "Profili sil",
   "auth.local.deleteMsg": "\"{name}\" silinsin mi? Bu cihazdaki bu profilin tüm makaleleri ve ilerlemesi kaldırılacak.",
+  "settings.section.appearance": "Görünüm",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Sistemi izle",
+  "settings.theme.light": "Açık",
+  "settings.theme.dark": "Koyu",
+  "settings.changeTheme": "Tema seç",
 };
 
 const uk: Dict = {
@@ -5626,6 +5758,12 @@ const uk: Dict = {
   "auth.local.rename": "Перейменувати профіль",
   "auth.local.delete": "Видалити профіль",
   "auth.local.deleteMsg": "Видалити «{name}»? Усі статті та прогрес під цим профілем на цьому пристрої будуть видалені.",
+  "settings.section.appearance": "Зовнішній вигляд",
+  "settings.theme": "Тема",
+  "settings.theme.system": "Як у системі",
+  "settings.theme.light": "Світла",
+  "settings.theme.dark": "Темна",
+  "settings.changeTheme": "Вибрати тему",
 };
 
 const vi: Dict = {
@@ -5864,6 +6002,12 @@ const vi: Dict = {
   "auth.local.rename": "Đổi tên hồ sơ",
   "auth.local.delete": "Xóa hồ sơ",
   "auth.local.deleteMsg": "Xóa \"{name}\"? Tất cả bài viết và tiến trình dưới hồ sơ này trên thiết bị sẽ bị xóa.",
+  "settings.section.appearance": "Giao diện",
+  "settings.theme": "Chủ đề",
+  "settings.theme.system": "Theo hệ thống",
+  "settings.theme.light": "Sáng",
+  "settings.theme.dark": "Tối",
+  "settings.changeTheme": "Chọn chủ đề",
 };
 
 const th: Dict = {
@@ -6102,6 +6246,12 @@ const th: Dict = {
   "auth.local.rename": "เปลี่ยนชื่อโปรไฟล์",
   "auth.local.delete": "ลบโปรไฟล์",
   "auth.local.deleteMsg": "ลบ \"{name}\"? บทความและความคืบหน้าทั้งหมดภายใต้โปรไฟล์นี้บนอุปกรณ์จะถูกลบ",
+  "settings.section.appearance": "ลักษณะ",
+  "settings.theme": "ธีม",
+  "settings.theme.system": "ตามระบบ",
+  "settings.theme.light": "สว่าง",
+  "settings.theme.dark": "มืด",
+  "settings.changeTheme": "เลือกธีม",
 };
 
 const id: Dict = {
@@ -6340,6 +6490,12 @@ const id: Dict = {
   "auth.local.rename": "Ganti nama profil",
   "auth.local.delete": "Hapus profil",
   "auth.local.deleteMsg": "Hapus \"{name}\"? Semua artikel dan kemajuan di profil ini di perangkat akan dihapus.",
+  "settings.section.appearance": "Tampilan",
+  "settings.theme": "Tema",
+  "settings.theme.system": "Ikuti sistem",
+  "settings.theme.light": "Terang",
+  "settings.theme.dark": "Gelap",
+  "settings.changeTheme": "Pilih tema",
 };
 
 const hi: Dict = {
@@ -6578,6 +6734,12 @@ const hi: Dict = {
   "auth.local.rename": "प्रोफ़ाइल का नाम बदलें",
   "auth.local.delete": "प्रोफ़ाइल हटाएं",
   "auth.local.deleteMsg": "\"{name}\" हटाएं? इस डिवाइस पर इस प्रोफ़ाइल के तहत सभी लेख और प्रगति हटा दी जाएगी।",
+  "settings.section.appearance": "स्वरूप",
+  "settings.theme": "थीम",
+  "settings.theme.system": "सिस्टम के अनुसार",
+  "settings.theme.light": "हल्की",
+  "settings.theme.dark": "गहरी",
+  "settings.changeTheme": "थीम चुनें",
 };
 
 // English variants. The base `en` dict above is treated as American English;

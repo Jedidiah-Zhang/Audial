@@ -89,6 +89,13 @@ export interface AppSettings {
   preferredVoiceUserSet?: boolean;
   autoPlayAudio: boolean;
   onboarded: boolean;
+  /**
+   * Manual color-scheme override. `"system"` (default) follows the OS, while
+   * `"light"` / `"dark"` lock the app to that palette regardless of OS state.
+   * Optional so older persisted settings without this key keep working — the
+   * app treats `undefined` the same as `"system"`.
+   */
+  themePreference?: "system" | "light" | "dark";
 }
 
 export const STAGE_PASS_SCORE = 60;

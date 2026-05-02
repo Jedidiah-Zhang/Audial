@@ -5,8 +5,8 @@ import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { BookOpen, Settings } from "lucide-react-native";
 import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
-import { useColors } from "@/hooks/useColors";
+import { Platform, StyleSheet, View } from "react-native";
+import { useColors, useResolvedColorScheme } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 
 function NativeTabLayout() {
@@ -28,7 +28,7 @@ function NativeTabLayout() {
 function ClassicTabLayout() {
   const colors = useColors();
   const t = useT();
-  const colorScheme = useColorScheme();
+  const colorScheme = useResolvedColorScheme();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";

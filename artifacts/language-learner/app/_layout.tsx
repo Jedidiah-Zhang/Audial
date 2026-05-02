@@ -18,10 +18,13 @@ import { setBaseUrl } from "@workspace/api-client-react";
 import { ClerkProvider } from "@clerk/expo";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { StatusBar } from "expo-status-bar";
+
 import { AppProvider, useApp } from "@/context/AppContext";
 import { LanguageOnboarding } from "@/components/LanguageOnboarding";
 import { RewardedAdSimulatorHost } from "@/components/RewardedAdSimulatorHost";
 import { isRealAdMobActive } from "@/hooks/useRewardedAd";
+import { useResolvedColorScheme } from "@/hooks/useColors";
 import { tokenCache } from "@/utils/tokenCache";
 import { applyRTL, isRTL, reloadForRTL } from "@/utils/rtl";
 
@@ -69,6 +72,20 @@ function RootLayoutNav() {
  * synchronously before the reload fires, so the next launch will see
  * `changed === false` and not loop.
  */
+/**
+ * Syncs the native StatusBar foreground (icon color) with the resolved color
+ * scheme so a manual Light/Dark override doesn't leave the status bar
+ * unreadable (e.g. dark icons on a dark background when the user forced dark
+ * on a light OS). Lives inside `AppProvider` so it can read the user's
+ * `themePreference`; falls back to the OS scheme when preference is system.
+ */
+function ThemedStatusBar() {
+  const scheme = useResolvedColorScheme();
+  // expo-status-bar's `style` controls icon color: "light" → light icons
+  // (for dark backgrounds), "dark" → dark icons (for light backgrounds).
+  return <StatusBar style={scheme === "dark" ? "light" : "dark"} />;
+}
+
 function RTLController({ children }: { children: React.ReactNode }) {
   const { settings, isLoading } = useApp();
   const lang = settings.nativeLanguage;
@@ -131,6 +148,7 @@ export default function RootLayout() {
               <GestureHandlerRootView>
                 <KeyboardProvider>
                   <RTLController>
+                    <ThemedStatusBar />
                     <RootLayoutNav />
                     <LanguageOnboarding />
                     {!isRealAdMobActive() && <RewardedAdSimulatorHost />}
