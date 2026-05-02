@@ -10,7 +10,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { setAudioModeAsync } from "expo-audio";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -18,6 +18,7 @@ import { setBaseUrl } from "@workspace/api-client-react";
 import { ClerkProvider } from "@clerk/expo";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useColors } from "@/hooks/useColors";
 import { StatusBar } from "expo-status-bar";
 
 import { AppProvider, useApp } from "@/context/AppContext";
@@ -36,8 +37,20 @@ const queryClient = new QueryClient();
 const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 
 function RootLayoutNav() {
+  const colors = useColors();
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    // Backstop layer behind the entire navigator. Some screens
+    // (notably the practice screen, which uses
+    // `presentation: "transparentModal"`) intentionally let the layer
+    // beneath them show through during their custom transition. Without
+    // this wrapper, anywhere the navigator briefly renders nothing —
+    // for example the very last frame of the practice close animation
+    // on web, or a fragment-swap gap on Android — would expose the
+    // browser body / native window default background, which is white.
+    // Painting `colors.background` here means any uncovered pixel
+    // matches the surrounding app chrome instead of flashing white.
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)" options={{ headerShown: false, presentation: "modal" }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
@@ -49,20 +62,25 @@ function RootLayoutNav() {
           // The practice screen runs its own card-expand overlay animation
           // (see app/practice.tsx). We disable the native stack transition
           // so it doesn't compete with our overlay, and we present it as a
-          // transparent modal so the home screen stays mounted behind it.
-          // That's what makes the open/close animations look like the card
-          // is genuinely growing out of and back into the home page,
-          // instead of the home page disappearing into a blank background
-          // frame at the start (and a flicker at the end on Android when
-          // the navigator instantly swaps between an opaque practice
-          // screen and the home screen).
+          // *contained* transparent modal so the home screen stays
+          // mounted behind it AND the modal lives inside the same native
+          // window as home — not in a separate Dialog. The "contained"
+          // variant matters on Android: with plain `transparentModal`,
+          // dismissing the modal tears down a native Dialog window, and
+          // for one frame the Activity's default theme background (which
+          // is white on most light themes) shows through before home
+          // repaints — that's the white flash that was visible at the
+          // very end of the close animation. Containing the modal in the
+          // same window means there is no window-level dismissal, so no
+          // window-background frame can leak through.
           animation: "none",
-          presentation: "transparentModal",
+          presentation: "containedTransparentModal",
           contentStyle: { backgroundColor: "transparent" },
         }}
       />
       <Stack.Screen name="session" options={{ headerShown: false }} />
-    </Stack>
+      </Stack>
+    </View>
   );
 }
 
