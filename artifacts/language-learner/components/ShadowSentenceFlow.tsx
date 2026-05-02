@@ -409,14 +409,24 @@ export function ShadowSentenceFlow({
     }
   }, [currentIdx, sentences.length, advanceTo, finishFlow, stopAdvanceTimer, updateStates]);
 
-  const handleRetryCurrent = useCallback(() => {
+  const handleRetryCurrent = useCallback(async () => {
     updateStates((prev) =>
       prev.map((s, i) =>
         i === currentIdx ? { status: "pending" as SentenceStatus } : s
       )
     );
-    setPhase("ready");
-  }, [currentIdx, updateStates]);
+    // Start recording immediately so the user doesn't need a second tap.
+    player.stop();
+    playGenRef.current++;
+    const ok = await startRecording();
+    if (!ok) {
+      Alert.alert(t("common.tip"), t("session.alert.micPermission"));
+      setPhase("ready");
+      return;
+    }
+    setPhase("recording");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, [currentIdx, updateStates, player, startRecording, t]);
 
   // ── rendering helpers ─────────────────────────────────────────────────
   const isProcessing = phase === "transcribing" || phase === "scoring";
@@ -598,7 +608,11 @@ export function ShadowSentenceFlow({
       : accentColor;
 
   const micIcon = phase === "recording" ? "square" : isPassedPause ? "check" : "mic";
-  const micDisabled = isProcessing || isPassedPause || phase === "done";
+  // Mic is locked during initial sentence playback so users hear the model
+  // before recording. Tapping a sentence row to replay still works (it stops
+  // playback and re-arms `ready`), but the big mic button itself is inert.
+  const micDisabled =
+    isProcessing || isPassedPause || phase === "done" || phase === "playing";
 
   return (
     <View style={styles.wrap}>
@@ -621,6 +635,21 @@ export function ShadowSentenceFlow({
               n: sentences.length,
             })}
           </Text>
+          <TouchableOpacity
+            onPress={handleReplayCurrent}
+            disabled={replayDisabled}
+            style={[
+              styles.replayBtn,
+              { borderColor: colors.border, opacity: replayDisabled ? 0.4 : 1 },
+            ]}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+          >
+            <Volume2 size={14} color={accentColor} />
+            <Text style={[styles.replayBtnText, { color: accentColor }]}>
+              {t("session.shadow.replayThis")}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -785,6 +814,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   progressText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  replayBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  replayBtnText: {
     fontSize: 12,
     fontFamily: "Inter_600SemiBold",
   },
