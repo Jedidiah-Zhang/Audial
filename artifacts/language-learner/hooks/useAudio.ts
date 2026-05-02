@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Linking, Platform } from "react-native";
+import { AppState, Linking, Platform } from "react-native";
 import {
   AudioModule,
   RecordingPresets,
@@ -355,19 +355,65 @@ export function useAudioRecorder() {
   const webChunksRef = useRef<Blob[]>([]);
 
   // Read the current permission status WITHOUT triggering a system prompt.
-  // The previous version called `requestRecordingPermissionsAsync` here,
+  // The previous version called `requestRecordingPermissionsAsync` on mount,
   // which silently popped the iOS / Android permission dialog the moment the
   // session screen mounted — disorienting for users who hadn't yet tapped
   // the mic. We now sniff the existing status only and defer the actual
   // prompt to the first user-initiated mic tap (see `requestPermission`).
+  //
+  // This same sniff is also used to re-sync after the app returns to the
+  // foreground — critical for the "blocked → Open Settings → toggle on →
+  // come back" flow. Without that resync the UI would stay stuck in the
+  // blocked variant even after the user enabled the mic in Settings.
+  const syncPermission = useCallback(async (): Promise<MicPermission> => {
+    if (Platform.OS === "web") {
+      // The Permissions API isn't universally supported (e.g. some Safari
+      // versions, older Firefox) but where it is, we can distinguish
+      // already-granted, will-prompt, and persistently-denied without
+      // touching the user's mic.
+      try {
+        const perms = (navigator as unknown as { permissions?: { query?: (q: { name: string }) => Promise<{ state: string; onchange?: (() => void) | null }> } }).permissions;
+        if (perms?.query) {
+          const status = await perms.query({ name: "microphone" });
+          const next: MicPermission =
+            status.state === "granted"
+              ? "granted"
+              : status.state === "denied"
+              ? "blocked"
+              : "unknown";
+          setPermission(next);
+          return next;
+        }
+      } catch {
+        /* fall through to "unknown" */
+      }
+      setPermission("unknown");
+      return "unknown";
+    }
+    try {
+      const { granted, canAskAgain } =
+        await AudioModule.getRecordingPermissionsAsync();
+      const next: MicPermission = granted
+        ? "granted"
+        : canAskAgain
+        ? "denied"
+        : "blocked";
+      setPermission(next);
+      return next;
+    } catch {
+      setPermission("unknown");
+      return "unknown";
+    }
+  }, []);
+
+  // Initial mount sniff + wire up the live web Permissions API onchange.
   useEffect(() => {
     let cancelled = false;
+    let permStatus:
+      | { onchange?: (() => void) | null }
+      | null = null;
     (async () => {
       if (Platform.OS === "web") {
-        // The Permissions API isn't universally supported (e.g. some Safari
-        // versions, older Firefox) but where it is, we can distinguish
-        // already-granted, will-prompt, and persistently-denied without
-        // touching the user's mic.
         try {
           const perms = (navigator as unknown as { permissions?: { query?: (q: { name: string }) => Promise<{ state: string; onchange?: (() => void) | null }> } }).permissions;
           if (perms?.query) {
@@ -380,31 +426,58 @@ export function useAudioRecorder() {
             };
             apply(status.state);
             // Live-update if the user changes the setting in the browser
-            // while the page is open.
+            // while the page is open (covers the address-bar lock-icon
+            // toggle without needing a tab refresh).
             status.onchange = () => apply(status.state);
+            permStatus = status;
             return;
           }
         } catch {
-          /* fall through to "unknown" */
+          /* fall through */
         }
-        if (!cancelled) setPermission("unknown");
+        if (!cancelled) await syncPermission();
         return;
       }
-      try {
-        const { granted, canAskAgain } =
-          await AudioModule.getRecordingPermissionsAsync();
-        if (cancelled) return;
-        if (granted) setPermission("granted");
-        else if (canAskAgain) setPermission("denied");
-        else setPermission("blocked");
-      } catch {
-        if (!cancelled) setPermission("unknown");
-      }
+      if (!cancelled) await syncPermission();
     })();
     return () => {
       cancelled = true;
+      if (permStatus) permStatus.onchange = null;
     };
-  }, []);
+  }, [syncPermission]);
+
+  // Re-sync whenever the app comes back to the foreground. This is the
+  // critical piece for the blocked → Settings → return → record flow:
+  // - Native: AppState flips to "active" when the user navigates back from
+  //   the system Settings app. We re-read the permission so the UI exits
+  //   the blocked variant on the next mic tap.
+  // - Web: `visibilitychange` fires when the user re-focuses the tab after
+  //   toggling site permissions in the address-bar lock menu. (The
+  //   Permissions API onchange handler above usually catches this too,
+  //   but visibilitychange is the universal fallback for browsers without
+  //   reliable onchange dispatch.)
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const onVis = () => {
+        if (typeof document !== "undefined" && !document.hidden) {
+          void syncPermission();
+        }
+      };
+      if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", onVis);
+        return () => {
+          document.removeEventListener("visibilitychange", onVis);
+        };
+      }
+      return;
+    }
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void syncPermission();
+    });
+    return () => {
+      sub.remove();
+    };
+  }, [syncPermission]);
 
   // Actively request the mic. Triggers the system / browser prompt the first
   // time, and reports back the resulting state so callers can decide whether
@@ -555,6 +628,7 @@ export function useAudioRecorder() {
     permission,
     requestPermission,
     openAppSettings,
+    syncPermission,
   };
 }
 

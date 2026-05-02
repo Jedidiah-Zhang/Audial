@@ -263,6 +263,26 @@ export function useMicPermissionGate(opts: {
     pendingRef.current = null;
   }, []);
 
+  // Auto-recover when permission flips to granted via an out-of-band route
+  // (e.g. user tapped "Open Settings", toggled the mic on, then returned to
+  // the app — `useAudioRecorder`'s AppState listener re-syncs and bumps
+  // `permission` from "blocked" to "granted"). Without this, the modal
+  // would stay up showing the now-stale blocked variant until the user
+  // dismissed it manually.
+  useEffect(() => {
+    if (!visible) return;
+    if (permission !== "granted") return;
+    setVisible(false);
+    const cb = pendingRef.current;
+    pendingRef.current = null;
+    if (!cb) return;
+    replayTimerRef.current = setTimeout(() => {
+      replayTimerRef.current = null;
+      if (!mountedRef.current) return;
+      cb();
+    }, 0);
+  }, [permission, visible]);
+
   const modal = (
     <MicPermissionPrompt
       visible={visible}
