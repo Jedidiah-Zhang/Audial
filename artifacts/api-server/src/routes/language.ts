@@ -574,7 +574,13 @@ router.post("/language/stt", requireOpenai, async (req, res) => {
 
 router.post("/language/score-pronunciation", requireDeepseek, async (req, res) => {
   try {
-    const { targetText, transcribedText, language } = req.body as {
+    // `language` here is the user's UI / native language — it's used to
+    // localize the LLM's written feedback. The language being practiced
+    // is implicit in `targetText`. Naming it `nativeLanguage` internally
+    // to keep that distinction obvious and avoid the historical bug
+    // where the client passed targetLanguage and got feedback in the
+    // wrong language.
+    const { targetText, transcribedText, language: nativeLanguage } = req.body as {
       targetText: string;
       transcribedText: string;
       language: string;
@@ -590,7 +596,7 @@ router.post("/language/score-pronunciation", requireDeepseek, async (req, res) =
 - "score": 0-100 overall accuracy score
 - "fluency": 0-100 numeric sub-score for how smoothly the user read (rhythm, hesitations, completeness). Lower if many words were skipped or the reading sounds halting.
 - "accuracy": 0-100 numeric sub-score for word-level pronunciation correctness. Lower if specific words were mispronounced or substituted.
-- "feedback": 1-2 sentences of constructive feedback in the user's native language (${language})
+- "feedback": 1-2 sentences of constructive feedback in the user's native language (${nativeLanguage})
 - "mistakes": array of specific words/phrases that were wrong or missing (max 3)
 - "praise": one specific thing they did well
 - "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed"} that tokenizes the target text in original order. Use "wrong" for words the user mispronounced, "missed" for words they skipped entirely, "ok" otherwise. The concatenation of all words MUST exactly reproduce the target text (include punctuation as its own token or attached to the previous word).
@@ -797,7 +803,10 @@ Evidence: ${JSON.stringify(evidence)}`,
 
 router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
   try {
-    const { targetText, userText, language } = req.body as {
+    // See score-pronunciation for naming rationale: `language` is the
+    // user's native / UI language for written feedback, not the
+    // language being practiced.
+    const { targetText, userText, language: nativeLanguage } = req.body as {
       targetText: string;
       userText: string;
       language: string;
@@ -811,7 +820,7 @@ router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
           role: "system",
           content: `You are a language dictation judge. Compare the target text with the user's written response. Return JSON with:
 - "score": 0-100 accuracy score (penalize spelling errors, missing words, wrong words)
-- "feedback": 1-2 sentences of constructive feedback in ${language}
+- "feedback": 1-2 sentences of constructive feedback in ${nativeLanguage}
 - "corrections": array of objects {wrong: string, correct: string} showing what was wrong (max 5)
 - "wordAccuracy": percentage of words spelled correctly
 - "userAnnotations": array of {"word": string, "status": "ok" | "wrong" | "extra", "correct"?: string} that tokenizes the user's writing in original order. Use "wrong" for misspelled or wrong words (include the suggested correction in "correct"), "extra" for words the user wrote that aren't in the target, "ok" otherwise.
@@ -837,7 +846,10 @@ The concatenation of all words in each array MUST exactly reproduce the original
 
 router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
   try {
-    const { targetText, transcribedText, language } = req.body as {
+    // See score-pronunciation for naming rationale: `language` is the
+    // user's native / UI language for written feedback, not the
+    // language being practiced.
+    const { targetText, transcribedText, language: nativeLanguage } = req.body as {
       targetText: string;
       transcribedText: string;
       language: string;
@@ -851,7 +863,7 @@ router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
           role: "system",
           content: `You are a language recitation judge. The user was supposed to recite a text from memory. Compare what they said vs the target. Return JSON with:
 - "score": 0-100 memory accuracy score
-- "feedback": 1-2 sentences of constructive feedback in ${language}
+- "feedback": 1-2 sentences of constructive feedback in ${nativeLanguage}
 - "completeness": percentage of the text they covered
 - "fluency": "excellent" | "good" | "fair" | "needs_work"
 - "encouragement": a motivating closing sentence

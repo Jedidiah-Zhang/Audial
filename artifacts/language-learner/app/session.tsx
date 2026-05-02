@@ -311,10 +311,17 @@ export default function SessionScreen() {
           ? "/api/language/score-dictation"
           : "/api/language/score-recitation";
 
+      // `language` controls the language the LLM uses for its written
+      // feedback ("用 ${language} 回复"), so it must be the user's UI /
+      // native language — not the language being practiced. Passing
+      // text.targetLanguage here was the bug that made evaluator
+      // comments come back in the learning language. The target
+      // language is still implicit in `targetText` itself, so the
+      // model has no trouble grading the right content.
       const body =
         stageIdx === 1
-          ? { targetText: text.text, userText: transcribedOrTyped, language: text.targetLanguage }
-          : { targetText: text.text, transcribedText: transcribedOrTyped, language: text.targetLanguage };
+          ? { targetText: text.text, userText: transcribedOrTyped, language: settings.nativeLanguage }
+          : { targetText: text.text, transcribedText: transcribedOrTyped, language: settings.nativeLanguage };
 
       const response = await fetch(`${BASE_URL}${endpoint}`, {
         method: "POST",
