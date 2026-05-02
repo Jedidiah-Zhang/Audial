@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -15,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useAudioPlayer, useAudioRecorder, transcribeAudio, prefetchTTS } from "@/hooks/useAudio";
+import { useMicPermissionGate } from "@/components/MicPermissionPrompt";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { Icon } from "@/components/Icon";
 import { useT } from "@/utils/i18n";
@@ -104,7 +104,16 @@ export function ShadowSentenceFlow({
   const t = useT();
   const { userId, settings } = useApp();
   const player = useAudioPlayer({ articleId, userId });
-  const { startRecording, stopRecording, isRecording } = useAudioRecorder();
+  const {
+    startRecording,
+    stopRecording,
+    isRecording,
+    permission,
+    requestPermission,
+    openAppSettings,
+  } = useAudioRecorder();
+  const { requestAccess: requestMicAccess, modal: micPermissionModal } =
+    useMicPermissionGate({ permission, requestPermission, openAppSettings });
 
   const effectiveType: ContentType = useMemo(
     () => contentType ?? detectContentType(text),
@@ -413,17 +422,18 @@ export function ShadowSentenceFlow({
       // Force-stop any TTS / ambient before recording.
       player.stop();
       playGenRef.current++;
-      const ok = await startRecording();
-      if (!ok) {
-        // Mic-permission failures happen before any recording attempt, so we
-        // keep the Alert here — there's nothing inline to show otherwise.
-        Alert.alert(t("common.tip"), t("session.alert.micPermission"));
-        return;
-      }
-      setPhase("recording");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // Gate on mic permission first. If permission is anything other than
+      // "granted", `requestMicAccess` opens the in-app prompt and stashes
+      // this body to replay automatically once the user grants — so the user
+      // only ever taps the mic once. If granted, the body runs synchronously.
+      requestMicAccess(async () => {
+        const ok = await startRecording();
+        if (!ok) return;
+        setPhase("recording");
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      });
     }
-  }, [phase, player, stopRecording, startRecording, scoreCurrent, t]);
+  }, [phase, player, stopRecording, startRecording, scoreCurrent, requestMicAccess]);
 
   // Re-run scoring for the most recently transcribed sentence without forcing
   // the user to re-record. Only meaningful in the `error-score` phase.
@@ -570,15 +580,22 @@ export function ShadowSentenceFlow({
     // Start recording immediately so the user doesn't need a second tap.
     player.stop();
     playGenRef.current++;
-    const ok = await startRecording();
-    if (!ok) {
-      Alert.alert(t("common.tip"), t("session.alert.micPermission"));
+    // If mic permission isn't granted yet, the gate opens the in-app prompt
+    // and replays this start-recording closure once the user allows. We park
+    // the phase at "ready" in the meantime so the UI doesn't look stuck.
+    const wasGranted = requestMicAccess(async () => {
+      const ok = await startRecording();
+      if (!ok) {
+        setPhase("ready");
+        return;
+      }
+      setPhase("recording");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    });
+    if (!wasGranted) {
       setPhase("ready");
-      return;
     }
-    setPhase("recording");
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [currentIdx, updateStates, player, startRecording, t]);
+  }, [currentIdx, updateStates, player, startRecording, requestMicAccess]);
 
   // ── rendering helpers ─────────────────────────────────────────────────
   const isProcessing = phase === "transcribing" || phase === "scoring";
@@ -988,6 +1005,7 @@ export function ShadowSentenceFlow({
           </View>
         ) : null}
       </View>
+      {micPermissionModal}
     </View>
   );
 }

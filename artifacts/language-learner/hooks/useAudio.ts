@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 import {
   AudioModule,
   RecordingPresets,
@@ -335,24 +335,157 @@ export function useAudioPlayer(opts?: {
   return { playTTS, stop, isPlaying, isLoading, setRate };
 }
 
+// Granular mic-permission state shared by both platforms.
+//   - "unknown"  : we haven't been able to determine status yet (initial mount,
+//                  or a Permissions API that doesn't expose mic on this browser)
+//   - "granted"  : ready to record
+//   - "denied"   : the user said no, but we can ask the system again
+//                  (iOS / Android first denial, or web "prompt" leftover)
+//   - "blocked"  : the OS / browser will no longer prompt; the user has to
+//                  flip a toggle in Settings (native) or the address-bar lock
+//                  icon (web). The UI surfaces an "Open Settings" path for
+//                  this case.
+export type MicPermission = "unknown" | "granted" | "denied" | "blocked";
+
 export function useAudioRecorder() {
   const [isRecording, setIsRecording] = useState(false);
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [permission, setPermission] = useState<MicPermission>("unknown");
   const recorder = useExpoAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const webMediaRef = useRef<MediaRecorder | null>(null);
   const webChunksRef = useRef<Blob[]>([]);
 
+  // Read the current permission status WITHOUT triggering a system prompt.
+  // The previous version called `requestRecordingPermissionsAsync` here,
+  // which silently popped the iOS / Android permission dialog the moment the
+  // session screen mounted — disorienting for users who hadn't yet tapped
+  // the mic. We now sniff the existing status only and defer the actual
+  // prompt to the first user-initiated mic tap (see `requestPermission`).
   useEffect(() => {
-    AudioModule.requestRecordingPermissionsAsync().then(({ granted }) => {
-      setHasPermission(granted);
-    });
+    let cancelled = false;
+    (async () => {
+      if (Platform.OS === "web") {
+        // The Permissions API isn't universally supported (e.g. some Safari
+        // versions, older Firefox) but where it is, we can distinguish
+        // already-granted, will-prompt, and persistently-denied without
+        // touching the user's mic.
+        try {
+          const perms = (navigator as unknown as { permissions?: { query?: (q: { name: string }) => Promise<{ state: string; onchange?: (() => void) | null }> } }).permissions;
+          if (perms?.query) {
+            const status = await perms.query({ name: "microphone" });
+            if (cancelled) return;
+            const apply = (s: string) => {
+              if (s === "granted") setPermission("granted");
+              else if (s === "denied") setPermission("blocked");
+              else setPermission("unknown");
+            };
+            apply(status.state);
+            // Live-update if the user changes the setting in the browser
+            // while the page is open.
+            status.onchange = () => apply(status.state);
+            return;
+          }
+        } catch {
+          /* fall through to "unknown" */
+        }
+        if (!cancelled) setPermission("unknown");
+        return;
+      }
+      try {
+        const { granted, canAskAgain } =
+          await AudioModule.getRecordingPermissionsAsync();
+        if (cancelled) return;
+        if (granted) setPermission("granted");
+        else if (canAskAgain) setPermission("denied");
+        else setPermission("blocked");
+      } catch {
+        if (!cancelled) setPermission("unknown");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Actively request the mic. Triggers the system / browser prompt the first
+  // time, and reports back the resulting state so callers can decide whether
+  // to immediately start recording or surface the "blocked" UI variant.
+  const requestPermission = useCallback(async (): Promise<MicPermission> => {
+    if (Platform.OS === "web") {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // We only needed to trigger the prompt — release the device right
+        // away so the actual `startRecording` call gets a fresh stream.
+        stream.getTracks().forEach((t) => t.stop());
+        setPermission("granted");
+        return "granted";
+      } catch (e) {
+        // NotAllowedError can mean either "user just clicked Block" or
+        // "browser remembered a prior block". Either way the only path back
+        // is via the browser's site settings, so treat it as `blocked` and
+        // let the UI show the address-bar hint variant.
+        const name = (e as { name?: string } | null)?.name;
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          setPermission("blocked");
+          return "blocked";
+        }
+        setPermission("denied");
+        return "denied";
+      }
+    }
+    try {
+      const { granted, canAskAgain } =
+        await AudioModule.requestRecordingPermissionsAsync();
+      const next: MicPermission = granted
+        ? "granted"
+        : canAskAgain
+        ? "denied"
+        : "blocked";
+      setPermission(next);
+      return next;
+    } catch {
+      setPermission("denied");
+      return "denied";
+    }
+  }, []);
+
+  // Native: jump straight to this app's entry in the OS settings so the user
+  // can flip the mic toggle. Web: no-op — the UI shows a textual hint about
+  // the address-bar lock icon since browsers don't expose a deep-link API.
+  const openAppSettings = useCallback(() => {
+    if (Platform.OS === "web") return;
+    try {
+      Linking.openSettings();
+    } catch {
+      /* swallow — best-effort jump */
+    }
   }, []);
 
   const startRecording = useCallback(async (): Promise<boolean> => {
-    if (!hasPermission) {
-      const { granted } = await AudioModule.requestRecordingPermissionsAsync();
-      setHasPermission(granted);
-      if (!granted) return false;
+    // Defensive: callers are expected to gate on `permission === "granted"`
+    // first (see `useMicPermissionGate`), but if we somehow get here without
+    // permission, do an opportunistic re-check that does NOT trigger a system
+    // prompt — falling back to `false` so the caller's gate logic can take
+    // over.
+    if (permission !== "granted") {
+      if (Platform.OS === "web") {
+        // On web `getUserMedia` itself acts as the prompt; if it succeeds we
+        // can proceed, otherwise we bail and let the gate handle it.
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((t) => t.stop());
+          setPermission("granted");
+        } catch {
+          return false;
+        }
+      } else {
+        try {
+          const { granted } = await AudioModule.getRecordingPermissionsAsync();
+          if (granted) setPermission("granted");
+          else return false;
+        } catch {
+          return false;
+        }
+      }
     }
 
     try {
@@ -381,7 +514,7 @@ export function useAudioRecorder() {
       setIsRecording(false);
       return false;
     }
-  }, [hasPermission, recorder]);
+  }, [permission, recorder]);
 
   const stopRecording = useCallback(async (): Promise<Blob | null> => {
     if (!isRecording) return null;
@@ -415,7 +548,14 @@ export function useAudioRecorder() {
     }
   }, [isRecording, recorder]);
 
-  return { startRecording, stopRecording, isRecording, hasPermission };
+  return {
+    startRecording,
+    stopRecording,
+    isRecording,
+    permission,
+    requestPermission,
+    openAppSettings,
+  };
 }
 
 export async function transcribeAudio(

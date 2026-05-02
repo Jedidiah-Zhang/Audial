@@ -18,6 +18,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useAudioRecorder, transcribeAudio, useAudioPlayer } from "@/hooks/useAudio";
+import { useMicPermissionGate } from "@/components/MicPermissionPrompt";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { ScoreCard, type PerSentenceRow } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
@@ -46,7 +47,20 @@ export default function SessionScreen() {
   const t = useT();
   const { id, stage: stageParam } = useLocalSearchParams<{ id: string; stage: string }>();
   const { texts, addResult, settings, userId } = useApp();
-  const { startRecording, stopRecording, isRecording } = useAudioRecorder();
+  const {
+    startRecording,
+    stopRecording,
+    isRecording,
+    permission: micPermission,
+    requestPermission: requestMicPermission,
+    openAppSettings: openMicAppSettings,
+  } = useAudioRecorder();
+  const { requestAccess: requestMicAccess, modal: micPermissionModal } =
+    useMicPermissionGate({
+      permission: micPermission,
+      requestPermission: requestMicPermission,
+      openAppSettings: openMicAppSettings,
+    });
   const lang = settings.nativeLanguage;
 
   const stageIdx = parseInt(stageParam ?? "0", 10);
@@ -191,13 +205,15 @@ export default function SessionScreen() {
         setPhase("study");
       }
     } else {
-      const started = await startRecording();
-      if (!started) {
-        Alert.alert(t("common.tip"), t("session.alert.micPermission"));
-        return;
-      }
-      setPhase("recording");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // Gate on mic permission. If it's not yet granted, the gate opens the
+      // in-app explainer modal and replays this start-recording closure the
+      // moment the user grants — no second tap on the mic required.
+      requestMicAccess(async () => {
+        const started = await startRecording();
+        if (!started) return;
+        setPhase("recording");
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      });
     }
   };
 
@@ -750,6 +766,7 @@ export default function SessionScreen() {
           </View>
         )}
       </ScrollView>
+      {micPermissionModal}
     </View>
   );
 }
