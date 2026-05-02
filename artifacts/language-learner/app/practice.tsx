@@ -32,7 +32,7 @@ import { Icon, type IconName } from "@/components/Icon";
 // feel: a sharp, fast initial burst followed by a long, soft settle. The
 // duration is intentionally a bit longer than the close so the deceleration
 // tail has room to be felt without making the open feel sluggish.
-const OPEN_DURATION = 480;
+const OPEN_DURATION = 650;
 const CLOSE_DURATION = 280;
 const OPEN_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
