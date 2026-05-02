@@ -81,8 +81,13 @@ function dispatchSimulatorRequest(req: SimulatorRequest) {
 //   1. The package `react-native-google-mobile-ads` must be installed
 //      and the app rebuilt with `expo prebuild` / EAS Build (it cannot
 //      run inside Expo Go).
-//   2. Set `EXPO_PUBLIC_ADMOB_APP_ID` in env — its mere presence flips
-//      this module from simulator → real ads.
+//   2. Set the platform-specific app ID env vars — these are read by
+//      `app.config.js` at build time AND by this module at runtime to
+//      flip from simulator → real ads:
+//        EXPO_PUBLIC_ADMOB_ANDROID_APP_ID
+//        EXPO_PUBLIC_ADMOB_IOS_APP_ID
+//      (The legacy single `EXPO_PUBLIC_ADMOB_APP_ID` flag is also
+//      honored as a fallback so older configs keep working.)
 //   3. Optionally override the per-placement ad unit IDs via the
 //      EXPO_PUBLIC_ADMOB_REWARDED_*_(IOS|ANDROID) vars below. When
 //      unset, Google's public test ad unit IDs are used so the flow
@@ -90,10 +95,17 @@ function dispatchSimulatorRequest(req: SimulatorRequest) {
 
 /**
  * `true` when the production AdMob SDK should be preferred over the
- * simulator. Driven by an env var so EAS profiles can flip the flag
- * without code changes.
+ * simulator. Driven by env vars so EAS profiles can flip the flag
+ * without code changes — checks the platform-specific app ID env vars
+ * (also consumed by `app.config.js`) and falls back to the legacy
+ * single-flag form.
  */
 function isAdMobConfigured(): boolean {
+  if (Platform.OS === "ios") {
+    if (process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID) return true;
+  } else if (Platform.OS === "android") {
+    if (process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID) return true;
+  }
   return Boolean(process.env.EXPO_PUBLIC_ADMOB_APP_ID);
 }
 
