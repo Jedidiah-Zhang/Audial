@@ -57,6 +57,23 @@ export interface UserProgress {
   recitationBest: number;
 }
 
+export type SubscriptionTier = "free" | "pro";
+
+/**
+ * Per-user subscription state. Persisted under `ll:{userId}:subscription` in
+ * AsyncStorage and migrated from guest → signed-in account along with other
+ * scoped data. This is the UI-only demo version: there is no real billing.
+ */
+export interface SubscriptionState {
+  tier: SubscriptionTier;
+  /** Epoch ms when the user first upgraded; only set when tier === "pro". */
+  upgradedAt?: number;
+}
+
+export const DEFAULT_SUBSCRIPTION: SubscriptionState = {
+  tier: "free",
+};
+
 export interface AppSettings {
   nativeLanguage: string;
   targetLanguage: string;

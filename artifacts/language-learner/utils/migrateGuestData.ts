@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { LearningText, SessionResult, UserProgress } from "@/types";
+import type { LearningText, SessionResult, SubscriptionState, UserProgress } from "@/types";
 import { transferAudioOwnership } from "@/utils/ttsCache";
 
 const GUEST_USER_ID = "guest";
@@ -10,6 +10,7 @@ function keysFor(userId: string) {
     TEXTS: `${prefix}texts`,
     RESULTS: `${prefix}results`,
     PROGRESS: `${prefix}progress`,
+    SUBSCRIPTION: `${prefix}subscription`,
   };
 }
 
@@ -69,6 +70,34 @@ function mergeProgress(
 }
 
 /**
+ * Subscription merge policy: "pro wins". If either side is paid, the merged
+ * tier is paid. The earliest known upgrade timestamp is preserved so a long-
+ * standing guest Pro user keeps their original upgrade date when migrating
+ * onto a fresh signed-in account. If neither side has a stored entry the
+ * caller is expected to skip the write entirely.
+ */
+function mergeSubscription(
+  guest: SubscriptionState | null,
+  target: SubscriptionState | null
+): SubscriptionState | null {
+  if (!guest && !target) return null;
+  const guestPro = guest?.tier === "pro";
+  const targetPro = target?.tier === "pro";
+  if (!guestPro && !targetPro) {
+    // Both free — no need to migrate; the target will keep its existing
+    // (free) state which is also the default for fresh accounts.
+    return target ?? guest ?? null;
+  }
+  const candidates = [guest?.upgradedAt, target?.upgradedAt].filter(
+    (n): n is number => typeof n === "number"
+  );
+  return {
+    tier: "pro",
+    upgradedAt: candidates.length > 0 ? Math.min(...candidates) : Date.now(),
+  };
+}
+
+/**
  * Move guest-scoped texts/results/progress and TTS audio cache index entries
  * into the target account. Settings are intentionally NOT migrated so a fresh
  * sign-in keeps the user's chosen language/voice/etc on the new account.
@@ -93,24 +122,30 @@ export async function migrateGuestData(targetUserId: string): Promise<boolean> {
   let guestTextsRaw: string | null;
   let guestResultsRaw: string | null;
   let guestProgressRaw: string | null;
+  let guestSubscriptionRaw: string | null;
   let targetTextsRaw: string | null;
   let targetResultsRaw: string | null;
   let targetProgressRaw: string | null;
+  let targetSubscriptionRaw: string | null;
   try {
     [
       guestTextsRaw,
       guestResultsRaw,
       guestProgressRaw,
+      guestSubscriptionRaw,
       targetTextsRaw,
       targetResultsRaw,
       targetProgressRaw,
+      targetSubscriptionRaw,
     ] = await Promise.all([
       AsyncStorage.getItem(G.TEXTS),
       AsyncStorage.getItem(G.RESULTS),
       AsyncStorage.getItem(G.PROGRESS),
+      AsyncStorage.getItem(G.SUBSCRIPTION),
       AsyncStorage.getItem(T.TEXTS),
       AsyncStorage.getItem(T.RESULTS),
       AsyncStorage.getItem(T.PROGRESS),
+      AsyncStorage.getItem(T.SUBSCRIPTION),
     ]);
   } catch {
     return false;
@@ -119,11 +154,19 @@ export async function migrateGuestData(targetUserId: string): Promise<boolean> {
   const guestTexts = safeParse<LearningText[]>(guestTextsRaw, []);
   const guestResults = safeParse<SessionResult[]>(guestResultsRaw, []);
   const guestProgress = safeParse<Record<string, UserProgress>>(guestProgressRaw, {});
+  const guestSubscription = safeParse<SubscriptionState | null>(guestSubscriptionRaw, null);
+  const targetSubscription = safeParse<SubscriptionState | null>(targetSubscriptionRaw, null);
+
+  // The subscription tier is the only piece of state that can flow on its own
+  // (a guest who only upgraded but produced no other data should still
+  // promote a fresh signed-in account to Pro on first sign-in).
+  const guestPro = guestSubscription?.tier === "pro";
 
   const hasGuestData =
     (Array.isArray(guestTexts) && guestTexts.length > 0) ||
     (Array.isArray(guestResults) && guestResults.length > 0) ||
-    (guestProgress && Object.keys(guestProgress).length > 0);
+    (guestProgress && Object.keys(guestProgress).length > 0) ||
+    guestPro;
 
   if (!hasGuestData) return false;
 
@@ -143,15 +186,23 @@ export async function migrateGuestData(targetUserId: string): Promise<boolean> {
     guestProgress && typeof guestProgress === "object" ? guestProgress : {},
     targetProgress && typeof targetProgress === "object" ? targetProgress : {}
   );
+  const mergedSubscription = mergeSubscription(guestSubscription, targetSubscription);
 
   // Write to target FIRST. If any write fails we leave guest data intact so
   // the next sign-in can retry.
   try {
-    await Promise.all([
+    const writes: Promise<void>[] = [
       AsyncStorage.setItem(T.TEXTS, JSON.stringify(mergedTexts)),
       AsyncStorage.setItem(T.RESULTS, JSON.stringify(mergedResults)),
       AsyncStorage.setItem(T.PROGRESS, JSON.stringify(mergedProgress)),
-    ]);
+    ];
+    // Only touch the subscription key when there's something meaningful to
+    // record (guest or target was Pro). A "free → free" merge skips the
+    // write so we don't pollute storage with default-state entries.
+    if (mergedSubscription && mergedSubscription.tier === "pro") {
+      writes.push(AsyncStorage.setItem(T.SUBSCRIPTION, JSON.stringify(mergedSubscription)));
+    }
+    await Promise.all(writes);
   } catch {
     return false;
   }
@@ -165,9 +216,11 @@ export async function migrateGuestData(targetUserId: string): Promise<boolean> {
   }
 
   // Clear guest scope (data only — settings stay so a future guest session
-  // keeps the previously selected language/voice).
+  // keeps the previously selected language/voice). Subscription is also
+  // cleared so a guest who upgraded once and then signed in doesn't keep a
+  // dangling Pro flag on the guest scope after sign-out.
   try {
-    await AsyncStorage.multiRemove([G.TEXTS, G.RESULTS, G.PROGRESS]);
+    await AsyncStorage.multiRemove([G.TEXTS, G.RESULTS, G.PROGRESS, G.SUBSCRIPTION]);
   } catch {
     // ignore
   }

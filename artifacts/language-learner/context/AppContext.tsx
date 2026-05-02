@@ -6,8 +6,10 @@ import type {
   SessionResult,
   UserProgress,
   AppSettings,
+  SubscriptionState,
+  SubscriptionTier,
 } from "@/types";
-import { STAGE_PASS_SCORE, STAGES } from "@/types";
+import { DEFAULT_SUBSCRIPTION, STAGE_PASS_SCORE, STAGES } from "@/types";
 import { detectContentType } from "@/utils/contentType";
 import { clearArticleAudio } from "@/utils/ttsCache";
 import { migrateGuestData } from "@/utils/migrateGuestData";
@@ -40,6 +42,7 @@ function keysFor(userId: string) {
     RESULTS: `${prefix}results`,
     PROGRESS: `${prefix}progress`,
     SETTINGS: `${prefix}settings`,
+    SUBSCRIPTION: `${prefix}subscription`,
   };
 }
 
@@ -163,6 +166,12 @@ interface AppContextValue {
   isLoading: boolean;
   userId: string;
   isGuest: boolean;
+  // Subscription (UI-only demo, no real billing)
+  subscription: SubscriptionState;
+  subscriptionTier: SubscriptionTier;
+  isPro: boolean;
+  upgradeToPro: () => Promise<void>;
+  downgradeToFree: () => Promise<void>;
   // Local (no-password, on-device) accounts
   localAccounts: LocalAccount[];
   activeLocalAccountId: string | null;
@@ -212,6 +221,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [results, setResults] = useState<SessionResult[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [subscription, setSubscription] = useState<SubscriptionState>(DEFAULT_SUBSCRIPTION);
   const [isLoading, setIsLoading] = useState(true);
 
   // Load local accounts list + active id once on mount.
@@ -245,6 +255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setResults([]);
     setProgress({});
     setSettings(DEFAULT_SETTINGS);
+    setSubscription(DEFAULT_SUBSCRIPTION);
 
     if (userId === GUEST_USER_ID) {
       // Returning to the guest scope means a future sign-in should be
@@ -324,11 +335,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await migrateLegacyEnglishCodeIfNeeded();
       await migrateLegacyIfNeeded(K, uid === GUEST_USER_ID);
-      const [textsRaw, resultsRaw, progressRaw, settingsRaw] = await Promise.all([
+      const [textsRaw, resultsRaw, progressRaw, settingsRaw, subscriptionRaw] = await Promise.all([
         AsyncStorage.getItem(K.TEXTS),
         AsyncStorage.getItem(K.RESULTS),
         AsyncStorage.getItem(K.PROGRESS),
         AsyncStorage.getItem(K.SETTINGS),
+        AsyncStorage.getItem(K.SUBSCRIPTION),
       ]);
       // Discard if user changed mid-load
       if (uid !== currentUserRef.current) return;
@@ -376,6 +388,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setProgress(migrated);
       }
       if (settingsRaw) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(settingsRaw) });
+      if (subscriptionRaw) {
+        try {
+          const parsed = JSON.parse(subscriptionRaw) as Partial<SubscriptionState>;
+          // Defensive: only accept the two known tier values; everything else
+          // collapses to "free" so corrupted state can't lock a user into Pro
+          // or some unknown tier the UI can't handle.
+          const tier: SubscriptionTier = parsed?.tier === "pro" ? "pro" : "free";
+          setSubscription({
+            tier,
+            upgradedAt: tier === "pro" && typeof parsed.upgradedAt === "number"
+              ? parsed.upgradedAt
+              : undefined,
+          });
+        } catch {
+          // ignore corrupted entry; default (free) stays in place
+        }
+      }
     } finally {
       if (uid === currentUserRef.current) setIsLoading(false);
     }
@@ -395,10 +424,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const resultsRef = useRef<SessionResult[]>([]);
   const progressRef = useRef<Record<string, UserProgress>>({});
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
+  const subscriptionRef = useRef<SubscriptionState>(DEFAULT_SUBSCRIPTION);
   textsRef.current = texts;
   resultsRef.current = results;
   progressRef.current = progress;
   settingsRef.current = settings;
+  subscriptionRef.current = subscription;
 
   const addText = useCallback(async (text: LearningText) => {
     const uidAtCall = currentUserRef.current;
@@ -475,6 +506,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     safeWrite(uidAtCall, K.SETTINGS, JSON.stringify(next));
   }, []);
 
+  const upgradeToPro = useCallback(async () => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
+    // Preserve the original upgrade timestamp on repeat calls so a
+    // downgrade → re-upgrade still records the new event without rewriting
+    // history when called twice in a row.
+    const existingUpgradedAt = subscriptionRef.current.tier === "pro"
+      ? subscriptionRef.current.upgradedAt
+      : undefined;
+    const next: SubscriptionState = {
+      tier: "pro",
+      upgradedAt: existingUpgradedAt ?? Date.now(),
+    };
+    setSubscription(next);
+    safeWrite(uidAtCall, K.SUBSCRIPTION, JSON.stringify(next));
+  }, []);
+
+  const downgradeToFree = useCallback(async () => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
+    const next: SubscriptionState = { tier: "free" };
+    setSubscription(next);
+    safeWrite(uidAtCall, K.SUBSCRIPTION, JSON.stringify(next));
+  }, []);
+
   const persistLocalAccounts = useCallback(async (next: LocalAccount[]) => {
     setLocalAccounts(next);
     try {
@@ -521,7 +577,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Wipe the account's scoped data
       const K = keysFor(`local:${id}`);
       try {
-        await AsyncStorage.multiRemove([K.TEXTS, K.RESULTS, K.PROGRESS, K.SETTINGS]);
+        await AsyncStorage.multiRemove([K.TEXTS, K.RESULTS, K.PROGRESS, K.SETTINGS, K.SUBSCRIPTION]);
       } catch {
         // ignore
       }
@@ -570,6 +626,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isLoading: isLoading || !authLoaded || !localLoaded,
         userId,
         isGuest,
+        subscription,
+        subscriptionTier: subscription.tier,
+        isPro: subscription.tier === "pro",
+        upgradeToPro,
+        downgradeToFree,
         localAccounts,
         activeLocalAccountId,
         activeLocalAccount,

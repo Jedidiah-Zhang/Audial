@@ -11,7 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, ChevronRight, X } from "lucide-react-native";
+import { Check, ChevronRight, Sparkles, X } from "lucide-react-native";
 import { flipIfRTL } from "@/utils/rtl";
 import { router } from "expo-router";
 import { useAuth, useUser } from "@clerk/expo";
@@ -22,6 +22,7 @@ import { LANGUAGES, VOICE_OPTIONS } from "@/types";
 import type { Difficulty } from "@/types";
 import { Flag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
+import { PaywallModal } from "@/components/PaywallModal";
 
 const DIFFICULTIES: Difficulty[] = ["beginner", "elementary", "intermediate", "advanced"];
 
@@ -31,10 +32,11 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { settings, updateSettings, activeLocalAccount } = useApp();
+  const { settings, updateSettings, activeLocalAccount, isPro } = useApp();
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
   const { user } = useUser();
   const [picker, setPicker] = useState<PickerKind>(null);
+  const [paywallOpen, setPaywallOpen] = useState(false);
 
   const lang = settings.nativeLanguage;
   const currentTarget = LANGUAGES.find((l) => l.code === settings.targetLanguage);
@@ -73,6 +75,17 @@ export default function SettingsScreen() {
             label={t("settings.section.account")}
             value={accountSummary}
             onPress={() => router.push("/account")}
+          />
+        </Section>
+
+        <Section title={t("settings.section.subscription")} colors={colors}>
+          <SubscriptionRow
+            colors={colors}
+            isPro={isPro}
+            label={isPro ? t("settings.subscription.subscribed") : t("settings.subscription.upgrade")}
+            description={isPro ? t("settings.subscription.subscribedDesc") : t("settings.subscription.upgradeDesc")}
+            badgeLabel={t("settings.subscription.badge")}
+            onPress={() => setPaywallOpen(true)}
           />
         </Section>
         <Section title={t("settings.section.language")} colors={colors}>
@@ -303,6 +316,8 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      <PaywallModal visible={paywallOpen} onClose={() => setPaywallOpen(false)} />
     </View>
   );
 }
@@ -363,6 +378,62 @@ function Row({
       <Text style={[styles.itemValue, { color: colors.mutedForeground }]} numberOfLines={1}>
         {value}
       </Text>
+      <ChevronRight size={18} color={colors.mutedForeground} style={flipIfRTL()} />
+    </TouchableOpacity>
+  );
+}
+
+function SubscriptionRow({
+  colors,
+  isPro,
+  label,
+  description,
+  badgeLabel,
+  onPress,
+}: {
+  colors: ReturnType<typeof useColors>;
+  isPro: boolean;
+  label: string;
+  description: string;
+  badgeLabel: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={[styles.itemRow, { borderBottomColor: colors.border }]}
+    >
+      <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
+        <Sparkles size={16} color={colors.primary} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>
+        <Text style={[styles.itemDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
+          {description}
+        </Text>
+      </View>
+      {isPro ? (
+        <View
+          style={{
+            paddingHorizontal: 8,
+            paddingVertical: 3,
+            borderRadius: 999,
+            backgroundColor: colors.primary + "18",
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 11,
+              fontFamily: "Inter_700Bold",
+              color: colors.primary,
+              letterSpacing: 0.4,
+            }}
+          >
+            {badgeLabel}
+          </Text>
+        </View>
+      ) : null}
       <ChevronRight size={18} color={colors.mutedForeground} style={flipIfRTL()} />
     </TouchableOpacity>
   );
