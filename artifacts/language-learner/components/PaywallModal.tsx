@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, Sparkles, X } from "lucide-react-native";
+import { useRouter } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useT } from "@/utils/i18n";
@@ -39,7 +40,8 @@ export function PaywallModal({ visible, onClose }: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { isPro, upgradeToPro, downgradeToFree } = useApp();
+  const router = useRouter();
+  const { isPro, isGuest, upgradeToPro, downgradeToFree } = useApp();
   // Brief spinner on the primary CTA so the demo "subscribe" tap reads as
   // a deliberate action rather than an instant state flip.
   const [busy, setBusy] = useState(false);
@@ -54,6 +56,14 @@ export function PaywallModal({ visible, onClose }: Props) {
 
   const handleSubscribe = async () => {
     if (busy) return;
+    // Guests can't subscribe — Pro state is per-user and would be discarded
+    // on sign-in (account scope swap in AppContext). Funnel them to sign-in
+    // instead so the upgrade attaches to a real account.
+    if (isGuest) {
+      onClose();
+      router.push("/(auth)/sign-in");
+      return;
+    }
     setBusy(true);
     try {
       await upgradeToPro();
@@ -199,6 +209,13 @@ export function PaywallModal({ visible, onClose }: Props) {
             </>
           ) : (
             <>
+              {isGuest ? (
+                <Text
+                  style={[styles.guestNote, { color: colors.mutedForeground }]}
+                >
+                  {t("paywall.guest.note")}
+                </Text>
+              ) : null}
               <TouchableOpacity
                 onPress={handleSubscribe}
                 disabled={busy}
@@ -215,7 +232,9 @@ export function PaywallModal({ visible, onClose }: Props) {
                   <Text
                     style={[styles.primaryBtnText, { color: colors.primaryForeground }]}
                   >
-                    {t("paywall.cta.subscribe")}
+                    {isGuest
+                      ? t("paywall.cta.signInToSubscribe")
+                      : t("paywall.cta.subscribe")}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -356,5 +375,13 @@ const styles = StyleSheet.create({
   secondaryBtnText: {
     fontSize: 14,
     fontFamily: "Inter_500Medium",
+  },
+  guestNote: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 18,
+    paddingHorizontal: 4,
+    paddingBottom: 4,
   },
 });
