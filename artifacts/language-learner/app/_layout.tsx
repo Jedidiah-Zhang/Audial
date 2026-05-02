@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { Feather, Ionicons, MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { setAudioModeAsync } from "expo-audio";
 import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -50,9 +50,6 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
     ...Feather.font,
-    ...Ionicons.font,
-    ...MaterialCommunityIcons.font,
-    ...MaterialIcons.font,
   });
 
   useEffect(() => {
