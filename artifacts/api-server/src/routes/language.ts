@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { deepseek, DEEPSEEK_MODEL } from "@workspace/integrations-openai-ai-server/deepseek";
 import {
   textToSpeech,
   speechToText,
@@ -57,8 +57,8 @@ Format your response as JSON with these fields:
 
 Make the text feel like something a real native speaker would say - not textbook language. Use natural expressions and colloquialisms appropriate for the level.`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+    const response = await deepseek.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       max_completion_tokens: 2048,
       messages: [
         { role: "system", content: systemPrompt },
@@ -89,8 +89,8 @@ router.post("/language/translate", async (req, res) => {
       return;
     }
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+    const response = await deepseek.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       max_completion_tokens: 1500,
       messages: [
         {
@@ -119,8 +119,8 @@ router.post("/language/word-detail", async (req, res) => {
       language: string;
     };
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+    const response = await deepseek.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       max_completion_tokens: 400,
       messages: [
         {
@@ -194,8 +194,8 @@ router.post("/language/score-pronunciation", async (req, res) => {
       language: string;
     };
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+    const response = await deepseek.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       max_completion_tokens: 512,
       messages: [
         {
@@ -231,8 +231,8 @@ router.post("/language/score-dictation", async (req, res) => {
       language: string;
     };
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+    const response = await deepseek.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       max_completion_tokens: 512,
       messages: [
         {
@@ -268,8 +268,8 @@ router.post("/language/score-recitation", async (req, res) => {
       language: string;
     };
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+    const response = await deepseek.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       max_completion_tokens: 512,
       messages: [
         {
