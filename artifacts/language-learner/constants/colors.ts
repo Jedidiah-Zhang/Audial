@@ -1,4 +1,31 @@
-const colors = {
+export type Palette = {
+  text: string;
+  tint: string;
+  background: string;
+  foreground: string;
+  card: string;
+  cardForeground: string;
+  primary: string;
+  primaryForeground: string;
+  secondary: string;
+  secondaryForeground: string;
+  muted: string;
+  mutedForeground: string;
+  accent: string;
+  accentForeground: string;
+  destructive: string;
+  destructiveForeground: string;
+  border: string;
+  input: string;
+  success: string;
+  successForeground: string;
+  warning: string;
+  warningForeground: string;
+  surface: string;
+  surfaceElevated: string;
+};
+
+export const palettes: { light: Palette; dark: Palette } = {
   light: {
     text: "#0f172a",
     tint: "#6366f1",
@@ -51,7 +78,10 @@ const colors = {
     surface: "#1e293b",
     surfaceElevated: "#0f172a",
   },
-  radius: 12,
 };
+
+export const radius = 12;
+
+const colors = { ...palettes, radius };
 
 export default colors;
