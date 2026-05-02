@@ -139,14 +139,6 @@ export default function SettingsScreen() {
             value={currentVoice?.label ?? settings.preferredVoice}
             onPress={() => setPicker("voice")}
           />
-          <ToggleRow
-            colors={colors}
-            icon="play-circle"
-            label={t("settings.autoPlay")}
-            description={t("settings.autoPlay.desc")}
-            value={settings.autoPlayAudio}
-            onValueChange={(v) => updateSettings({ autoPlayAudio: v })}
-          />
         </Section>
       </ScrollView>
 

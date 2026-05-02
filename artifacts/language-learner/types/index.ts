@@ -87,7 +87,6 @@ export interface AppSettings {
    * one without forcing the user to pick.
    */
   preferredVoiceUserSet?: boolean;
-  autoPlayAudio: boolean;
   onboarded: boolean;
   /**
    * Manual color-scheme override. `"system"` (default) follows the OS, while

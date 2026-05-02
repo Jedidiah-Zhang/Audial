@@ -81,7 +81,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   // Default false: until the user explicitly picks a voice we use the
   // language-default voice per article (en-GB → fable, en-US → nova).
   preferredVoiceUserSet: false,
-  autoPlayAudio: true,
   onboarded: false,
   themePreference: "system",
 };
@@ -445,7 +444,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         setProgress(migrated);
       }
-      if (settingsRaw) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(settingsRaw) });
+      if (settingsRaw) {
+        // Tolerate legacy fields from older app versions (e.g. `autoPlayAudio`,
+        // which has been removed). We strip unknown keys here so the merged
+        // state stays clean and the next `updateSettings` write naturally
+        // drops them from persistent storage.
+        const parsedSettings = JSON.parse(settingsRaw) as Record<string, unknown>;
+        const { autoPlayAudio: _legacyAutoPlayAudio, ...rest } = parsedSettings;
+        void _legacyAutoPlayAudio;
+        setSettings({ ...DEFAULT_SETTINGS, ...(rest as Partial<AppSettings>) });
+      }
       if (subscriptionRaw) {
         try {
           const parsed = JSON.parse(subscriptionRaw) as Partial<SubscriptionState>;
