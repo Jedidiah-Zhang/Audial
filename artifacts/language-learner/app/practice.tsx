@@ -20,7 +20,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { flipIfRTL } from "@/utils/rtl";
+import { flipIfRTL, rtlTextStyle } from "@/utils/rtl";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
@@ -397,7 +397,7 @@ export default function PracticeScreen() {
           {showTranslation && text.translation ? (
             <View style={[styles.translationCard, { backgroundColor: colors.muted }]}>
               <Text style={[styles.translationLabel, { color: colors.mutedForeground }]}>{t("practice.translationLabel")}</Text>
-              <Text style={[styles.translation, { color: colors.foreground }]}>
+              <Text style={[styles.translation, { color: colors.foreground }, rtlTextStyle(text.translation)]}>
                 {text.translation}
               </Text>
             </View>

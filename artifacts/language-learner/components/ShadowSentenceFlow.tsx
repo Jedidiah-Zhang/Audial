@@ -28,6 +28,7 @@ import { useAudioPlayer, useAudioRecorder, transcribeAudio, prefetchTTS } from "
 import { useMicPermissionGate } from "@/components/MicPermissionPrompt";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { Icon } from "@/components/Icon";
+import { rtlTextStyle } from "@/utils/rtl";
 import { useT } from "@/utils/i18n";
 import type { ContentType } from "@/types";
 import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
@@ -777,7 +778,7 @@ export function ShadowSentenceFlow({
         >
           <Play size={11} color={playColor} fill={playColor} />
         </View>
-        <Text style={[styles.sentText, { color }]}>{sent}</Text>
+        <Text style={[styles.sentText, { color }, rtlTextStyle(sent)]}>{sent}</Text>
         <View
           style={[
             styles.statusDot,
@@ -1088,7 +1089,7 @@ export function ShadowSentenceFlow({
             ]}
           >
             <ScrollView style={{ maxHeight: 220 }} showsVerticalScrollIndicator>
-              <Text style={[styles.passagePreviewText, { color: colors.foreground }]}>
+              <Text style={[styles.passagePreviewText, { color: colors.foreground }, rtlTextStyle(text)]}>
                 {text}
               </Text>
             </ScrollView>
@@ -1142,7 +1143,7 @@ export function ShadowSentenceFlow({
             ]}
           >
             <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator>
-              <Text style={[styles.passageBodyText, { color: colors.foreground }]}>
+              <Text style={[styles.passageBodyText, { color: colors.foreground }, rtlTextStyle(text)]}>
                 {text}
               </Text>
             </ScrollView>

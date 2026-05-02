@@ -14,6 +14,7 @@ import { useT, getDifficultyLabel, getContentTypeLabel, getStageName } from "@/u
 import { useApp } from "@/context/AppContext";
 import { Flag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
+import { rtlTextStyle } from "@/utils/rtl";
 
 interface TextCardProps {
   item: LearningText;
@@ -108,11 +109,11 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
           </View>
         </View>
 
-        <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={2}>
+        <Text style={[styles.title, { color: colors.foreground }, rtlTextStyle(item.title)]} numberOfLines={2}>
           {item.title}
         </Text>
 
-        <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
+        <Text style={[styles.preview, { color: colors.mutedForeground }, rtlTextStyle(item.text)]} numberOfLines={2}>
           {item.text}
         </Text>
 
@@ -206,11 +207,11 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
         </View>
       </View>
 
-      <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={2}>
+      <Text style={[styles.title, { color: colors.foreground }, rtlTextStyle(item.title)]} numberOfLines={2}>
         {item.title}
       </Text>
 
-      <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
+      <Text style={[styles.preview, { color: colors.mutedForeground }, rtlTextStyle(item.text)]} numberOfLines={2}>
         {item.text}
       </Text>
 

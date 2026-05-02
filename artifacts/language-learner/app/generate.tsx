@@ -15,7 +15,7 @@ import {
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Check, ChevronDown, Edit3, RefreshCw, Save, Sparkles, Zap } from "lucide-react-native";
-import { flipIfRTL } from "@/utils/rtl";
+import { flipIfRTL, rtlTextStyle } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { todayDateKey, useApp } from "@/context/AppContext";
@@ -687,7 +687,7 @@ export default function GenerateScreen() {
               ) : null}
             </View>
             <TextInput
-              style={[styles.bigTextarea, inputStyle]}
+              style={[styles.bigTextarea, inputStyle, rtlTextStyle(draftText)]}
               value={draftText}
               onChangeText={handleDraftTextChange}
               onFocus={() => { focusedSideRef.current = "text"; }}
@@ -716,7 +716,7 @@ export default function GenerateScreen() {
               ) : null}
             </View>
             <TextInput
-              style={[styles.textarea, inputStyle]}
+              style={[styles.textarea, inputStyle, rtlTextStyle(draftTranslation)]}
               value={draftTranslation}
               onChangeText={handleDraftTranslationChange}
               onFocus={() => { focusedSideRef.current = "translation"; }}
@@ -987,7 +987,7 @@ export default function GenerateScreen() {
             <View style={styles.field}>
               <Text style={[styles.label, labelStyle]}>{t("generate.label.manualText")}</Text>
               <TextInput
-                style={[styles.textarea, inputStyle]}
+                style={[styles.textarea, inputStyle, rtlTextStyle(manualText)]}
                 value={manualText}
                 onChangeText={setManualText}
                 placeholder={t("generate.placeholder.manualText")}

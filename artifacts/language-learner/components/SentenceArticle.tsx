@@ -12,6 +12,7 @@ import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
 import { useT, getContentTypeLabel } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
 import { getDefaultVoiceForLanguage } from "@/utils/voiceForLanguage";
+import { rtlTextStyle } from "@/utils/rtl";
 
 interface SentenceArticleProps {
   text: string;
@@ -263,6 +264,7 @@ export function SentenceArticle({
                       backgroundColor: accentColor + "33",
                       color: accentColor,
                     },
+                    rtlTextStyle(sent),
                   ]}
                 >
                   {sent}
@@ -321,7 +323,13 @@ export function SentenceArticle({
                             },
                           ]}
                         >
-                          <Text style={[styles.article, { color: colors.foreground }]}>
+                          <Text
+                            style={[
+                              styles.article,
+                              { color: colors.foreground },
+                              rtlTextStyle(g.sentences.join(" ")),
+                            ]}
+                          >
                             {g.sentences.map((s, i) => {
                               const idx = cursor++;
                               return renderSentence(idx, s, i === g.sentences.length - 1);
@@ -348,6 +356,7 @@ export function SentenceArticle({
                       styles.article,
                       styles.newsParagraph,
                       { color: colors.foreground },
+                      rtlTextStyle(g.sentences.join(" ")),
                     ]}
                   >
                     {indent && gi !== 0 ? <Text>{"   "}</Text> : null}

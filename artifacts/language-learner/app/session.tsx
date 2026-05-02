@@ -14,7 +14,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Sparkles, Square, Target, Volume2 } from "lucide-react-native";
-import { flipIfRTL } from "@/utils/rtl";
+import { flipIfRTL, rtlTextStyle } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -607,7 +607,7 @@ export default function SessionScreen() {
 
             <View style={[styles.textPreview, { backgroundColor: colors.muted }]}>
               <Text style={[styles.textPreviewLabel, { color: colors.mutedForeground }]}>{t("session.intro.previewLabel")}</Text>
-              <Text style={[styles.textPreviewContent, { color: colors.foreground }]} numberOfLines={5}>
+              <Text style={[styles.textPreviewContent, { color: colors.foreground }, rtlTextStyle(text.text)]} numberOfLines={5}>
                 {text.text}
               </Text>
             </View>
@@ -670,7 +670,7 @@ export default function SessionScreen() {
             <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
               <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>{t("session.dictation.label")}</Text>
               <TextInput
-                style={[styles.dictationInput, { color: colors.foreground }]}
+                style={[styles.dictationInput, { color: colors.foreground }, rtlTextStyle(dictationInput)]}
                 value={dictationInput}
                 onChangeText={setDictationInput}
                 placeholder={t("session.dictation.placeholder")}
@@ -923,7 +923,7 @@ export default function SessionScreen() {
             {!stage.needsScore && (
               <View style={[styles.originalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Text style={[styles.originalLabel, { color: colors.mutedForeground }]}>{t("session.result.original")}</Text>
-                <Text style={[styles.originalText, { color: colors.foreground }]}>{text.text}</Text>
+                <Text style={[styles.originalText, { color: colors.foreground }, rtlTextStyle(text.text)]}>{text.text}</Text>
               </View>
             )}
 

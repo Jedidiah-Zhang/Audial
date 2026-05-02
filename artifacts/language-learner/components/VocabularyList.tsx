@@ -8,6 +8,7 @@ import type { VocabularyItem, LearningText } from "@/types";
 import { useT } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
 import { getDefaultVoiceForLanguage } from "@/utils/voiceForLanguage";
+import { rtlTextStyle } from "@/utils/rtl";
 
 interface Props {
   text: LearningText;
@@ -132,7 +133,7 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
             <View style={styles.headerRow}>
               <View style={styles.wordCol}>
                 <View style={styles.wordLine}>
-                  <Text style={[styles.word, { color: colors.foreground }]}>{v.word}</Text>
+                  <Text style={[styles.word, { color: colors.foreground }, rtlTextStyle(v.word)]}>{v.word}</Text>
                   <TouchableOpacity
                     onPress={() => handlePlay(i)}
                     activeOpacity={0.7}
@@ -165,7 +166,7 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
               </View>
             </View>
 
-            <Text style={[styles.meaning, { color: colors.foreground }]}>{v.meaning}</Text>
+            <Text style={[styles.meaning, { color: colors.foreground }, rtlTextStyle(v.meaning)]}>{v.meaning}</Text>
 
             <TouchableOpacity
               onPress={() => toggleExpand(i)}
@@ -200,9 +201,9 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
                         <Text style={[styles.examplePlayText, { color: colors.primary }]}>{t("vocab.read")}</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={[styles.exampleText, { color: colors.foreground }]}>{v.example}</Text>
+                    <Text style={[styles.exampleText, { color: colors.foreground }, rtlTextStyle(v.example)]}>{v.example}</Text>
                     {v.exampleTranslation ? (
-                      <Text style={[styles.exampleTranslation, { color: colors.mutedForeground }]}>
+                      <Text style={[styles.exampleTranslation, { color: colors.mutedForeground }, rtlTextStyle(v.exampleTranslation)]}>
                         {v.exampleTranslation}
                       </Text>
                     ) : null}
