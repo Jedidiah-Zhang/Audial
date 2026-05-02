@@ -43,6 +43,17 @@ export interface ShadowFlowResult {
   perSentence: PerSentenceResult[];
 }
 
+interface ScorePronunciationResponse {
+  success: boolean;
+  data?: {
+    score?: number;
+    feedback?: string;
+    mistakes?: string[];
+    [key: string]: unknown;
+  };
+  error?: string;
+}
+
 type SentenceStatus = "pending" | "passed" | "failed";
 
 interface SentenceState {
@@ -262,8 +273,8 @@ export function ShadowSentenceFlow({
             language,
           }),
         });
-        const json = (await response.json()) as { success: boolean; data: any };
-        if (!json.success) throw new Error("Scoring failed");
+        const json: ScorePronunciationResponse = await response.json();
+        if (!json.success || !json.data) throw new Error("Scoring failed");
         const d = json.data;
         const score: number = typeof d.score === "number" ? d.score : 0;
         const passed = score >= STAGE_PASS_SCORE;
@@ -443,7 +454,7 @@ export function ShadowSentenceFlow({
   const meta = CONTENT_TYPE_META[effectiveType];
   const Badge = meta.showBadge ? (
     <View style={[styles.contentTypeBadge, { backgroundColor: accentColor + "18" }]}>
-      <Icon name={meta.icon as any} size={10} color={accentColor} />
+      <Icon name={meta.icon} size={10} color={accentColor} />
       <Text style={[styles.contentTypeBadgeText, { color: accentColor }]}>
         {getContentTypeLabel(effectiveType, settings.nativeLanguage)}
       </Text>
@@ -628,23 +639,25 @@ export function ShadowSentenceFlow({
         style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}
       >
         <View style={[styles.progressBarTrack, { backgroundColor: colors.muted }]}>
-          <View
-            style={[
-              styles.progressBarFill,
-              {
-                backgroundColor: accentColor,
-                width: `${
-                  sentences.length === 0
-                    ? 0
-                    : Math.round(
-                        (Math.min(currentIdx + (phase === "done" ? 1 : 0), sentences.length) /
-                          sentences.length) *
-                          100
-                      )
-                }%` as any,
-              },
-            ]}
-          />
+          {(() => {
+            const pct =
+              sentences.length === 0
+                ? 0
+                : Math.round(
+                    (Math.min(currentIdx + (phase === "done" ? 1 : 0), sentences.length) /
+                      sentences.length) *
+                      100
+                  );
+            const widthValue: `${number}%` = `${pct}%`;
+            return (
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { backgroundColor: accentColor, width: widthValue },
+                ]}
+              />
+            );
+          })()}
         </View>
         <ScrollView
           ref={scrollRef}
@@ -697,7 +710,7 @@ export function ShadowSentenceFlow({
             ]}
             activeOpacity={0.85}
           >
-            <Icon name={micIcon as any} size={32} color="#fff" />
+            <Icon name={micIcon} size={32} color="#fff" />
           </TouchableOpacity>
         )}
         <Text style={[styles.hintText, { color: colors.mutedForeground }]}>{hint}</Text>

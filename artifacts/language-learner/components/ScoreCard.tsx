@@ -57,12 +57,17 @@ export function ScoreCard({ score, feedback, details, mode, perSentence }: Score
       <Text style={[styles.scoreLabel, { color: getScoreColor() }]}>{getScoreEmoji()}</Text>
 
       <View style={[styles.bar, { backgroundColor: colors.muted }]}>
-        <View
-          style={[
-            styles.barFill,
-            { width: `${score}%` as any, backgroundColor: getScoreColor() },
-          ]}
-        />
+        {(() => {
+          const widthValue: `${number}%` = `${Math.max(0, Math.min(100, score))}%`;
+          return (
+            <View
+              style={[
+                styles.barFill,
+                { width: widthValue, backgroundColor: getScoreColor() },
+              ]}
+            />
+          );
+        })()}
       </View>
 
       {feedback ? (
@@ -146,7 +151,7 @@ const styles = StyleSheet.create({
     borderRadius: 55,
     borderWidth: 4,
     flexDirection: "row",
-    alignItems: "baseline" as any,
+    alignItems: "baseline",
     justifyContent: "center",
   },
   scoreText: {
