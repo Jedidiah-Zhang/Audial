@@ -149,12 +149,7 @@ export default function SessionScreen() {
   const stage = STAGES[stageIdx] ?? STAGES[0];
   const text = texts.find((x) => x.id === id);
 
-  // Shadowing (stage 0) skips the generic intro card — its own
-  // ShadowSentenceFlow renders an in-context introduction, so the extra
-  // "tap Start" gate just adds friction.
-  const [phase, setPhase] = useState<SessionPhase>(
-    stageIdx === 0 ? "study" : "intro"
-  );
+  const [phase, setPhase] = useState<SessionPhase>("intro");
   const [dictationInput, setDictationInput] = useState("");
   const [result, setResult] = useState<{
     score: number;
@@ -546,8 +541,7 @@ export default function SessionScreen() {
     setResult(null);
     setDictationInput("");
     setShadowRecordingUri(null);
-    // Mirror the initial phase so shadowing retries also skip the intro.
-    setPhase(stageIdx === 0 ? "study" : "intro");
+    setPhase("intro");
   };
 
   const handleNextStage = () => {
