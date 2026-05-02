@@ -365,6 +365,8 @@ export default function PracticeScreen() {
             contentType={text.contentType}
             articleId={text.id}
             targetLanguage={text.targetLanguage}
+            showPlayAll={false}
+            disablePlayback
           />
 
           <View style={styles.textActions}>

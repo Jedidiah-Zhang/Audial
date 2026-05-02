@@ -655,6 +655,7 @@ export default function SessionScreen() {
               contentType={text.contentType}
               articleId={text.id}
               targetLanguage={text.targetLanguage}
+              showPlayAll
             />
             <Text style={[styles.memorizeHint, { color: colors.mutedForeground }]}>
               {t("session.memorize.hint")}
@@ -690,6 +691,7 @@ export default function SessionScreen() {
               text={text.text}
               accentColor={stageColor}
               visible={false}
+              showPlayAll
               contentType={text.contentType}
               articleId={text.id}
               targetLanguage={text.targetLanguage}
