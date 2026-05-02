@@ -27,7 +27,7 @@ import { TextCard } from "@/components/TextCard";
 import { VocabularyList } from "@/components/VocabularyList";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
-import { Icon, type IconName } from "@/components/Icon";
+import { Icon } from "@/components/Icon";
 
 // Open uses a strong ease-out ("Expo Out") to mimic the iOS App Store launch
 // feel: a sharp, fast initial burst followed by a long, soft settle. Close is
@@ -325,7 +325,7 @@ export default function PracticeScreen() {
             </View>
           ) : null}
 
-          {showVocab && text.vocabulary.length > 0 && (
+          {showVocab && (text.vocabulary?.length ?? 0) > 0 && (
             <VocabularyList
               text={text}
               onUpdateVocabulary={(vocab) => addText({ ...text, vocabulary: vocab })}

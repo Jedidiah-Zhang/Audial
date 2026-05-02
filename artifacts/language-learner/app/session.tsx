@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -24,7 +24,7 @@ import { SentenceArticle } from "@/components/SentenceArticle";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import type { LearningMode } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
-import { Icon, type IconName } from "@/components/Icon";
+import { Icon } from "@/components/Icon";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -156,7 +156,7 @@ export default function SessionScreen() {
       const passed = score >= STAGE_PASS_SCORE;
 
       await addResult({
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
         textId: text.id,
         mode: mode as LearningMode,
         stage: stageIdx,

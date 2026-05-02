@@ -23,7 +23,7 @@ import { LANGUAGES } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
 import { detectContentType, isContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, TOPIC_KEYS } from "@/utils/i18n";
-import { Icon, type IconName } from "@/components/Icon";
+import { Icon } from "@/components/Icon";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -116,7 +116,7 @@ export default function GenerateScreen() {
     }
     const finalText = draftText.trim();
     const text: LearningText = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
       title: draftTitle.trim(),
       text: finalText,
       translation: draftTranslation.trim(),
@@ -170,7 +170,7 @@ export default function GenerateScreen() {
     }
 
     const text: LearningText = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 6),
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
       title: manualTitle.trim(),
       text: finalText,
       translation,

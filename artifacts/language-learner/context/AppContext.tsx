@@ -256,11 +256,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const parsed = JSON.parse(textsRaw) as LearningText[];
         let mutated = false;
         const migrated = parsed.map((t) => {
-          if (!t.contentType) {
+          let next = t;
+          if (!next.contentType) {
             mutated = true;
-            return { ...t, contentType: detectContentType(t.text) };
+            next = { ...next, contentType: detectContentType(next.text) };
           }
-          return t;
+          // Older persisted entries pre-date the vocabulary feature and may
+          // have no field at all. The type says it's required, so backfill
+          // here so consumers can rely on .length without optional chaining.
+          if (!Array.isArray(next.vocabulary)) {
+            mutated = true;
+            next = { ...next, vocabulary: [] };
+          }
+          return next;
         });
         setTexts(migrated);
         if (mutated) {
@@ -300,90 +308,91 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(key, value).catch(() => {});
   }
 
+  // We keep a ref-mirror of each piece of state so the action functions can
+  // compute the next value without doing side-effects inside a setState
+  // updater (which would fire twice under StrictMode in dev).
+  const textsRef = useRef<LearningText[]>([]);
+  const resultsRef = useRef<SessionResult[]>([]);
+  const progressRef = useRef<Record<string, UserProgress>>({});
+  const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
+  textsRef.current = texts;
+  resultsRef.current = results;
+  progressRef.current = progress;
+  settingsRef.current = settings;
+
   const addText = useCallback(async (text: LearningText) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
-    setTexts((prev) => {
-      const next = [text, ...prev.filter((t) => t.id !== text.id)];
-      safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
-      return next;
-    });
+    const next = [text, ...textsRef.current.filter((t) => t.id !== text.id)];
+    setTexts(next);
+    safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
   }, []);
 
   const updateText = useCallback(async (id: string, partial: Partial<LearningText>) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
-    setTexts((prev) => {
-      const next = prev.map((t) => (t.id === id ? { ...t, ...partial } : t));
-      safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
-      return next;
-    });
+    const next = textsRef.current.map((t) => (t.id === id ? { ...t, ...partial } : t));
+    setTexts(next);
+    safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
   }, []);
 
   const removeText = useCallback(async (id: string) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
     clearArticleAudio(uidAtCall, id).catch(() => {});
-    setTexts((prev) => {
-      const next = prev.filter((t) => t.id !== id);
-      safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
-      return next;
-    });
+    const next = textsRef.current.filter((t) => t.id !== id);
+    setTexts(next);
+    safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
   }, []);
 
   const addResult = useCallback(async (result: SessionResult) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
-    setResults((prev) => {
-      const next = [result, ...prev].slice(0, 200);
-      safeWrite(uidAtCall, K.RESULTS, JSON.stringify(next));
-      return next;
-    });
 
-    setProgress((prev) => {
-      const existing = prev[result.textId] ?? defaultProgress(result.textId);
-      const stageBests = [...existing.stageBests];
-      const stagePassed = [...existing.stagePassed];
+    const nextResults = [result, ...resultsRef.current].slice(0, 200);
+    setResults(nextResults);
+    safeWrite(uidAtCall, K.RESULTS, JSON.stringify(nextResults));
 
-      const stageIdx = result.stage;
-      if (stageIdx >= 0 && stageIdx < STAGES.length) {
-        stageBests[stageIdx] = Math.max(result.score, stageBests[stageIdx]);
-        const stage = STAGES[stageIdx];
-        if (!stage.needsScore || result.score >= STAGE_PASS_SCORE) {
-          stagePassed[stageIdx] = true;
-        }
+    const existing = progressRef.current[result.textId] ?? defaultProgress(result.textId);
+    const stageBests = [...existing.stageBests];
+    const stagePassed = [...existing.stagePassed];
+
+    const stageIdx = result.stage;
+    if (stageIdx >= 0 && stageIdx < STAGES.length) {
+      stageBests[stageIdx] = Math.max(result.score, stageBests[stageIdx]);
+      const stage = STAGES[stageIdx];
+      if (!stage.needsScore || result.score >= STAGE_PASS_SCORE) {
+        stagePassed[stageIdx] = true;
       }
+    }
 
-      const updated: UserProgress = {
-        ...existing,
-        stageBests,
-        stagePassed,
-        shadowingBest: result.mode === "shadowing"
-          ? Math.max(result.score, existing.shadowingBest)
-          : existing.shadowingBest,
-        dictationBest: result.mode === "dictation"
-          ? Math.max(result.score, existing.dictationBest)
-          : existing.dictationBest,
-        recitationBest: result.mode === "recitation"
-          ? Math.max(result.score, existing.recitationBest)
-          : existing.recitationBest,
-        lastStudied: Date.now(),
-        totalSessions: existing.totalSessions + 1,
-      };
-      const next = { ...prev, [result.textId]: updated };
-      safeWrite(uidAtCall, K.PROGRESS, JSON.stringify(next));
-      return next;
-    });
+    const updated: UserProgress = {
+      ...existing,
+      stageBests,
+      stagePassed,
+      shadowingBest: result.mode === "shadowing"
+        ? Math.max(result.score, existing.shadowingBest)
+        : existing.shadowingBest,
+      dictationBest: result.mode === "dictation"
+        ? Math.max(result.score, existing.dictationBest)
+        : existing.dictationBest,
+      recitationBest: result.mode === "recitation"
+        ? Math.max(result.score, existing.recitationBest)
+        : existing.recitationBest,
+      lastStudied: Date.now(),
+      totalSessions: existing.totalSessions + 1,
+    };
+    const nextProgress = { ...progressRef.current, [result.textId]: updated };
+    setProgress(nextProgress);
+    safeWrite(uidAtCall, K.PROGRESS, JSON.stringify(nextProgress));
   }, []);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
-    setSettings((prev) => {
-      const next = { ...prev, ...partial };
-      safeWrite(uidAtCall, K.SETTINGS, JSON.stringify(next));
-      return next;
-    });
+    const next = { ...settingsRef.current, ...partial };
+    setSettings(next);
+    safeWrite(uidAtCall, K.SETTINGS, JSON.stringify(next));
   }, []);
 
   const persistLocalAccounts = useCallback(async (next: LocalAccount[]) => {

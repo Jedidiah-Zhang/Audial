@@ -97,6 +97,7 @@ export function useAudioPlayer(opts?: {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const expoPlayerRef = useRef<any>(null);
+  const expoSubRef = useRef<any>(null);
   const currentRateRef = useRef<number>(1);
   const articleIdRef = useRef<string | null | undefined>(opts?.articleId);
   const userIdRef = useRef<string | null | undefined>(opts?.userId);
@@ -115,6 +116,12 @@ export function useAudioPlayer(opts?: {
         URL.revokeObjectURL(audioUrlRef.current);
       } catch {}
       audioUrlRef.current = null;
+    }
+    if (expoSubRef.current) {
+      try {
+        expoSubRef.current.remove?.();
+      } catch {}
+      expoSubRef.current = null;
     }
     if (expoPlayerRef.current) {
       try {
@@ -279,15 +286,19 @@ export function useAudioPlayer(opts?: {
           setIsLoading(false);
           setIsPlaying(true);
           let didEnd = false;
-          player.addListener("playbackStatusUpdate", (status: any) => {
+          // Only react to didJustFinish. `status.isLoaded` momentarily flips
+          // false during buffer transitions and would cause a UI flicker
+          // ("paused" mid-playback) if we toggled isPlaying off on it.
+          const sub = player.addListener("playbackStatusUpdate", (status: any) => {
             if (status.didJustFinish && !didEnd) {
               didEnd = true;
               setIsPlaying(false);
+              try { sub?.remove?.(); } catch {}
+              if (expoSubRef.current === sub) expoSubRef.current = null;
               onEnded?.();
-            } else if (!status.isLoaded) {
-              setIsPlaying(false);
             }
           });
+          expoSubRef.current = sub;
           player.play();
         }
       } catch {
