@@ -829,36 +829,38 @@ export function useAudioRecorder() {
           return null;
         }
 
-        let byteArray;
-        try {
-          const file = new File(uri);
-          byteArray = await file.bytes();
-          console.log("[REC] file read OK, bytes=", byteArray.length);
-        } catch (e) {
-          console.warn("[REC] file.bytes() THREW", e);
-          return null;
-        }
-        if (byteArray.length === 0) {
-          console.warn("[REC] recorded file is 0 bytes", uri);
-          return null;
-        }
         // expo-audio's recorder URI points at a real file we can replay
         // directly via `createAudioPlayer`. Stash it for the same
         // "Play my recording" UI; cleanup is implicit (the file is
         // overwritten on the next `recorder.record()`).
         lastRecordingUriRef.current = uri;
         setLastRecordingUri(uri);
-        // Both Android and iOS native paths capture m4a/aac via expo-audio's
-        // HIGH_QUALITY preset (`.m4a` extension). Tag the blob accordingly —
-        // the server also sniffs magic bytes via `ensureCompatibleFormat`,
-        // so this just helps any consumer that trusts Content-Type.
+        // React Native's Blob polyfill explicitly REJECTS being constructed
+        // from an `ArrayBuffer` / `Uint8Array` (throws
+        //   "Creating blobs from 'ArrayBuffer' and 'ArrayBufferView' are not supported").
+        // The supported way to get a real RN Blob backed by a file is to
+        // `fetch()` the local file URI and call `.blob()` on the response —
+        // this gives us a Blob whose internal data lives in native land and
+        // can later be passed straight to `fetch(..., { body })` for upload
+        // (and to `.arrayBuffer()` on RN's polyfill, which DOES read from a
+        // file-backed blob even though it can't *create* one from bytes).
         let blob: Blob | null = null;
         try {
-          console.log("[REC] constructing Blob from", byteArray.length, "bytes");
-          blob = new Blob([byteArray], { type: "audio/mp4" });
-          console.log("[REC] Blob constructed, size=", blob.size, "type=", blob.type);
+          console.log("[REC] fetching file URI to build Blob:", uri);
+          const fileResp = await fetch(uri);
+          blob = await fileResp.blob();
+          console.log(
+            "[REC] Blob from URI OK, size=",
+            blob.size,
+            "type=",
+            blob.type,
+          );
         } catch (e) {
-          console.warn("[REC] new Blob() THREW", e);
+          console.warn("[REC] fetch(uri).blob() THREW", e);
+          return null;
+        }
+        if (!blob || blob.size === 0) {
+          console.warn("[REC] resulting blob is empty");
           return null;
         }
         console.log("[REC] stopRecording: returning blob to caller");

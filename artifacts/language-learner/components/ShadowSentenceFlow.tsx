@@ -609,7 +609,6 @@ export function ShadowSentenceFlow({
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const arrayBuffer = await audioBlob.arrayBuffer();
         // Target text and language travel as headers so the body can be
         // the raw audio bytes (matching the /stt endpoint's wire shape).
         // Base64 keeps non-ASCII / multi-line passages safe over HTTP.
@@ -617,20 +616,43 @@ export function ShadowSentenceFlow({
           typeof btoa !== "undefined"
             ? btoa(unescape(encodeURIComponent(text)))
             : Buffer.from(text, "utf8").toString("base64");
-        const response = await fetch(
-          `${BASE_URL}/api/language/score-shadowing`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": audioBlob.type || "audio/webm",
-              "x-target-text": targetTextB64,
-              "x-language": settings.nativeLanguage || "en",
-              "x-target-language": language,
-            },
-            body: arrayBuffer,
-            signal: controller.signal,
-          }
+        const url = `${BASE_URL}/api/language/score-shadowing`;
+        console.log(
+          "[REC] score-shadowing POST",
+          url,
+          "blob size=",
+          audioBlob.size,
+          "type=",
+          audioBlob.type,
         );
+        // Pass the Blob DIRECTLY rather than `await audioBlob.arrayBuffer()`.
+        // React Native's `fetch` does not reliably accept ArrayBuffer as a
+        // body (silently drops or throws), but it DOES accept a file-backed
+        // Blob produced by `fetch(file://...).blob()`.
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": audioBlob.type || "audio/webm",
+            "x-target-text": targetTextB64,
+            "x-language": settings.nativeLanguage || "en",
+            "x-target-language": language,
+          },
+          body: audioBlob,
+          signal: controller.signal,
+        });
+        console.log("[REC] score-shadowing response status=", response.status);
+        if (!response.ok) {
+          let bodyText = "";
+          try {
+            bodyText = await response.text();
+          } catch {}
+          console.warn(
+            "[REC] score-shadowing non-OK",
+            response.status,
+            bodyText.slice(0, 200),
+          );
+          throw new Error(`Scoring HTTP ${response.status}`);
+        }
         const json: ScoreShadowingResponse = await response.json();
         if (!json.success || !json.data) throw new Error("Scoring failed");
         const d = json.data;
@@ -669,7 +691,8 @@ export function ShadowSentenceFlow({
           userTranscript: transcript,
           recordingUri: lastRecordingUriRef.current ?? null,
         });
-      } catch {
+      } catch (e) {
+        console.warn("[REC] scoreFullPassage caught", e);
         setPhase("full-error-score");
       } finally {
         clearTimeout(timer);
