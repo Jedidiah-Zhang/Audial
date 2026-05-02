@@ -161,19 +161,47 @@ export function ShadowSentenceFlow({
     };
   }, [sentences, voice, userId, articleId]);
 
+  const playbackWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPlaybackWatchdog = useCallback(() => {
+    if (playbackWatchdogRef.current) {
+      clearTimeout(playbackWatchdogRef.current);
+      playbackWatchdogRef.current = null;
+    }
+  }, []);
+
   const playSentence = useCallback(
     (idx: number) => {
       if (idx >= sentences.length) return;
       stopAdvanceTimer();
+      clearPlaybackWatchdog();
       const gen = ++playGenRef.current;
       setPhase("playing");
-      player.playTTS(sentences[idx], voice, () => {
-        // Ignore stale callbacks (user moved on / restarted playback).
+      try {
+        player.playTTS(sentences[idx], voice, () => {
+          // Ignore stale callbacks (user moved on / restarted playback).
+          if (gen !== playGenRef.current) return;
+          clearPlaybackWatchdog();
+          setPhase("ready");
+        });
+      } catch {
+        // playTTS threw synchronously — fall back to ready immediately so the
+        // mic doesn't stay locked.
+        if (gen === playGenRef.current) setPhase("ready");
+        return;
+      }
+      // Safety net: if the playback callback never fires (TTS network error,
+      // audio backend hiccup, etc.) the user would be stranded in "playing"
+      // with the mic disabled. Estimate a generous upper bound based on
+      // sentence length (~120 chars/sec for any language is plenty) and
+      // auto-recover to "ready" so the flow is never permanently stuck.
+      const estMs = Math.max(8000, Math.min(45000, sentences[idx].length * 250));
+      playbackWatchdogRef.current = setTimeout(() => {
         if (gen !== playGenRef.current) return;
+        playbackWatchdogRef.current = null;
         setPhase("ready");
-      });
+      }, estMs);
     },
-    [sentences, voice, player, stopAdvanceTimer]
+    [sentences, voice, player, stopAdvanceTimer, clearPlaybackWatchdog]
   );
 
   // Kick off the very first sentence on mount.
@@ -191,6 +219,7 @@ export function ShadowSentenceFlow({
     playSentence(0);
     return () => {
       stopAdvanceTimer();
+      clearPlaybackWatchdog();
       player.stop();
     };
     // Intentionally only run on mount — playSentence captures the latest
