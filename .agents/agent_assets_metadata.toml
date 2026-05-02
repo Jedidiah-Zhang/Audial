@@ -60,6 +60,12 @@ uri = "file://attached_assets/generated_images/fish_v3_indigo_coral.png"
 type = "image"
 title = "generated_image"
 
+[[generated]]
+id = "5-z2PkIi7mg4sIZBqBN-o"
+uri = "file://attached_assets/generated_images/fish_v3_reversed.png"
+type = "image"
+title = "generated_image"
+
 [[outputs]]
 id = "biYEemwyYwu-r3eJ6Zcko"
 uri = "file://artifacts/language-learner/assets/images/icon.png"
@@ -101,3 +107,9 @@ id = "pHC85-mCJ13gN4vUv9wBP"
 uri = "file://attached_assets/generated_images/fish_v3_indigo_coral.png"
 type = "image"
 title = "鱼方案3 · 靛紫 × 珊瑚红"
+
+[[outputs]]
+id = "VlBrSDF3b4IWLOGZoOTZ1"
+uri = "file://attached_assets/generated_images/fish_v3_reversed.png"
+type = "image"
+title = "鱼方案3 · 珊瑚红鱼 × 靛紫底"
