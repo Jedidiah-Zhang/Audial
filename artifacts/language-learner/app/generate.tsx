@@ -61,6 +61,12 @@ export default function GenerateScreen() {
   // Pending ad-grant flow: while true, the "Watch ad" CTA is disabled and
   // shows a spinner so the user doesn't tap it twice.
   const [adInFlight, setAdInFlight] = useState(false);
+  // Tracks which entry point opened the quota sheet so the shared
+  // "watch ad" CTA can route the post-token retry back to the right
+  // flow. AI generation and manual input share the same per-day cap
+  // and the same sheet UI, so we need this state to know what to
+  // re-attempt after a reward grant.
+  const [quotaTrigger, setQuotaTrigger] = useState<"ai" | "manual">("ai");
 
   const nativeLanguage = settings.nativeLanguage;
   const [mode, setMode] = useState<"ai" | "manual">("ai");
@@ -301,6 +307,70 @@ export default function GenerateScreen() {
     }
   };
 
+  /**
+   * Mirror of `attemptGenerate` for the manual-input path. The server's
+   * `enforceGenerationQuota` middleware now sits in front of
+   * `/language/process-manual` too, so this needs the same headers
+   * (`x-user-id`, `x-tier`, optional `x-reward-token`) and the same
+   * 429 / `quota_exceeded` shape so the caller can react identically
+   * to the AI path.
+   */
+  type ManualAttempt =
+    | {
+        ok: true;
+        data: { targetText: string; nativeText: string; difficulty: Difficulty };
+      }
+    | { ok: false; kind: "quota_exceeded"; quota?: QuotaInfo }
+    | { ok: false; kind: "error" };
+
+  const attemptManualProcess = async (
+    inputText: string,
+    rewardToken?: string,
+  ): Promise<ManualAttempt> => {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-user-id": userId,
+        "x-tier": subscriptionTier,
+      };
+      if (rewardToken) headers["x-reward-token"] = rewardToken;
+      const response = await fetch(`${BASE_URL}/api/language/process-manual`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: inputText,
+          targetLanguage: targetLangObj.english,
+          nativeLanguage: nativeLangObj.english,
+        }),
+      });
+      if (response.status === 429) {
+        const json = (await response.json().catch(() => null)) as
+          | { error?: string; data?: QuotaInfo }
+          | null;
+        return { ok: false, kind: "quota_exceeded", quota: json?.data };
+      }
+      const result = (await response.json()) as {
+        success: boolean;
+        data?: { targetText?: string; nativeText?: string; difficulty?: Difficulty };
+      };
+      if (!result.success || !result.data) return { ok: false, kind: "error" };
+      const allowedLevels: Difficulty[] = [
+        "beginner",
+        "elementary",
+        "intermediate",
+        "advanced",
+      ];
+      const detected = result.data.difficulty;
+      const difficulty: Difficulty =
+        detected && allowedLevels.includes(detected) ? detected : "intermediate";
+      const targetText = result.data.targetText?.trim() || inputText;
+      const nativeText = result.data.nativeText?.trim() ?? "";
+      return { ok: true, data: { targetText, nativeText, difficulty } };
+    } catch {
+      return { ok: false, kind: "error" };
+    }
+  };
+
   const applyDraftPayload = (payload: DraftPayload) => {
     cancelPendingSync();
     lastSyncedTextRef.current = payload.text.trim();
@@ -334,6 +404,7 @@ export default function GenerateScreen() {
       // always pass.
       const gate = canCreateArticle();
       if (!gate.allowed) {
+        setQuotaTrigger("ai");
         setQuotaSheetOpen(true);
         return;
       }
@@ -365,6 +436,7 @@ export default function GenerateScreen() {
           const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
           await syncGenerationQuota({ date: today, count: attempt.quota.used });
         }
+        setQuotaTrigger("ai");
         setQuotaSheetOpen(true);
         return;
       }
@@ -374,7 +446,14 @@ export default function GenerateScreen() {
     }
   };
 
-  const handleWatchAdForGeneration = async () => {
+  /**
+   * Shared post-rewarded-ad retry. The QuotaSheet's primary CTA invokes
+   * this regardless of whether the sheet was opened from the AI flow or
+   * the manual-input flow — `quotaTrigger` tells us which retry to run.
+   * Both paths consume the same one-shot reward token via the server's
+   * `enforceGenerationQuota` middleware.
+   */
+  const handleWatchAdForCreation = async () => {
     if (adInFlight) return;
     setAdInFlight(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -391,8 +470,14 @@ export default function GenerateScreen() {
         Alert.alert(t("common.error"), t("ads.unavailable.message"));
         return;
       }
-      // Close the sheet & retry the generation transparently.
+      // Close the sheet & retry the original creation transparently.
       setQuotaSheetOpen(false);
+      if (quotaTrigger === "manual") {
+        const ok = await runManualSave(token);
+        if (ok) router.back();
+        return;
+      }
+      // AI generation retry path.
       setIsGenerating(true);
       try {
         const retry = await attemptGenerate(token);
@@ -452,78 +537,83 @@ export default function GenerateScreen() {
     setDraftTranslation("");
   };
 
+  /**
+   * Server round-trip + local save for the manual-input path. Pulled
+   * out of `handleManualSave` so the post-ad retry
+   * (`handleWatchAdForCreation`) can re-run it with a reward token.
+   * Returns true on success, false on any failure mode (quota / network /
+   * server error). On `quota_exceeded` the quota sheet is opened
+   * transparently here so the caller doesn't have to.
+   */
+  const runManualSave = async (rewardToken?: string): Promise<boolean> => {
+    const inputText = manualText.trim();
+    setIsTranslating(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const attempt = await attemptManualProcess(inputText, rewardToken);
+      if (attempt.ok === false && attempt.kind === "quota_exceeded") {
+        // Re-sync the local mirror with whatever the server says so the
+        // chip & sheet are accurate even if our local count drifted.
+        // Same date-tagging trick as the AI path: server's count is
+        // trusted, but we relabel the date to local-midnight semantics.
+        if (!isPro && attempt.quota) {
+          const now = new Date();
+          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          await syncGenerationQuota({ date: today, count: attempt.quota.used });
+        }
+        setQuotaTrigger("manual");
+        setQuotaSheetOpen(true);
+        return false;
+      }
+      if (!attempt.ok) {
+        Alert.alert(t("common.error"), t("generate.alert.failed"));
+        return false;
+      }
+      const text: LearningText = {
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
+        title: manualTitle.trim(),
+        text: attempt.data.targetText,
+        translation: attempt.data.nativeText,
+        vocabulary: [],
+        topic: t("topic.custom"),
+        difficulty: attempt.data.difficulty,
+        targetLanguage,
+        nativeLanguage,
+        createdAt: Date.now(),
+        contentType: detectContentType(attempt.data.targetText),
+      };
+      await addText(text);
+      // Count this manual save against today's quota — same TTS cost as
+      // an AI-generated article. Pro users skip the counter entirely.
+      // Even when the server consumed a reward token (so it didn't bump
+      // its own count), we still tick the local mirror so the chip's
+      // "X left today" stays in sync with the user's lived experience
+      // of "I just created another article". Mirrors the AI path.
+      if (!isPro) await incrementGenerationCount();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return true;
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const handleManualSave = async () => {
     if (!manualTitle.trim() || !manualText.trim()) {
       Alert.alert(t("common.tip"), t("generate.alert.manualEmpty"));
       return;
     }
-
     // Manual entries still trigger TTS for the saved article, so they
-    // count against the same daily quota as AI-generated ones.
+    // count against the same daily quota as AI-generated ones. Local
+    // pre-flight to short-circuit a doomed network call; server is
+    // still source of truth (see runManualSave's quota_exceeded branch).
     const gate = canCreateArticle();
     if (!gate.allowed) {
+      setQuotaTrigger("manual");
       setQuotaSheetOpen(true);
       return;
     }
-
-    const inputText = manualText.trim();
-    setIsTranslating(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    let finalText = inputText;
-    let translation = "";
-    let detectedDifficulty: Difficulty = "intermediate";
-    try {
-      const resp = await fetch(`${BASE_URL}/api/language/process-manual`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: inputText,
-          targetLanguage: targetLangObj.english,
-          nativeLanguage: nativeLangObj.english,
-        }),
-      });
-      const result = (await resp.json()) as {
-        success: boolean;
-        data?: { targetText?: string; nativeText?: string; difficulty?: Difficulty };
-      };
-      if (result.success && result.data) {
-        if (result.data.targetText && result.data.targetText.trim()) {
-          finalText = result.data.targetText.trim();
-        }
-        translation = result.data.nativeText?.trim() ?? "";
-        if (result.data.difficulty) detectedDifficulty = result.data.difficulty;
-      } else {
-        Alert.alert(t("common.error"), t("generate.alert.failed"));
-        return;
-      }
-    } catch {
-      Alert.alert(t("common.error"), t("generate.alert.failed"));
-      return;
-    } finally {
-      setIsTranslating(false);
-    }
-
-    const text: LearningText = {
-      id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
-      title: manualTitle.trim(),
-      text: finalText,
-      translation,
-      vocabulary: [],
-      topic: t("topic.custom"),
-      difficulty: detectedDifficulty,
-      targetLanguage,
-      nativeLanguage,
-      createdAt: Date.now(),
-      contentType: detectContentType(finalText),
-    };
-
-    await addText(text);
-    // Count this manual save against today's quota — same TTS cost as
-    // an AI-generated article. Pro users skip the counter entirely.
-    if (!isPro) await incrementGenerationCount();
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
+    const ok = await runManualSave();
+    if (ok) router.back();
   };
 
   const inputStyle = { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground };
@@ -951,7 +1041,7 @@ export default function GenerateScreen() {
               {t("quota.gen.exceeded.body", { total: generationLimit })}
             </Text>
             <TouchableOpacity
-              onPress={handleWatchAdForGeneration}
+              onPress={handleWatchAdForCreation}
               disabled={adInFlight}
               activeOpacity={0.85}
               style={[

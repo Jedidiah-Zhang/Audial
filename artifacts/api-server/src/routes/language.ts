@@ -321,7 +321,7 @@ router.post("/language/translate", requireDeepseek, async (req, res) => {
   }
 });
 
-router.post("/language/process-manual", requireDeepseek, async (req, res) => {
+router.post("/language/process-manual", requireDeepseek, enforceGenerationQuota, async (req, res) => {
   try {
     const { text, targetLanguage, nativeLanguage } = req.body as {
       text: string;
