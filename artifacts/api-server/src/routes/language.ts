@@ -1,5 +1,9 @@
-import { Router } from "express";
-import { deepseek, DEEPSEEK_MODEL } from "@workspace/integrations-openai-ai-server/deepseek";
+import { Router, type RequestHandler } from "express";
+import {
+  deepseek,
+  DEEPSEEK_MODEL,
+  isDeepseekConfigured,
+} from "@workspace/integrations-openai-ai-server/deepseek";
 import {
   textToSpeech,
   speechToText,
@@ -13,7 +17,19 @@ router.use((req, res, next) => {
   next();
 });
 
-router.post("/language/generate-text", async (req, res) => {
+const requireDeepseek: RequestHandler = (_req, res, next) => {
+  if (!isDeepseekConfigured()) {
+    res.status(503).json({
+      success: false,
+      error:
+        "DeepSeek 未配置：请设置 DEEPSEEK_API_KEY 环境变量后重启服务（DeepSeek is not configured: set DEEPSEEK_API_KEY and restart the server）",
+    });
+    return;
+  }
+  next();
+};
+
+router.post("/language/generate-text", requireDeepseek, async (req, res) => {
   try {
     const { topic, difficulty, language, targetLanguage } = req.body as {
       topic: string;
@@ -76,7 +92,7 @@ Make the text feel like something a real native speaker would say - not textbook
   }
 });
 
-router.post("/language/translate", async (req, res) => {
+router.post("/language/translate", requireDeepseek, async (req, res) => {
   try {
     const { text, fromLanguage, toLanguage } = req.body as {
       text: string;
@@ -111,7 +127,7 @@ router.post("/language/translate", async (req, res) => {
   }
 });
 
-router.post("/language/word-detail", async (req, res) => {
+router.post("/language/word-detail", requireDeepseek, async (req, res) => {
   try {
     const { word, targetLanguage, language } = req.body as {
       word: string;
@@ -186,7 +202,7 @@ router.post("/language/stt", async (req, res) => {
   }
 });
 
-router.post("/language/score-pronunciation", async (req, res) => {
+router.post("/language/score-pronunciation", requireDeepseek, async (req, res) => {
   try {
     const { targetText, transcribedText, language } = req.body as {
       targetText: string;
@@ -223,7 +239,7 @@ router.post("/language/score-pronunciation", async (req, res) => {
   }
 });
 
-router.post("/language/score-dictation", async (req, res) => {
+router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
   try {
     const { targetText, userText, language } = req.body as {
       targetText: string;
@@ -260,7 +276,7 @@ router.post("/language/score-dictation", async (req, res) => {
   }
 });
 
-router.post("/language/score-recitation", async (req, res) => {
+router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
   try {
     const { targetText, transcribedText, language } = req.body as {
       targetText: string;
