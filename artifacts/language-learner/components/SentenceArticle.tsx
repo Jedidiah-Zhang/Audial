@@ -9,7 +9,8 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import { useApp } from "@/context/AppContext";
 import { VOICE_OPTIONS } from "@/types";
 import type { ContentType } from "@/types";
-import { detectContentType, parseDialogue, parseParagraphs, CONTENT_TYPE_META } from "@/utils/contentType";
+import { detectContentType, CONTENT_TYPE_META } from "@/utils/contentType";
+import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
 import { useT, getContentTypeLabel } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
 
@@ -34,13 +35,6 @@ const SPEED_OPTIONS: { label: string; value: number }[] = [
   { label: "0.75x", value: 0.75 },
   { label: "1x", value: 1.0 },
 ];
-
-function splitSentences(text: string): string[] {
-  if (!text) return [];
-  const matches = text.match(/[^.!?。！？؟\n]+[.!?。！？؟]+["'”’」』）)]*|[^.!?。！？؟\n]+/g);
-  if (!matches) return [text];
-  return matches.map((s) => s.trim()).filter(Boolean);
-}
 
 export function SentenceArticle({
   text,
@@ -79,34 +73,13 @@ export function SentenceArticle({
   // Build the layout. For dialogue, the speaker labels are NOT part of the
   // playable sentences (we don't read names aloud). For paragraph-based types
   // we just split each paragraph into sentences.
-  const layout = useMemo(() => {
-    if (effectiveType === "dialogue") {
-      const turns = parseDialogue(text);
-      const groups = turns.map((t) => ({
-        speaker: t.speaker,
-        sentences: splitSentences(t.utterance),
-      }));
-      return { kind: "dialogue" as const, groups };
-    }
-    // All other types render as paragraphs
-    const paragraphs = parseParagraphs(text);
-    if (paragraphs.length === 0) {
-      return { kind: "paragraphs" as const, groups: [{ sentences: splitSentences(text) }] };
-    }
-    const groups = paragraphs.map((p) => ({ sentences: splitSentences(p) }));
-    return { kind: "paragraphs" as const, groups };
-  }, [effectiveType, text]);
+  const layout = useMemo(
+    () => buildSentenceLayout(text, effectiveType),
+    [effectiveType, text]
+  );
 
   // Flat list of sentences to actually play (excludes speaker labels)
-  const playableSentences = useMemo(() => {
-    const out: string[] = [];
-    if (layout.kind === "dialogue") {
-      for (const g of layout.groups) for (const s of g.sentences) out.push(s);
-    } else {
-      for (const g of layout.groups) for (const s of g.sentences) out.push(s);
-    }
-    return out;
-  }, [layout]);
+  const playableSentences = useMemo(() => flattenSentences(layout), [layout]);
 
   useEffect(() => {
     let cancelled = false;

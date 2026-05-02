@@ -19,8 +19,9 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useAudioRecorder, transcribeAudio, useAudioPlayer } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
-import { ScoreCard } from "@/components/ScoreCard";
+import { ScoreCard, type PerSentenceRow } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
+import { ShadowSentenceFlow, type ShadowFlowResult } from "@/components/ShadowSentenceFlow";
 import { AnnotatedText, AnnotatedLegend, type Annotation } from "@/components/AnnotatedText";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import type { LearningMode } from "@/types";
@@ -112,6 +113,7 @@ export default function SessionScreen() {
     targetAnnotations?: Annotation[];
     userAnnotations?: Annotation[];
     userTranscript?: string;
+    perSentence?: PerSentenceRow[];
   } | null>(null);
   const [memorizeCountdown, setMemorizeCountdown] = useState(30);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -301,6 +303,60 @@ export default function SessionScreen() {
     }
   };
 
+  const handleShadowFlowComplete = async (flow: ShadowFlowResult) => {
+    if (!text) return;
+    const score = flow.score;
+    const passed = score >= STAGE_PASS_SCORE;
+    const details: Record<string, string | number> = {};
+    const perSentence: PerSentenceRow[] = flow.perSentence.map((p) => ({
+      index: p.index,
+      score: p.score,
+      passed: p.passed,
+      target: p.target,
+      transcript: p.transcript,
+    }));
+    // Concatenate transcripts so the result page still has *something* to
+    // anchor the (hidden) annotated-text fallback against.
+    const userTranscript = flow.perSentence
+      .map((p) => p.transcript)
+      .filter(Boolean)
+      .join(" ");
+
+    const persistedDetails: Record<string, unknown> = { ...details };
+    persistedDetails.perSentence = flow.perSentence.map((p) => ({
+      index: p.index,
+      score: p.score,
+      passed: p.passed,
+      transcript: p.transcript,
+      target: p.target,
+    }));
+    if (userTranscript) persistedDetails.userTranscript = userTranscript;
+
+    await addResult({
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
+      textId: text.id,
+      mode: "shadowing",
+      stage: 0,
+      score,
+      feedback: flow.feedback,
+      createdAt: Date.now(),
+      details: persistedDetails,
+    });
+
+    setResult({
+      score,
+      feedback: flow.feedback,
+      details,
+      passed,
+      userTranscript: userTranscript || undefined,
+      perSentence,
+    });
+    Haptics.notificationAsync(
+      passed ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
+    );
+    setPhase("result");
+  };
+
   const handleDictationSubmit = async () => {
     if (!dictationInput.trim()) {
       Alert.alert(t("common.tip"), t("session.alert.dictationEmpty"));
@@ -424,33 +480,17 @@ export default function SessionScreen() {
           </View>
         )}
 
-        {(phase === "study" || phase === "recording") && stageIdx === 0 && (
+        {phase === "study" && stageIdx === 0 && (
           <View style={styles.section}>
-            <SentenceArticle
+            <ShadowSentenceFlow
               text={text.text}
-              voice={settings.preferredVoice}
+              voice={settings.preferredVoice ?? "nova"}
               accentColor={stageColor}
               contentType={text.contentType}
               articleId={text.id}
-              disablePlayback={phase === "recording"}
+              language={text.targetLanguage}
+              onComplete={handleShadowFlowComplete}
             />
-
-            <View style={styles.recordSection}>
-              <TouchableOpacity
-                onPress={handleRecord}
-                style={[styles.recordBtn, {
-                  backgroundColor: isRecording ? "#EF4444" : stageColor,
-                  shadowColor: isRecording ? "#EF4444" : stageColor,
-                }]}
-                activeOpacity={0.85}
-              >
-                <Icon name={isRecording ? "square" : "mic"} size={32} color="#fff" />
-              </TouchableOpacity>
-              <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
-                {isRecording ? t("session.shadow.stopHint") : t("session.shadow.recordHint")}
-              </Text>
-              {isRecording && <AudioWaveform isActive color="#EF4444" />}
-            </View>
           </View>
         )}
 
@@ -583,7 +623,7 @@ export default function SessionScreen() {
                     {result.score}
                   </Text>
                 </View>
-                {(() => {
+                {stageIdx === 0 ? null : (() => {
                   const targetTitle = t("session.annot.target");
                   const userTitle =
                     stageIdx === 1
@@ -666,6 +706,7 @@ export default function SessionScreen() {
                   feedback={result.feedback}
                   details={result.details}
                   mode={stage.mode as LearningMode}
+                  perSentence={result.perSentence}
                 />
               </>
             ) : (
