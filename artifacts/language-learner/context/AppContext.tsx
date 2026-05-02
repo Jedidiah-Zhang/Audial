@@ -112,15 +112,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // before committing state or writes. Updated synchronously on user change.
   const currentUserRef = useRef(userId);
 
-  // Tracks the previously-active userId so we can detect a guest → account
-  // transition and run the one-time migration. Starts undefined so the very
-  // first effect run (mount) is treated as "no previous user" and skips
-  // migration even if we mount straight into a signed-in session.
-  const prevUserIdRef = useRef<string | undefined>(undefined);
-  // Per-target one-shot guard: prevents re-running migration if React fires
-  // the userId effect multiple times for the same destination account (e.g.
-  // Clerk hydration jitter).
+  // Per-target session-level guard: skips re-running migration if React fires
+  // the userId effect multiple times for the same destination in one session
+  // (Clerk hydration jitter, OAuth redirect re-mount, StrictMode, etc).
+  // Cleared whenever the user transitions back to the guest scope, so a
+  // sign-out → add-guest-data → re-sign-in cycle still picks up the new data.
+  // Cross-session safety relies on migrateGuestData() being idempotent (id-
+  // based dedupe + target-wins on collision), so a cold restart that re-
+  // attempts migration cannot duplicate previously-migrated data.
   const migratedTargetsRef = useRef<Set<string>>(new Set());
+  // Global lock on the guest scope: at most one migration is in flight at a
+  // time, regardless of target. This is the privacy-critical guard — without
+  // it, two rapid auth transitions (guest → A → B) could race and copy the
+  // same guest snapshot into multiple signed-in accounts. Serializing means
+  // the first migration consumes & clears guest, the second sees empty and
+  // is a no-op.
+  const guestMigrationChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const [texts, setTexts] = useState<LearningText[]>([]);
   const [results, setResults] = useState<SessionResult[]>([]);
@@ -153,8 +160,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authLoaded || !localLoaded) return;
-    const prev = prevUserIdRef.current;
-    prevUserIdRef.current = userId;
     currentUserRef.current = userId;
     setIsLoading(true);
     setTexts([]);
@@ -162,32 +167,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setProgress({});
     setSettings(DEFAULT_SETTINGS);
 
-    // Migrate guest-scoped data into the target account on the first
-    // transition out of the guest scope (covers both Clerk sign-in/sign-up
-    // and switching to a local account). We deliberately skip when:
-    //  - there is no previous user (initial mount)
-    //  - we're going TO guest (sign-out)
-    //  - we're going from one account directly to another (Clerk↔Clerk,
-    //    Clerk↔local, local↔local) — that data belongs to the previous
-    //    account, not to whoever is signing in next
-    //  - we already migrated to this target in this session
-    const shouldMigrate =
-      prev === GUEST_USER_ID &&
-      userId !== GUEST_USER_ID &&
-      !migratedTargetsRef.current.has(userId);
+    if (userId === GUEST_USER_ID) {
+      // Returning to the guest scope means a future sign-in should be
+      // allowed to absorb any data the user creates while signed out.
+      migratedTargetsRef.current.clear();
+    }
 
     (async () => {
-      if (shouldMigrate) {
-        try {
-          await migrateGuestData(userId);
-          // Only mark this target as done after the migration actually
-          // completed without throwing. Transient AsyncStorage failures
-          // should be retried on the next sign-in.
-          migratedTargetsRef.current.add(userId);
-        } catch {
-          // best-effort; fall through to loadAll so the user still sees
-          // whatever target-side data is already there
-        }
+      // Whenever we land on a non-guest user, attempt to absorb any data
+      // currently sitting in the guest scope. migrateGuestData() is
+      // idempotent and a no-op when the guest scope is empty, so this is
+      // safe for every entry path into a signed-in session: hot sign-
+      // in/sign-up, OAuth redirect, local-account switch, and cold start
+      // straight into a Clerk session (the case the previous prev-user
+      // condition was missing).
+      if (userId !== GUEST_USER_ID) {
+        await ensureGuestMigrated(userId);
       }
       // If the active user changed while migration was in flight, abort the
       // load — the next effect run will handle the new user.
@@ -195,6 +190,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       loadAll(userId).catch(() => {});
     })();
   }, [authLoaded, localLoaded, userId]);
+
+  async function ensureGuestMigrated(targetUserId: string): Promise<void> {
+    if (migratedTargetsRef.current.has(targetUserId)) return;
+    // Chain onto the global guest-source lock so concurrent migrations
+    // serialize. Without this, a quick guest → A → B transition could let
+    // both A's and B's effects read the same guest snapshot and clone it
+    // into two accounts.
+    const next = guestMigrationChainRef.current.then(async () => {
+      // Re-check after acquiring the lock: an earlier link in the chain may
+      // have already migrated to this target, or cleared the guest scope.
+      if (migratedTargetsRef.current.has(targetUserId)) return;
+      try {
+        const moved = await migrateGuestData(targetUserId);
+        if (moved) migratedTargetsRef.current.add(targetUserId);
+      } catch {
+        // best-effort; loadAll still runs and shows existing target data
+      }
+    });
+    // Swallow rejections in the stored chain so one failure doesn't poison
+    // every subsequent caller. Each individual await still sees its own
+    // outcome via the try/catch above.
+    guestMigrationChainRef.current = next.catch(() => {});
+    await next;
+  }
 
   async function migrateLegacyIfNeeded(K: ReturnType<typeof keysFor>, isGuestScope: boolean) {
     if (!isGuestScope) return;
