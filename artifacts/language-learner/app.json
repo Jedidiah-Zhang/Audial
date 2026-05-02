@@ -35,7 +35,7 @@
       "expo-font",
       "expo-web-browser",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "需要麦克风权限进行跟读练习"
         }
