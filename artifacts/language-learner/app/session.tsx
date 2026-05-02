@@ -279,7 +279,7 @@ export default function SessionScreen() {
         return;
       }
       try {
-        const transcript = await transcribeAudio(blob);
+        const transcript = await transcribeAudio(blob, undefined, text.targetLanguage);
         await scoreAnswer(transcript);
       } catch {
         Alert.alert(t("common.error"), t("session.alert.transcribeFailed"));

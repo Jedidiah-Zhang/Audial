@@ -528,6 +528,18 @@ router.post("/language/tts", requireOpenai, async (req, res) => {
   }
 });
 
+/**
+ * Normalize an app-side language code (e.g. "en-US", "zh-CN", "pt-BR")
+ * to the ISO 639-1 form Whisper expects ("en", "zh", "pt"). We just take
+ * the part before the first "-" and lowercase it; that's good enough for
+ * every locale code the app currently emits.
+ */
+function toIso639_1(code: string | undefined | null): string | undefined {
+  if (!code) return undefined;
+  const head = String(code).split(/[-_]/)[0]?.trim().toLowerCase();
+  return head && head.length >= 2 ? head : undefined;
+}
+
 router.post("/language/stt", requireOpenai, async (req, res) => {
   try {
     const chunks: Buffer[] = [];
@@ -536,7 +548,14 @@ router.post("/language/stt", requireOpenai, async (req, res) => {
       try {
         const audioBuffer = Buffer.concat(chunks);
         const { buffer, format } = await ensureCompatibleFormat(audioBuffer);
-        const transcript = await speechToText(buffer, format);
+        // Optional language hint from the client. Whisper auto-detects
+        // when omitted but tends to default to English on short clips,
+        // so callers that know the target language should send it.
+        const langHint = toIso639_1(
+          (req.headers["x-target-language"] ??
+            req.headers["x-language"]) as string | undefined,
+        );
+        const transcript = await speechToText(buffer, format, langHint);
         res.json({ success: true, transcript });
       } catch (err) {
         if (err instanceof OpenAINotConfiguredError) {
@@ -658,8 +677,13 @@ router.post(
         const { buffer: compatBuffer, format } =
           await ensureCompatibleFormat(audioBuffer);
 
+        // Tell Whisper the target language so e.g. a Mandarin shadowing
+        // pass isn't auto-detected as English and returned as romanised
+        // garbage. `targetLanguage` already comes in as a locale-ish
+        // code ("en-US", "zh", "pt-BR"); normalize to ISO 639-1.
+        const sttLangHint = toIso639_1(targetLanguage);
         const [detailed, prosody] = await Promise.all([
-          speechToTextDetailed(compatBuffer, format),
+          speechToTextDetailed(compatBuffer, format, sttLangHint),
           computeProsodyMetrics(compatBuffer),
         ]);
         const stt = computeSttMetrics(detailed);

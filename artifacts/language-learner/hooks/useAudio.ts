@@ -888,10 +888,16 @@ export function useAudioRecorder() {
 export async function transcribeAudio(
   audioBlob: Blob,
   signal?: AbortSignal,
+  /**
+   * Optional language hint forwarded to Whisper as `x-target-language`.
+   * Pass the locale of the audio (e.g. "zh", "ja", "en-US") so the model
+   * doesn't auto-detect to English on short clips.
+   */
+  targetLanguage?: string,
 ): Promise<string> {
   const url = `${BASE_URL}/api/language/stt`;
   const contentType = audioBlob.type || "audio/webm";
-  console.log("[REC] transcribeAudio: POST", url, "size=", audioBlob.size, "type=", contentType);
+  console.log("[REC] transcribeAudio: POST", url, "size=", audioBlob.size, "type=", contentType, "lang=", targetLanguage);
 
   let response: Response;
   try {
@@ -899,9 +905,11 @@ export async function transcribeAudio(
     // it can silently drop the payload or throw. Passing the Blob directly
     // is supported on both web and RN (RN turns it into a multipart-style
     // upload internally). On web this is also the natural shape.
+    const headers: Record<string, string> = { "Content-Type": contentType };
+    if (targetLanguage) headers["x-target-language"] = targetLanguage;
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": contentType },
+      headers,
       body: audioBlob,
       signal,
     });

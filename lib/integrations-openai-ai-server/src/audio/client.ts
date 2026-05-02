@@ -209,13 +209,20 @@ export async function textToSpeechStream(
 /** Speech-to-Text using gpt-4o-mini-transcribe. */
 export async function speechToText(
   audioBuffer: Buffer,
-  format: "wav" | "mp3" | "webm" = "wav"
+  format: "wav" | "mp3" | "webm" = "wav",
+  /**
+   * Optional ISO 639-1 language hint. Whisper-family models default to
+   * English on short clips when no hint is given, so pass it whenever
+   * the caller knows what language the audio is in.
+   */
+  language?: string
 ): Promise<string> {
   assertOpenaiConfigured();
   const file = await toFile(audioBuffer, `audio.${format}`);
   const response = await openai.audio.transcriptions.create({
     file,
     model: "gpt-4o-mini-transcribe",
+    ...(language ? { language } : {}),
   });
   return response.text;
 }
@@ -251,7 +258,15 @@ export interface DetailedTranscript {
 
 export async function speechToTextDetailed(
   audioBuffer: Buffer,
-  format: "wav" | "mp3" = "wav"
+  format: "wav" | "mp3" = "wav",
+  /**
+   * Optional ISO 639-1 language hint (e.g. "en", "zh", "ja", "ko", "es").
+   * Whisper auto-detects when omitted, but for short clips it tends to
+   * default to English, which makes a Mandarin shadowing pass come back
+   * as romanised English garbage. Always pass the target language when
+   * the caller knows it.
+   */
+  language?: string
 ): Promise<DetailedTranscript> {
   assertOpenaiConfigured();
   const file = await toFile(audioBuffer, `audio.${format}`);
@@ -260,6 +275,7 @@ export async function speechToTextDetailed(
     model: "whisper-1",
     response_format: "verbose_json",
     timestamp_granularities: ["word", "segment"],
+    ...(language ? { language } : {}),
   } as never)) as unknown as {
     text: string;
     duration?: number;
