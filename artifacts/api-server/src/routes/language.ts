@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from "express";
+import { randomUUID } from "node:crypto";
 import {
   deepseek,
   DEEPSEEK_MODEL,
@@ -17,6 +18,175 @@ const router = Router();
 router.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   next();
+});
+
+// =====================================================================
+// Free-tier generation quota + rewarded-ad token store (in-memory).
+//
+// Audial's free tier gets 3 article generations per UTC day. After that
+// they can either watch a rewarded video (granting one bypass token) or
+// upgrade to Pro. Pro users bypass the quota entirely. Tokens are
+// one-shot, expire after 30 minutes, and are never persisted — a server
+// restart clears both counters and outstanding tokens, which is fine
+// for a soft monetization gate (and the only "punishment" is regaining
+// the free quota).
+// =====================================================================
+
+const FREE_DAILY_GENERATION_LIMIT = 3;
+const REWARD_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+interface QuotaEntry {
+  date: string; // YYYY-MM-DD (UTC)
+  count: number;
+}
+
+const generationQuota = new Map<string, QuotaEntry>();
+const rewardTokens = new Map<string, { userId: string; expiresAt: number }>();
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function readUserId(req: { headers: Record<string, unknown> }): string {
+  const raw = req.headers["x-user-id"];
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return "anonymous";
+}
+
+function readTier(req: { headers: Record<string, unknown> }): "free" | "pro" {
+  const raw = req.headers["x-tier"];
+  return typeof raw === "string" && raw.toLowerCase() === "pro" ? "pro" : "free";
+}
+
+function getQuota(userId: string): QuotaEntry {
+  const today = todayKey();
+  const existing = generationQuota.get(userId);
+  if (!existing || existing.date !== today) {
+    const fresh = { date: today, count: 0 };
+    generationQuota.set(userId, fresh);
+    return fresh;
+  }
+  return existing;
+}
+
+function consumeRewardTokenIfValid(token: string, userId: string): boolean {
+  const entry = rewardTokens.get(token);
+  if (!entry) return false;
+  rewardTokens.delete(token);
+  if (entry.userId !== userId) return false;
+  if (entry.expiresAt < Date.now()) return false;
+  return true;
+}
+
+function pruneExpiredRewardTokens() {
+  const now = Date.now();
+  for (const [token, entry] of rewardTokens.entries()) {
+    if (entry.expiresAt < now) rewardTokens.delete(token);
+  }
+}
+
+const enforceGenerationQuota: RequestHandler = (req, res, next) => {
+  const tier = readTier(req as never);
+  if (tier === "pro") {
+    next();
+    return;
+  }
+  const userId = readUserId(req as never);
+  const rewardToken = req.headers["x-reward-token"];
+  if (typeof rewardToken === "string" && rewardToken.trim()) {
+    if (consumeRewardTokenIfValid(rewardToken.trim(), userId)) {
+      next();
+      return;
+    }
+  }
+  const entry = getQuota(userId);
+  if (entry.count >= FREE_DAILY_GENERATION_LIMIT) {
+    res.status(429).json({
+      success: false,
+      error: "quota_exceeded",
+      message: `Free tier limited to ${FREE_DAILY_GENERATION_LIMIT} generations per day. Watch a rewarded ad for one more, or upgrade to Pro.`,
+      data: {
+        limit: FREE_DAILY_GENERATION_LIMIT,
+        used: entry.count,
+        remaining: 0,
+        resetDate: entry.date,
+      },
+    });
+    return;
+  }
+  // Increment now: a successful enqueue counts against quota even if the
+  // upstream LLM call later errors. This avoids a "free retry" path where
+  // an aborted call lets the user retry endlessly past the limit.
+  entry.count += 1;
+  next();
+};
+
+router.get("/language/quota", (req, res) => {
+  const tier = readTier(req as never);
+  const userId = readUserId(req as never);
+  if (tier === "pro") {
+    res.json({
+      success: true,
+      data: {
+        tier: "pro",
+        limit: null,
+        used: 0,
+        remaining: null,
+        resetDate: todayKey(),
+      },
+    });
+    return;
+  }
+  const entry = getQuota(userId);
+  res.json({
+    success: true,
+    data: {
+      tier: "free",
+      limit: FREE_DAILY_GENERATION_LIMIT,
+      used: entry.count,
+      remaining: Math.max(0, FREE_DAILY_GENERATION_LIMIT - entry.count),
+      resetDate: entry.date,
+    },
+  });
+});
+
+router.post("/language/ad/grant-reward", (req, res) => {
+  const tier = readTier(req as never);
+  if (tier === "pro") {
+    // Pro users don't need bypass tokens; signal that explicitly so the
+    // client doesn't accidentally spend an unnecessary ad impression.
+    res.status(400).json({
+      success: false,
+      error: "pro_user",
+      message: "Pro users do not need rewarded-ad tokens.",
+    });
+    return;
+  }
+  const userId = readUserId(req as never);
+  const placement =
+    typeof req.body?.placement === "string" ? req.body.placement : "generation";
+  if (placement !== "generation") {
+    // Currently only the generation placement requires a server-side
+    // bypass token (the other two — sentence detail unlock and dictation
+    // listen-again — are purely client-enforced). Other placements just
+    // get an OK response with no token.
+    res.json({ success: true, data: { placement, token: null } });
+    return;
+  }
+  pruneExpiredRewardTokens();
+  const token = randomUUID();
+  rewardTokens.set(token, {
+    userId,
+    expiresAt: Date.now() + REWARD_TOKEN_TTL_MS,
+  });
+  res.json({
+    success: true,
+    data: {
+      placement,
+      token,
+      expiresInMs: REWARD_TOKEN_TTL_MS,
+    },
+  });
 });
 
 const requireDeepseek: RequestHandler = (_req, res, next) => {
@@ -43,7 +213,7 @@ const requireOpenai: RequestHandler = (_req, res, next) => {
   next();
 };
 
-router.post("/language/generate-text", requireDeepseek, async (req, res) => {
+router.post("/language/generate-text", requireDeepseek, enforceGenerationQuota, async (req, res) => {
   try {
     const { topic, difficulty, language, targetLanguage } = req.body as {
       topic: string;

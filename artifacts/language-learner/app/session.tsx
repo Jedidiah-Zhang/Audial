@@ -9,10 +9,11 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Modal,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Square, Target, Volume2 } from "lucide-react-native";
+import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Sparkles, Square, Target, Volume2 } from "lucide-react-native";
 import { flipIfRTL } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
@@ -29,6 +30,8 @@ import type { LearningMode } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 import { Icon } from "@/components/Icon";
 import { sanitizeAnnotations } from "@/utils/annotations";
+import { useRewardedAd } from "@/hooks/useRewardedAd";
+import { useDictationListenQuota } from "@/hooks/useDictationListenQuota";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -46,7 +49,29 @@ export default function SessionScreen() {
   const insets = useSafeAreaInsets();
   const t = useT();
   const { id, stage: stageParam } = useLocalSearchParams<{ id: string; stage: string }>();
-  const { texts, addResult, settings, userId } = useApp();
+  const {
+    texts,
+    addResult,
+    settings,
+    userId,
+    isPro,
+    isAnalysisUnlocked,
+    unlockAnalysis,
+  } = useApp();
+  // Rewarded-ad hooks for the two in-session placements: per-result
+  // analysis unlock and dictation listen-again. `useRewardedAd` is
+  // placement-keyed so each call gets its own load/show lifecycle.
+  const { show: showAnalysisAd } = useRewardedAd("analysis_unlock");
+  const { show: showDictationAd } = useRewardedAd("dictation_replay");
+  const dictationQuota = useDictationListenQuota();
+  const [analysisUnlocking, setAnalysisUnlocking] = useState(false);
+  // Active "out of plays" prompt for dictation. We track which sentence
+  // triggered it so the bonus grant goes to the right index when the
+  // user accepts the ad.
+  const [dictationAdPrompt, setDictationAdPrompt] = useState<{
+    sentenceIndex: number;
+  } | null>(null);
+  const [dictationAdInFlight, setDictationAdInFlight] = useState(false);
   const {
     startRecording,
     stopRecording,
@@ -419,6 +444,77 @@ export default function SessionScreen() {
     router.back();
   };
 
+  // Dictation listen-again gate. Returns true to allow playback, false to
+  // deny. On denial we surface an in-app modal that lets the user either
+  // watch an ad for +3 plays or upgrade to Pro. Pro users always get
+  // through (the quota hook itself is a no-op for them).
+  const handleDictationGate = (sentenceIndex: number): boolean => {
+    if (dictationQuota.tryConsume(sentenceIndex)) return true;
+    setDictationAdPrompt({ sentenceIndex });
+    return false;
+  };
+
+  const handleDictationWatchAd = async () => {
+    if (!dictationAdPrompt || dictationAdInFlight) return;
+    setDictationAdInFlight(true);
+    try {
+      const outcome = await showDictationAd();
+      if (outcome === "rewarded") {
+        dictationQuota.grantBonus(dictationAdPrompt.sentenceIndex);
+        setDictationAdPrompt(null);
+      }
+      // On dismiss/unavailable: leave the prompt open so the user can
+      // retry or upgrade — they get no plays from a half-watched ad.
+    } finally {
+      setDictationAdInFlight(false);
+    }
+  };
+
+  const handleAnalysisUnlock = async () => {
+    // Find the current result's id from AppContext-side history. We use
+    // the createdAt timestamp captured at scoring time; the persisted
+    // result stored just above carries the same id, but we kept the
+    // local `result` state lean. Look it up by mode+stage+createdAt
+    // proximity is overkill — instead we encode the unlock by the
+    // session-level synthetic key, which collapses to the same per-text
+    // unlock surface for the user.
+    const resultKey = currentResultKeyRef.current;
+    if (!resultKey || analysisUnlocking) return;
+    setAnalysisUnlocking(true);
+    try {
+      const outcome = await showAnalysisAd();
+      if (outcome === "rewarded") {
+        await unlockAnalysis(resultKey);
+      }
+    } finally {
+      setAnalysisUnlocking(false);
+    }
+  };
+
+  // Synthetic per-result key used to scope the "analysis unlocked" flag.
+  // We can't read the freshly-persisted result id from AppContext here
+  // without an extra round-trip, so we mint a deterministic key when the
+  // result page is shown and reuse it for the unlock check & the
+  // unlockAnalysis call. Refreshes when a new result is set.
+  const currentResultKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (result) {
+      // textId + stage + score is stable across re-renders for a given
+      // result and unique enough that two different results from the
+      // same article won't collide in normal use.
+      currentResultKeyRef.current = `${text?.id ?? "anon"}:${stageIdx}:${result.score}:${(result.userTranscript ?? "").slice(0, 32)}`;
+    } else {
+      currentResultKeyRef.current = null;
+    }
+  }, [result, stageIdx, text?.id]);
+
+  const analysisLocked =
+    !!result &&
+    !isPro &&
+    stageIdx === 0 &&
+    !!currentResultKeyRef.current &&
+    !isAnalysisUnlocked(currentResultKeyRef.current);
+
   if (!text) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -555,6 +651,7 @@ export default function SessionScreen() {
               contentType={text.contentType}
               articleId={text.id}
               targetLanguage={text.targetLanguage}
+              playGate={handleDictationGate}
             />
 
             <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
@@ -753,6 +850,9 @@ export default function SessionScreen() {
                   perSentence={result.perSentence}
                   onSentencePress={handleSentencePress}
                   playingIndex={activeSentenceIndex}
+                  analysisLocked={analysisLocked}
+                  onUnlockAnalysis={handleAnalysisUnlock}
+                  isUnlocking={analysisUnlocking}
                 />
                 {/* Recitation-only: let users replay their own audio so they
                     can compare it against the model TTS already exposed via
@@ -839,6 +939,75 @@ export default function SessionScreen() {
         )}
       </ScrollView>
       {micPermissionModal}
+
+      <Modal
+        visible={!!dictationAdPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !dictationAdInFlight && setDictationAdPrompt(null)}
+      >
+        <View style={styles.adPromptBackdrop}>
+          <View
+            style={[
+              styles.adPromptCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View
+              style={[
+                styles.adPromptIcon,
+                { backgroundColor: stageColor + "1F" },
+              ]}
+            >
+              <Volume2 size={24} color={stageColor} />
+            </View>
+            <Text style={[styles.adPromptTitle, { color: colors.foreground }]}>
+              {t("dictation.replay.outTitle")}
+            </Text>
+            <Text
+              style={[styles.adPromptBody, { color: colors.mutedForeground }]}
+            >
+              {t("dictation.replay.outBody", { total: 3 })}
+            </Text>
+            <TouchableOpacity
+              onPress={handleDictationWatchAd}
+              disabled={dictationAdInFlight}
+              activeOpacity={0.85}
+              style={[
+                styles.adPromptPrimary,
+                {
+                  backgroundColor: stageColor,
+                  opacity: dictationAdInFlight ? 0.6 : 1,
+                },
+              ]}
+            >
+              {dictationAdInFlight ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Sparkles size={16} color="#fff" />
+              )}
+              <Text style={styles.adPromptPrimaryText}>
+                {t("dictation.replay.exhausted")}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setDictationAdPrompt(null)}
+              disabled={dictationAdInFlight}
+              activeOpacity={0.85}
+              style={styles.adPromptSecondary}
+            >
+              <Text
+                style={[
+                  styles.adPromptSecondaryText,
+                  { color: colors.mutedForeground },
+                ]}
+              >
+                {t("ads.dismiss")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1167,5 +1336,62 @@ const styles = StyleSheet.create({
   playMyRecordingBtnText: {
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
+  },
+  adPromptBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  adPromptCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 22,
+    alignItems: "center",
+    gap: 10,
+  },
+  adPromptIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  adPromptTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+  },
+  adPromptBody: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: 6,
+  },
+  adPromptPrimary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    paddingVertical: 13,
+    borderRadius: 12,
+  },
+  adPromptPrimaryText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  adPromptSecondary: {
+    paddingVertical: 8,
+  },
+  adPromptSecondaryText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
   },
 });

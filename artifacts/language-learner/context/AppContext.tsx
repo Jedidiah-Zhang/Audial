@@ -43,7 +43,34 @@ function keysFor(userId: string) {
     PROGRESS: `${prefix}progress`,
     SETTINGS: `${prefix}settings`,
     SUBSCRIPTION: `${prefix}subscription`,
+    GENERATION_QUOTA: `${prefix}quota:generation`,
+    UNLOCKED_ANALYSIS: `${prefix}rewards:analysis`,
   };
+}
+
+// Free-tier per-day generation quota mirror. The server is the
+// authoritative store, but we keep a client-side count so the UI can
+// display "X of 3 free left today" without an extra round-trip and
+// optimistically render quota-exceeded states.
+export const FREE_DAILY_GENERATION_LIMIT = 3;
+
+// How long an unlocked per-sentence analysis stays unlocked. After this
+// the user has to watch another rewarded ad or upgrade to Pro to view
+// it again. 24h matches typical AdMob reward cadence and prevents
+// indefinite stockpiling of unlocks.
+const ANALYSIS_UNLOCK_TTL_MS = 24 * 60 * 60 * 1000;
+
+interface DailyGenerationCount {
+  date: string; // YYYY-MM-DD (UTC)
+  count: number;
+}
+
+function todayDateKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function defaultGenerationCount(): DailyGenerationCount {
+  return { date: todayDateKey(), count: 0 };
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -171,6 +198,19 @@ interface AppContextValue {
   isPro: boolean;
   upgradeToPro: () => Promise<void>;
   downgradeToFree: () => Promise<void>;
+  // Free-tier daily generation quota mirror (server is authoritative).
+  // For Pro users `dailyGenerationCount` still tracks usage but the UI
+  // should ignore it (Pro is unlimited).
+  dailyGenerationCount: DailyGenerationCount;
+  generationLimit: number;
+  generationsRemaining: number;
+  incrementGenerationCount: () => Promise<void>;
+  syncGenerationQuota: (entry: { date: string; count: number }) => Promise<void>;
+  // Per-result detailed analysis unlocks (sessionResultId -> unlocked
+  // timestamp). Free users must watch a rewarded ad to unlock; the
+  // unlock persists for ANALYSIS_UNLOCK_TTL_MS.
+  isAnalysisUnlocked: (resultId: string) => boolean;
+  unlockAnalysis: (resultId: string) => Promise<void>;
   // Local (no-password, on-device) accounts
   localAccounts: LocalAccount[];
   activeLocalAccountId: string | null;
@@ -221,6 +261,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [subscription, setSubscription] = useState<SubscriptionState>(DEFAULT_SUBSCRIPTION);
+  const [dailyGenerationCount, setDailyGenerationCount] = useState<DailyGenerationCount>(
+    defaultGenerationCount(),
+  );
+  // Map of sessionResultId -> unlocked timestamp (ms). Pruned to entries
+  // newer than ANALYSIS_UNLOCK_TTL_MS on load and on each unlock.
+  const [unlockedAnalysis, setUnlockedAnalysis] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   // Load local accounts list + active id once on mount.
@@ -255,6 +301,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setProgress({});
     setSettings(DEFAULT_SETTINGS);
     setSubscription(DEFAULT_SUBSCRIPTION);
+    setDailyGenerationCount(defaultGenerationCount());
+    setUnlockedAnalysis({});
 
     if (userId === GUEST_USER_ID) {
       // Returning to the guest scope means a future sign-in should be
@@ -334,12 +382,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await migrateLegacyEnglishCodeIfNeeded();
       await migrateLegacyIfNeeded(K, uid === GUEST_USER_ID);
-      const [textsRaw, resultsRaw, progressRaw, settingsRaw, subscriptionRaw] = await Promise.all([
+      const [
+        textsRaw,
+        resultsRaw,
+        progressRaw,
+        settingsRaw,
+        subscriptionRaw,
+        quotaRaw,
+        unlocksRaw,
+      ] = await Promise.all([
         AsyncStorage.getItem(K.TEXTS),
         AsyncStorage.getItem(K.RESULTS),
         AsyncStorage.getItem(K.PROGRESS),
         AsyncStorage.getItem(K.SETTINGS),
         AsyncStorage.getItem(K.SUBSCRIPTION),
+        AsyncStorage.getItem(K.GENERATION_QUOTA),
+        AsyncStorage.getItem(K.UNLOCKED_ANALYSIS),
       ]);
       // Discard if user changed mid-load
       if (uid !== currentUserRef.current) return;
@@ -404,6 +462,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // ignore corrupted entry; default (free) stays in place
         }
       }
+      if (quotaRaw) {
+        try {
+          const parsed = JSON.parse(quotaRaw) as Partial<DailyGenerationCount>;
+          if (
+            parsed &&
+            typeof parsed.date === "string" &&
+            typeof parsed.count === "number" &&
+            parsed.date === todayDateKey()
+          ) {
+            // Only restore the count if the persisted entry is for today —
+            // otherwise the next call resets to a fresh per-day window.
+            setDailyGenerationCount({
+              date: parsed.date,
+              count: Math.max(0, Math.floor(parsed.count)),
+            });
+          } else {
+            setDailyGenerationCount(defaultGenerationCount());
+          }
+        } catch {
+          // corrupt — start fresh today
+        }
+      }
+      if (unlocksRaw) {
+        try {
+          const parsed = JSON.parse(unlocksRaw) as Record<string, number>;
+          const cutoff = Date.now() - ANALYSIS_UNLOCK_TTL_MS;
+          const pruned: Record<string, number> = {};
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof v === "number" && v >= cutoff) pruned[k] = v;
+          }
+          setUnlockedAnalysis(pruned);
+        } catch {
+          // corrupt — drop all unlocks; user can re-watch ad
+        }
+      }
     } finally {
       if (uid === currentUserRef.current) setIsLoading(false);
     }
@@ -424,11 +517,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const progressRef = useRef<Record<string, UserProgress>>({});
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const subscriptionRef = useRef<SubscriptionState>(DEFAULT_SUBSCRIPTION);
+  const dailyGenerationCountRef = useRef<DailyGenerationCount>(defaultGenerationCount());
+  const unlockedAnalysisRef = useRef<Record<string, number>>({});
   textsRef.current = texts;
   resultsRef.current = results;
   progressRef.current = progress;
   settingsRef.current = settings;
   subscriptionRef.current = subscription;
+  dailyGenerationCountRef.current = dailyGenerationCount;
+  unlockedAnalysisRef.current = unlockedAnalysis;
 
   const addText = useCallback(async (text: LearningText) => {
     const uidAtCall = currentUserRef.current;
@@ -528,6 +625,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const next: SubscriptionState = { tier: "free" };
     setSubscription(next);
     safeWrite(uidAtCall, K.SUBSCRIPTION, JSON.stringify(next));
+  }, []);
+
+  const incrementGenerationCount = useCallback(async () => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
+    const today = todayDateKey();
+    const cur = dailyGenerationCountRef.current;
+    const base = cur.date === today ? cur : { date: today, count: 0 };
+    const next: DailyGenerationCount = { date: today, count: base.count + 1 };
+    setDailyGenerationCount(next);
+    safeWrite(uidAtCall, K.GENERATION_QUOTA, JSON.stringify(next));
+  }, []);
+
+  const syncGenerationQuota = useCallback(
+    async (entry: { date: string; count: number }) => {
+      const uidAtCall = currentUserRef.current;
+      const K = keysFor(uidAtCall);
+      const today = todayDateKey();
+      // Server is authoritative; trust its date+count over the local
+      // mirror, but ignore stale (non-today) responses to avoid wiping a
+      // fresh count we just incremented locally.
+      if (entry.date !== today) return;
+      const next: DailyGenerationCount = {
+        date: entry.date,
+        count: Math.max(0, Math.floor(entry.count)),
+      };
+      setDailyGenerationCount(next);
+      safeWrite(uidAtCall, K.GENERATION_QUOTA, JSON.stringify(next));
+    },
+    [],
+  );
+
+  const isAnalysisUnlocked = useCallback((resultId: string) => {
+    const ts = unlockedAnalysisRef.current[resultId];
+    if (typeof ts !== "number") return false;
+    return ts >= Date.now() - ANALYSIS_UNLOCK_TTL_MS;
+  }, []);
+
+  const unlockAnalysis = useCallback(async (resultId: string) => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
+    const cutoff = Date.now() - ANALYSIS_UNLOCK_TTL_MS;
+    const cur = unlockedAnalysisRef.current;
+    // Drop any expired entries while we're touching the map; keeps
+    // persisted state from growing unbounded over weeks of practice.
+    const pruned: Record<string, number> = {};
+    for (const [k, v] of Object.entries(cur)) {
+      if (v >= cutoff) pruned[k] = v;
+    }
+    pruned[resultId] = Date.now();
+    setUnlockedAnalysis(pruned);
+    safeWrite(uidAtCall, K.UNLOCKED_ANALYSIS, JSON.stringify(pruned));
   }, []);
 
   const persistLocalAccounts = useCallback(async (next: LocalAccount[]) => {
@@ -630,6 +779,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isPro: subscription.tier === "pro",
         upgradeToPro,
         downgradeToFree,
+        dailyGenerationCount,
+        generationLimit: FREE_DAILY_GENERATION_LIMIT,
+        generationsRemaining:
+          subscription.tier === "pro"
+            ? Number.POSITIVE_INFINITY
+            : Math.max(0, FREE_DAILY_GENERATION_LIMIT - dailyGenerationCount.count),
+        incrementGenerationCount,
+        syncGenerationQuota,
+        isAnalysisUnlocked,
+        unlockAnalysis,
         localAccounts,
         activeLocalAccountId,
         activeLocalAccount,

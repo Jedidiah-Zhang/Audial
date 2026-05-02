@@ -20,6 +20,7 @@ import { ClerkProvider } from "@clerk/expo";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { LanguageOnboarding } from "@/components/LanguageOnboarding";
+import { RewardedAdSimulatorHost } from "@/components/RewardedAdSimulatorHost";
 import { tokenCache } from "@/utils/tokenCache";
 import { applyRTL, isRTL, reloadForRTL } from "@/utils/rtl";
 
@@ -131,6 +132,7 @@ export default function RootLayout() {
                   <RTLController>
                     <RootLayoutNav />
                     <LanguageOnboarding />
+                    <RewardedAdSimulatorHost />
                   </RTLController>
                 </KeyboardProvider>
               </GestureHandlerRootView>

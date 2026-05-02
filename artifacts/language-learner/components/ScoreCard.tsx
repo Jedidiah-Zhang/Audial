@@ -1,6 +1,7 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from "react-native";
-import { Check, X, Volume2 } from "lucide-react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from "react-native";
+import { BlurView } from "expo-blur";
+import { Check, X, Volume2, Lock, Sparkles } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT, getModeLabel } from "@/utils/i18n";
 import { useApp } from "@/context/AppContext";
@@ -21,6 +22,17 @@ interface ScoreCardProps {
   perSentence?: PerSentenceRow[];
   onSentencePress?: (row: PerSentenceRow) => void;
   playingIndex?: number | null;
+  /**
+   * When true, the per-sentence breakdown is rendered behind a blur with
+   * a "watch ad to unlock" CTA. The summary score / feedback / details
+   * remain visible — only the granular row data is hidden so free users
+   * still see meaningful signal.
+   */
+  analysisLocked?: boolean;
+  /** Invoked when the user taps the unlock CTA. */
+  onUnlockAnalysis?: () => void;
+  /** True while a rewarded ad is being shown / token granted. */
+  isUnlocking?: boolean;
 }
 
 export function ScoreCard({
@@ -31,6 +43,9 @@ export function ScoreCard({
   perSentence,
   onSentencePress,
   playingIndex,
+  analysisLocked = false,
+  onUnlockAnalysis,
+  isUnlocking = false,
 }: ScoreCardProps) {
   const colors = useColors();
   const t = useT();
@@ -106,6 +121,7 @@ export function ScoreCard({
           <Text style={[styles.perTitle, { color: colors.mutedForeground }]}>
             {t("session.detail.perSentence")}
           </Text>
+          <View style={styles.perBodyWrap}>
           {perSentence.map((p) => {
             const tone = p.passed ? "#10B981" : "#EF4444";
             const preview = p.target.length > 36 ? p.target.slice(0, 36) + "…" : p.target;
@@ -175,6 +191,72 @@ export function ScoreCard({
               </View>
             );
           })}
+          </View>
+          {analysisLocked ? (
+            <View style={styles.lockOverlay} pointerEvents="box-none">
+              {/* On native, BlurView visually blurs the rows below. On web
+                  it falls back to a translucent panel since BlurView's
+                  blur effect isn't reliably supported there. */}
+              {Platform.OS === "web" ? (
+                <View
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    {
+                      backgroundColor:
+                        colors.card === "#FFFFFF" || colors.card === "#fff"
+                          ? "rgba(255,255,255,0.85)"
+                          : "rgba(20,20,20,0.78)",
+                    },
+                  ]}
+                />
+              ) : (
+                <BlurView
+                  intensity={28}
+                  tint={colors.background === "#FFFFFF" ? "light" : "dark"}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              )}
+              <View style={styles.lockContent} pointerEvents="auto">
+                <View
+                  style={[
+                    styles.lockIconWrap,
+                    { backgroundColor: colors.primary + "1F" },
+                  ]}
+                >
+                  <Lock size={18} color={colors.primary} />
+                </View>
+                <Text style={[styles.lockTitle, { color: colors.foreground }]}>
+                  {t("analysis.locked.title")}
+                </Text>
+                <Text
+                  style={[styles.lockBody, { color: colors.mutedForeground }]}
+                >
+                  {t("analysis.locked.body")}
+                </Text>
+                <TouchableOpacity
+                  onPress={onUnlockAnalysis}
+                  disabled={isUnlocking || !onUnlockAnalysis}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.lockCta,
+                    {
+                      backgroundColor: colors.primary,
+                      opacity: isUnlocking || !onUnlockAnalysis ? 0.6 : 1,
+                    },
+                  ]}
+                >
+                  {isUnlocking ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Sparkles size={14} color="#fff" />
+                  )}
+                  <Text style={styles.lockCtaText}>
+                    {t("analysis.locked.cta")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
         </View>
       )}
     </View>
@@ -307,5 +389,55 @@ const styles = StyleSheet.create({
     height: 22,
     alignItems: "center",
     justifyContent: "center",
+  },
+  perBodyWrap: {
+    position: "relative",
+  },
+  lockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: 12,
+  },
+  lockContent: {
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 6,
+    maxWidth: 320,
+  },
+  lockIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  lockTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+  },
+  lockBody: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 17,
+    marginBottom: 6,
+  },
+  lockCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+  },
+  lockCtaText: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
   },
 });

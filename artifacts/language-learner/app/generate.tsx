@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, Check, ChevronDown, Edit3, RefreshCw, Save, Zap } from "lucide-react-native";
+import { ArrowLeft, Check, ChevronDown, Edit3, RefreshCw, Save, Sparkles, Zap } from "lucide-react-native";
 import { flipIfRTL } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
@@ -24,6 +24,9 @@ import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/ty
 import { detectContentType, isContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, TOPIC_KEYS } from "@/utils/i18n";
 import { Icon } from "@/components/Icon";
+import { useRewardedAd } from "@/hooks/useRewardedAd";
+import { useGenerationQuota } from "@/hooks/useGenerationQuota";
+import { PaywallModal } from "@/components/PaywallModal";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -39,7 +42,24 @@ export default function GenerateScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { addText, settings } = useApp();
+  const {
+    addText,
+    settings,
+    isPro,
+    userId,
+    subscriptionTier,
+    generationLimit,
+    generationsRemaining,
+    incrementGenerationCount,
+    syncGenerationQuota,
+  } = useApp();
+  const { show: showRewardedAd } = useRewardedAd("generation");
+  const { requestRewardToken } = useGenerationQuota();
+  const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
+  const [paywallOpen, setPaywallOpen] = useState(false);
+  // Pending ad-grant flow: while true, the "Watch ad" CTA is disabled and
+  // shows a spinner so the user doesn't tap it twice.
+  const [adInFlight, setAdInFlight] = useState(false);
 
   const nativeLanguage = settings.nativeLanguage;
   const [mode, setMode] = useState<"ai" | "manual">("ai");
@@ -209,19 +229,33 @@ export default function GenerateScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
-  const handleGenerate = async () => {
-    if (!topic.trim()) {
-      Alert.alert(t("common.tip"), t("generate.alert.topicEmpty"));
-      return;
-    }
+  /**
+   * Issue a single `/generate-text` request, optionally with a server-
+   * issued bypass token. Returns:
+   *   - `{ ok: true, payload }` on a successful generation
+   *   - `{ ok: false, kind: "quota_exceeded", quota }` when the server
+   *     reports the daily free limit is reached
+   *   - `{ ok: false, kind: "error" }` on any other failure
+   */
+  type QuotaInfo = { limit: number; used: number; remaining: number };
+  type GenerateAttempt =
+    | { ok: true; payload: DraftPayload }
+    | { ok: false; kind: "quota_exceeded"; quota?: QuotaInfo }
+    | { ok: false; kind: "error" };
 
-    setIsGenerating(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
+  const attemptGenerate = async (
+    rewardToken?: string,
+  ): Promise<GenerateAttempt> => {
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-user-id": userId,
+        "x-tier": subscriptionTier,
+      };
+      if (rewardToken) headers["x-reward-token"] = rewardToken;
       const response = await fetch(`${BASE_URL}/api/language/generate-text`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           topic,
           difficulty,
@@ -239,8 +273,17 @@ export default function GenerateScreen() {
         }),
       });
 
-      const result = await response.json() as { success: boolean; data: any };
-      if (!result.success) throw new Error("Generation failed");
+      if (response.status === 429) {
+        // Server enforced the daily quota. Surface the structured
+        // payload to the caller so it can show the right CTA.
+        const json = (await response.json().catch(() => null)) as
+          | { error?: string; data?: QuotaInfo }
+          | null;
+        return { ok: false, kind: "quota_exceeded", quota: json?.data };
+      }
+
+      const result = (await response.json()) as { success: boolean; data: any };
+      if (!result.success) return { ok: false, kind: "error" };
 
       const rawText = result.data.text ?? "";
       const declaredType = result.data.contentType as ContentType | undefined;
@@ -251,20 +294,96 @@ export default function GenerateScreen() {
         vocabulary: result.data.vocabulary ?? [],
         contentType: isContentType(declaredType) ? declaredType : detectContentType(rawText),
       };
-      cancelPendingSync();
-      lastSyncedTextRef.current = payload.text.trim();
-      lastSyncedTranslationRef.current = payload.translation.trim();
-      setTextSyncError(false);
-      setTranslationSyncError(false);
-      setDraft(payload);
-      setDraftTitle(payload.title);
-      setDraftText(payload.text);
-      setDraftTranslation(payload.translation);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return { ok: true, payload };
     } catch {
+      return { ok: false, kind: "error" };
+    }
+  };
+
+  const applyDraftPayload = (payload: DraftPayload) => {
+    cancelPendingSync();
+    lastSyncedTextRef.current = payload.text.trim();
+    lastSyncedTranslationRef.current = payload.translation.trim();
+    setTextSyncError(false);
+    setTranslationSyncError(false);
+    setDraft(payload);
+    setDraftTitle(payload.title);
+    setDraftText(payload.text);
+    setDraftTranslation(payload.translation);
+  };
+
+  const handleGenerate = async () => {
+    if (!topic.trim()) {
+      Alert.alert(t("common.tip"), t("generate.alert.topicEmpty"));
+      return;
+    }
+
+    setIsGenerating(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    try {
+      const attempt = await attemptGenerate();
+      if (attempt.ok) {
+        applyDraftPayload(attempt.payload);
+        // Mirror the successful generation in our local quota counter so
+        // the chip ticks down without waiting for a separate /quota call.
+        if (!isPro) await incrementGenerationCount();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
+      if (attempt.kind === "quota_exceeded") {
+        // Re-sync the local mirror with whatever the server says so the
+        // chip & sheet are accurate even if our local count drifted.
+        if (!isPro && attempt.quota) {
+          const today = new Date().toISOString().slice(0, 10);
+          await syncGenerationQuota({ date: today, count: attempt.quota.used });
+        }
+        setQuotaSheetOpen(true);
+        return;
+      }
       Alert.alert(t("common.error"), t("generate.alert.failed"));
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleWatchAdForGeneration = async () => {
+    if (adInFlight) return;
+    setAdInFlight(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const outcome = await showRewardedAd();
+      if (outcome !== "rewarded") {
+        // User dismissed the simulator early or the SDK couldn't fill —
+        // leave the sheet open so they can retry or upgrade. We don't
+        // surface a separate alert because the simulator is the UI.
+        return;
+      }
+      const token = await requestRewardToken();
+      if (!token) {
+        Alert.alert(t("common.error"), t("ads.unavailable.message"));
+        return;
+      }
+      // Close the sheet & retry the generation transparently.
+      setQuotaSheetOpen(false);
+      setIsGenerating(true);
+      try {
+        const retry = await attemptGenerate(token);
+        if (retry.ok) {
+          applyDraftPayload(retry.payload);
+          // The server granted via the reward path — count as a billable
+          // generation locally too so the user's "today" count stays in
+          // sync with the server's audit log.
+          if (!isPro) await incrementGenerationCount();
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else {
+          Alert.alert(t("common.error"), t("generate.alert.failed"));
+        }
+      } finally {
+        setIsGenerating(false);
+      }
+    } finally {
+      setAdInFlight(false);
     }
   };
 
@@ -649,6 +768,49 @@ export default function GenerateScreen() {
               </View>
             </View>
 
+            {!isPro ? (
+              <View
+                style={[
+                  styles.quotaChip,
+                  {
+                    backgroundColor:
+                      generationsRemaining === 0
+                        ? colors.destructive + "15"
+                        : colors.primary + "12",
+                    borderColor:
+                      generationsRemaining === 0
+                        ? colors.destructive + "55"
+                        : colors.primary + "33",
+                  },
+                ]}
+              >
+                <Sparkles
+                  size={12}
+                  color={
+                    generationsRemaining === 0
+                      ? colors.destructive
+                      : colors.primary
+                  }
+                />
+                <Text
+                  style={[
+                    styles.quotaChipText,
+                    {
+                      color:
+                        generationsRemaining === 0
+                          ? colors.destructive
+                          : colors.primary,
+                    },
+                  ]}
+                >
+                  {t("quota.gen.remaining", {
+                    n: generationsRemaining,
+                    total: generationLimit,
+                  })}
+                </Text>
+              </View>
+            ) : null}
+
             <TouchableOpacity
               onPress={handleGenerate}
               disabled={isGenerating}
@@ -715,6 +877,97 @@ export default function GenerateScreen() {
           </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={quotaSheetOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQuotaSheetOpen(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <TouchableOpacity
+            style={styles.pickerBackdrop}
+            activeOpacity={1}
+            onPress={() => !adInFlight && setQuotaSheetOpen(false)}
+          />
+          <View
+            style={[
+              styles.quotaSheet,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View
+              style={[
+                styles.quotaSheetIcon,
+                { backgroundColor: colors.primary + "1F" },
+              ]}
+            >
+              <Sparkles size={26} color={colors.primary} />
+            </View>
+            <Text style={[styles.quotaSheetTitle, { color: colors.foreground }]}>
+              {t("quota.gen.exceeded.title")}
+            </Text>
+            <Text
+              style={[styles.quotaSheetBody, { color: colors.mutedForeground }]}
+            >
+              {t("quota.gen.exceeded.body", { total: generationLimit })}
+            </Text>
+            <TouchableOpacity
+              onPress={handleWatchAdForGeneration}
+              disabled={adInFlight}
+              activeOpacity={0.85}
+              style={[
+                styles.quotaSheetPrimary,
+                { backgroundColor: colors.primary, opacity: adInFlight ? 0.6 : 1 },
+              ]}
+            >
+              {adInFlight ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Sparkles size={16} color="#fff" />
+              )}
+              <Text style={styles.quotaSheetPrimaryText}>
+                {t("quota.gen.watchAd")}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                setQuotaSheetOpen(false);
+                setPaywallOpen(true);
+              }}
+              disabled={adInFlight}
+              activeOpacity={0.85}
+              style={styles.quotaSheetSecondary}
+            >
+              <Text
+                style={[
+                  styles.quotaSheetSecondaryText,
+                  { color: colors.primary },
+                ]}
+              >
+                {t("ads.upgradeCta")}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setQuotaSheetOpen(false)}
+              disabled={adInFlight}
+              activeOpacity={0.85}
+              style={styles.quotaSheetSecondary}
+            >
+              <Text
+                style={[
+                  styles.quotaSheetSecondaryText,
+                  { color: colors.mutedForeground },
+                ]}
+              >
+                {t("ads.dismiss")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <PaywallModal visible={paywallOpen} onClose={() => setPaywallOpen(false)} />
 
       <Modal
         visible={targetPickerOpen}
@@ -1028,5 +1281,70 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontFamily: "Inter_600SemiBold",
+  },
+  quotaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  quotaChipText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+  },
+  quotaSheet: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 22,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    gap: 10,
+  },
+  quotaSheetIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  quotaSheetTitle: {
+    fontSize: 17,
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+  },
+  quotaSheetBody: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: 6,
+  },
+  quotaSheetPrimary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    paddingVertical: 13,
+    borderRadius: 12,
+  },
+  quotaSheetPrimaryText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  quotaSheetSecondary: {
+    paddingVertical: 8,
+  },
+  quotaSheetSecondaryText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
   },
 });

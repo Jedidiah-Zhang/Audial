@@ -23,6 +23,7 @@ interface Props {
 const FEATURE_KEYS = [
   "paywall.feature.unlimited",
   "paywall.feature.scoring",
+  "paywall.feature.noAds",
   "paywall.feature.early",
   "paywall.feature.support",
 ] as const;
