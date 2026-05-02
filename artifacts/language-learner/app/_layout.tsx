@@ -39,7 +39,7 @@ function RootLayoutNav() {
       <Stack.Screen name="generate" options={{ headerShown: false, presentation: "modal" }} />
       <Stack.Screen
         name="practice"
-        options={{ headerShown: false, animation: "fade", animationDuration: 320 }}
+        options={{ headerShown: false, animation: "none" }}
       />
       <Stack.Screen name="session" options={{ headerShown: false }} />
     </Stack>

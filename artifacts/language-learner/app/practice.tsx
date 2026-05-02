@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -6,25 +6,81 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  BackHandler,
+  useWindowDimensions,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Book, Check, ChevronRight, Lock, Star } from "lucide-react-native";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { flipIfRTL } from "@/utils/rtl";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
+import { TextCard } from "@/components/TextCard";
 import { VocabularyList } from "@/components/VocabularyList";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
 
+// Open uses a strong ease-out ("Expo Out") to mimic the iOS App Store launch
+// feel: a sharp, fast initial burst followed by a long, soft settle. Close is
+// shorter so back gestures feel snappy.
+const OPEN_DURATION = 420;
+const CLOSE_DURATION = 320;
+const OPEN_EASING = Easing.bezier(0.16, 1, 0.3, 1);
+const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
+
+type Geom = { x: number; y: number; width: number; height: number; radius: number };
+
+function parseGeom(p: {
+  oX?: string;
+  oY?: string;
+  oW?: string;
+  oH?: string;
+  oR?: string;
+}): Geom | null {
+  const x = Number(p.oX);
+  const y = Number(p.oY);
+  const w = Number(p.oW);
+  const h = Number(p.oH);
+  const r = Number(p.oR ?? "16");
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(w) ||
+    !Number.isFinite(h)
+  ) {
+    return null;
+  }
+  if (w <= 0 || h <= 0) return null;
+  return { x, y, width: w, height: h, radius: Number.isFinite(r) ? r : 16 };
+}
+
+const noop = () => {};
+
 export default function PracticeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    oX?: string;
+    oY?: string;
+    oW?: string;
+    oH?: string;
+    oR?: string;
+  }>();
+  const { id } = params;
   const { texts, getProgressForText, settings, addText } = useApp();
+  const navigation = useNavigation();
+  const { width: screenW, height: screenH } = useWindowDimensions();
 
   const text = texts.find((x) => x.id === id);
   const lang = settings.nativeLanguage;
@@ -35,6 +91,152 @@ export default function PracticeScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
+
+  // ---- Card-expand transition ----
+  // Geometry params are captured from `measureInWindow` on the home page and
+  // passed through the router; we snapshot once on mount so a layout change
+  // mid-animation can't tear the interpolation.
+  const initialGeom = useRef(parseGeom(params)).current;
+  const hasGeom = initialGeom != null && Platform.OS !== "web";
+
+  const stagePassed = progress?.stagePassed ?? STAGES.map(() => false);
+  const stageBests = progress?.stageBests ?? STAGES.map(() => 0);
+  const allPassed = STAGES.every((_, i) => stagePassed[i]);
+
+  // Match the originating card chrome so the start of the animation lines up
+  // with what the user just tapped (mastered cards get a green tint + 1.5px
+  // border; everything else uses the standard border at hairline width).
+  const overlayBorderColor = allPassed ? "#10B981" + "60" : colors.border;
+  const overlayMaxBorder = allPassed ? 1.5 : StyleSheet.hairlineWidth;
+
+  // progress: 0 = card geometry, 1 = fullscreen. The snapshot opacity, the
+  // overlay panel opacity, and the underlying screen opacity are all derived
+  // from this so they crossfade exactly in sync — no blank/white-box moment
+  // and no stretched-text moment in the middle of the animation.
+  const progressSV = useSharedValue(hasGeom ? 0 : 1);
+  const [overlayMounted, setOverlayMounted] = useState(hasGeom);
+  const closingRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasGeom) return;
+    // Run the open animation on the next frame so the initial state is
+    // committed first; otherwise the overlay can flash at p=1 for one frame.
+    const handle = requestAnimationFrame(() => {
+      progressSV.value = withTiming(
+        1,
+        { duration: OPEN_DURATION, easing: OPEN_EASING },
+        (finished) => {
+          if (finished) runOnJS(setOverlayMounted)(false);
+        },
+      );
+    });
+    return () => cancelAnimationFrame(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runCloseAnimation = useCallback(
+    (onDone: () => void) => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      // Make sure the overlay is mounted again before reversing the timing —
+      // it may have unmounted at the end of the open animation.
+      setOverlayMounted(true);
+      progressSV.value = withTiming(
+        0,
+        { duration: CLOSE_DURATION, easing: CLOSE_EASING },
+        (finished) => {
+          if (finished) runOnJS(onDone)();
+        },
+      );
+    },
+    [progressSV],
+  );
+
+  // Intercept navigation back so the reverse animation runs first.
+  useEffect(() => {
+    if (!hasGeom) return;
+    const sub = navigation.addListener("beforeRemove", (e) => {
+      if (closingRef.current) return; // already animating, allow it.
+      e.preventDefault();
+      runCloseAnimation(() => {
+        navigation.dispatch(e.data.action);
+      });
+    });
+    return sub;
+  }, [navigation, runCloseAnimation, hasGeom]);
+
+  // Hardware back on Android: let it propagate to the navigator so
+  // `beforeRemove` above can wrap it in the reverse animation.
+  useEffect(() => {
+    if (Platform.OS !== "android" || !hasGeom) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => false);
+    return () => sub.remove();
+  }, [hasGeom]);
+
+  // Background layer: a card-colored panel that interpolates from the
+  // originating card's geometry to the full screen. Border + radius shrink
+  // to 0 by the time it fills the screen so no stray edge or corner remains
+  // when the practice screen takes over.
+  const overlayBgStyle = useAnimatedStyle(() => {
+    if (!initialGeom) {
+      return { opacity: 0 };
+    }
+    const p = progressSV.value;
+    const inv = 1 - p;
+    // Background fades out only at the very end so we always have a solid
+    // surface behind the snapshot; by then the practice content is fully
+    // crossfaded in underneath.
+    const bgOp = p <= 0.85 ? 1 : Math.max(0, 1 - (p - 0.85) / 0.15);
+    return {
+      top: initialGeom.y * inv,
+      left: initialGeom.x * inv,
+      width: initialGeom.width + (screenW - initialGeom.width) * p,
+      height: initialGeom.height + (screenH - initialGeom.height) * p,
+      borderRadius: initialGeom.radius * inv,
+      borderWidth: overlayMaxBorder * inv,
+      opacity: bgOp,
+    };
+  }, [
+    initialGeom?.x,
+    initialGeom?.y,
+    initialGeom?.width,
+    initialGeom?.height,
+    initialGeom?.radius,
+    screenW,
+    screenH,
+    overlayMaxBorder,
+  ]);
+
+  // Snapshot layer: rendered as a child of the background layer so it
+  // travels with it. Its container is pinned to (0, 0) at the original card
+  // width/height — the layout never reflows, so text doesn't horizontally
+  // stretch as the background grows. A modest uniform `scale` lets the
+  // snapshot grow visually along with the background, so the user perceives
+  // "this card is opening up" rather than "a colored block is spreading".
+  // The snapshot fades out before the background reaches fullscreen so we
+  // never see large card-content sitting on a fullscreen colored block.
+  const contentScaleTarget = initialGeom
+    ? Math.min(1.6, Math.max(1, screenW / initialGeom.width))
+    : 1;
+  const contentSnapStyle = useAnimatedStyle(() => {
+    if (!initialGeom) return { opacity: 0 };
+    const p = progressSV.value;
+    const s = 1 + (contentScaleTarget - 1) * p;
+    const op = p <= 0.55 ? 1 : p >= 0.9 ? 0 : 1 - (p - 0.55) / 0.35;
+    return {
+      transform: [{ scale: s }],
+      opacity: op,
+    };
+  }, [contentScaleTarget, initialGeom?.width, initialGeom?.height]);
+
+  // Practice screen body crossfades in (open) / out (close) inside the
+  // window where the snapshot is fading out, so the user always sees one
+  // layer or the other and never a blank screen.
+  const contentStyle = useAnimatedStyle(() => {
+    const p = progressSV.value;
+    const op = p <= 0.4 ? 0 : p >= 0.9 ? 1 : (p - 0.4) / 0.5;
+    return { opacity: op };
+  });
 
   const handleBack = useCallback(() => {
     router.back();
@@ -48,14 +250,10 @@ export default function PracticeScreen() {
     );
   }
 
-  const stagePassed = progress?.stagePassed ?? STAGES.map(() => false);
-  const stageBests = progress?.stageBests ?? STAGES.map(() => 0);
-
   const isUnlocked = (idx: number) => idx === 0 || stagePassed[idx - 1];
   const isPassed = (idx: number) => stagePassed[idx];
   const isCurrent = (idx: number) => isUnlocked(idx) && !isPassed(idx);
 
-  const allPassed = STAGES.every((_, i) => stagePassed[i]);
   const totalScore = stageBests.filter((s) => s > 0).length > 0
     ? Math.round(stageBests.reduce((a, b) => a + b, 0) / STAGES.length)
     : 0;
@@ -67,7 +265,7 @@ export default function PracticeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.contentWrap}>
+      <Animated.View style={[styles.contentWrap, hasGeom ? contentStyle : null]}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.7}>
             <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
@@ -245,7 +443,39 @@ export default function PracticeScreen() {
             })}
           </View>
         </ScrollView>
-      </View>
+      </Animated.View>
+
+      {hasGeom && overlayMounted && initialGeom && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.overlay,
+            {
+              backgroundColor: colors.card,
+              borderColor: overlayBorderColor,
+            },
+            overlayBgStyle,
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.overlaySnapshot,
+              {
+                width: initialGeom.width,
+                height: initialGeom.height,
+              },
+              contentSnapStyle,
+            ]}
+          >
+            <TextCard
+              item={text}
+              snapshot
+              stagesPassed={stagePassed}
+              onPress={noop}
+            />
+          </Animated.View>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -253,6 +483,16 @@ export default function PracticeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   contentWrap: { flex: 1 },
+  overlay: {
+    position: "absolute",
+    overflow: "hidden",
+    borderStyle: "solid",
+  },
+  overlaySnapshot: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
