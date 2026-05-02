@@ -566,30 +566,18 @@ export function ShadowSentenceFlow({
   // the auto-advance effect right below.
   const allListened = states.length > 0 && states.every((s) => s.listened);
 
-  // First time the user has heard every sentence at least once, slide
-  // into the full-read intro card automatically — this is the
-  // "transition card" UX that signals the listening half is done. The
-  // flag prevents re-triggering if the user backs out of the intro and
-  // returns to the loop, so the CTA still works as a manual re-entry.
-  //
-  // This ref + effect MUST live up here at the top of the component
-  // alongside the other hooks. They previously lived after the
-  // `sentences.length === 0` and `phase === "full-*"` early returns,
-  // which meant the render that switched into a full-passage phase
-  // called fewer hooks than the previous render — violating the Rules
-  // of Hooks and producing a "Rendered fewer hooks than expected"
-  // crash exactly at the moment of the auto-advance.
-  const autoIntroFiredRef = useRef(false);
-  useEffect(() => {
-    if (
-      allListened &&
-      !autoIntroFiredRef.current &&
-      (phase === "ready" || phase === "playing")
-    ) {
-      autoIntroFiredRef.current = true;
-      enterFullReadIntro();
-    }
-  }, [allListened, phase, enterFullReadIntro]);
+  // The transition into the full-read intro is now ENTIRELY manual:
+  // once every sentence has been heard at least once, the
+  // "Start full read" CTA below unlocks and the user must tap it to
+  // move on. We deliberately do NOT auto-advance based on
+  // `allListened` — doing so robbed users of the chance to record /
+  // replay the final sentence (the moment the last TTS finished, the
+  // screen would jump away). Keeping the CTA as the single entry
+  // point keeps the "listen → optionally record → tap continue"
+  // rhythm consistent across every sentence, including the last one,
+  // and also fixes the return-trip case where re-listening to the
+  // last sentence after backing out of the intro would re-trigger
+  // the jump.
 
   const playFullPassage = useCallback(() => {
     cancelFullPlay();
@@ -1238,11 +1226,12 @@ export function ShadowSentenceFlow({
         ) : null}
       </View>
 
-      {/* CTA to (re-)enter the mandatory full read-through. Locked until
-          every sentence has been heard at least once so the hint copy and
-          button state stay consistent. The first unlock auto-opens the
-          intro card; this CTA exists so users can return to it after
-          backing out. */}
+      {/* CTA to enter the mandatory full read-through. Locked until
+          every sentence has been heard at least once so the hint copy
+          and button state stay consistent. This is the ONLY way into
+          the full-read intro — there is no auto-advance — which keeps
+          the last sentence available for recording / replaying right
+          up until the user explicitly taps continue. */}
       <TouchableOpacity
         onPress={enterFullReadIntro}
         disabled={!allListened || phase === "recording"}
