@@ -177,9 +177,8 @@ export interface VoiceOption {
   label: string;
   gender: "male" | "female" | "neutral";
   /**
-   * Accent hint used both for choosing a sensible default per article
-   * language (see `getDefaultVoiceForLanguage`) and for surfacing a small
-   * "US"/"UK" badge in the voice picker.
+   * Accent hint used to pick a sensible default voice per article language
+   * (see `getDefaultVoiceForLanguage`). Not surfaced in the UI.
    */
   accent: VoiceAccent;
   description: string;

@@ -356,12 +356,6 @@ export function SentenceArticle({
                 const active = voice === opt.id;
                 const genderLabel =
                   opt.gender === "female" ? "♀" : opt.gender === "male" ? "♂" : "·";
-                const accentBadge =
-                  opt.accent === "british"
-                    ? t("accent.uk")
-                    : opt.accent === "american"
-                    ? t("accent.us")
-                    : null;
                 return (
                   <TouchableOpacity
                     key={opt.id}
@@ -384,29 +378,14 @@ export function SentenceArticle({
                       {genderLabel}
                     </Text>
                     <View style={styles.voiceChipTextWrap}>
-                      <View style={styles.voiceChipNameRow}>
-                        <Text
-                          style={[
-                            styles.voiceChipName,
-                            { color: active ? "#fff" : colors.foreground },
-                          ]}
-                        >
-                          {opt.label}
-                        </Text>
-                        {accentBadge ? (
-                          <Text
-                            style={[
-                              styles.voiceChipAccent,
-                              {
-                                color: active ? "#fff" : accentColor,
-                                borderColor: active ? "rgba(255,255,255,0.5)" : accentColor + "55",
-                              },
-                            ]}
-                          >
-                            {accentBadge}
-                          </Text>
-                        ) : null}
-                      </View>
+                      <Text
+                        style={[
+                          styles.voiceChipName,
+                          { color: active ? "#fff" : colors.foreground },
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
                       <Text
                         numberOfLines={1}
                         style={[
@@ -611,23 +590,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  voiceChipNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
   voiceChipName: {
     fontSize: 12,
     fontFamily: "Inter_600SemiBold",
-  },
-  voiceChipAccent: {
-    fontSize: 9,
-    fontFamily: "Inter_700Bold",
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: 3,
-    borderWidth: 1,
-    overflow: "hidden",
   },
   voiceChipDesc: {
     fontSize: 10,
