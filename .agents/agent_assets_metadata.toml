@@ -84,6 +84,12 @@ uri = "file://attached_assets/generated_images/fish_v7_v2style_recolor_up.png"
 type = "image"
 title = "generated_image"
 
+[[generated]]
+id = "2zAFUeg2eZiuSU9QLLiZX"
+uri = "file://attached_assets/generated_images/fish_v8_v2_recolor_tilted.png"
+type = "image"
+title = "generated_image"
+
 [[outputs]]
 id = "biYEemwyYwu-r3eJ6Zcko"
 uri = "file://artifacts/language-learner/assets/images/icon.png"
@@ -149,3 +155,9 @@ id = "3vLDWnWeUfVms4OdAG1DB"
 uri = "file://attached_assets/generated_images/fish_v7_v2style_recolor_up.png"
 type = "image"
 title = "鱼方案7 · 方案2造型 + 珊瑚×靛紫 + 上扬"
+
+[[outputs]]
+id = "dUfymO2n281Zuo4iMN-DH"
+uri = "file://attached_assets/generated_images/fish_v8_v2_recolor_tilted.png"
+type = "image"
+title = "鱼方案8 · 方案2原造型 + 珊瑚×靛紫 + 上扬"
