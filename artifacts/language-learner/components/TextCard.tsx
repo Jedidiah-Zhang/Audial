@@ -21,6 +21,14 @@ interface TextCardProps {
   onDelete?: () => void;
   onRename?: () => void;
   stagesPassed?: boolean[];
+  /**
+   * Render as a non-interactive visual snapshot used inside the
+   * card-expand overlay during navigation. Skips the card's own
+   * background / border / long-press / action bar so the surrounding
+   * overlay panel can provide them and animate to fullscreen without
+   * the snapshot showing a separate inner border.
+   */
+  snapshot?: boolean;
 }
 
 const DIFF_COLORS: Record<string, string> = {
@@ -31,7 +39,7 @@ const DIFF_COLORS: Record<string, string> = {
 };
 
 export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, TextCardProps>(function TextCard(
-  { item, onPress, onDelete, onRename, stagesPassed },
+  { item, onPress, onDelete, onRename, stagesPassed, snapshot = false },
   ref,
 ) {
   const colors = useColors();
@@ -49,6 +57,108 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
   const ctype = item.contentType ?? detectContentType(item.text);
   const ctMeta = CONTENT_TYPE_META[ctype];
 
+  const cardChromeStyle = snapshot
+    ? {
+        backgroundColor: "transparent" as const,
+        borderColor: "transparent" as const,
+        borderWidth: 0,
+        marginBottom: 0,
+      }
+    : {
+        backgroundColor: colors.card,
+        borderColor: allDone ? "#10B981" + "60" : colors.border,
+        borderWidth: allDone ? 1.5 : 1,
+      };
+
+  if (snapshot) {
+    return (
+      <View ref={ref as React.Ref<View>} style={[styles.card, cardChromeStyle]} pointerEvents="none">
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={[styles.diffBadge, { backgroundColor: `${diffColor}20` }]}>
+              <Text style={[styles.diffText, { color: diffColor }]}>
+                {getDifficultyLabel(item.difficulty, lang)}
+              </Text>
+            </View>
+            <View style={[styles.typeBadge, { backgroundColor: colors.primary + "18" }]}>
+              <Icon name={ctMeta.icon as any} size={10} color={colors.primary} />
+              <Text style={[styles.typeText, { color: colors.primary }]}>
+                {getContentTypeLabel(ctype, lang)}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.headerRight}>
+            <Text style={styles.flag} accessibilityLabel={item.targetLanguage}>
+              {getFlag(item.targetLanguage)}
+            </Text>
+            <Text style={[styles.lang, { color: colors.mutedForeground }]}>
+              {item.targetLanguage.toUpperCase()}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={2}>
+          {item.title}
+        </Text>
+
+        <Text style={[styles.preview, { color: colors.mutedForeground }]} numberOfLines={2}>
+          {item.text}
+        </Text>
+
+        <View style={styles.footer}>
+          <Text style={[styles.topic, { color: colors.mutedForeground }]}>{item.topic}</Text>
+          {allDone ? (
+            <View style={[styles.progressBadge, { backgroundColor: "#10B981" + "20" }]}>
+              <Star size={11} color="#10B981" />
+              <Text style={[styles.progressText, { color: "#10B981" }]}>{t("card.mastered")}</Text>
+            </View>
+          ) : hasStarted ? (
+            <View style={[styles.progressBadge, { backgroundColor: currentStage.color + "20" }]}>
+              <Icon name={currentStage.icon as any} size={11} color={currentStage.color} />
+              <Text style={[styles.progressText, { color: currentStage.color }]}>
+                {t("card.stage", { n: passedCount + 1, name: getStageName(passedCount, lang) })}
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.progressBadge, { backgroundColor: colors.muted }]}>
+              <Play size={11} color={colors.mutedForeground} />
+              <Text style={[styles.progressText, { color: colors.mutedForeground }]}>{t("card.start")}</Text>
+            </View>
+          )}
+        </View>
+
+        {hasStarted && !allDone && (
+          <View style={[styles.stageRow, { backgroundColor: colors.muted }]}>
+            {STAGES.map((s, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.stageDot,
+                  {
+                    backgroundColor: stagesPassed?.[i]
+                      ? s.color
+                      : i === passedCount
+                      ? s.color + "40"
+                      : colors.border,
+                    flex: 1,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        )}
+
+        {allDone && (
+          <View style={[styles.stageRow, { backgroundColor: "#10B981" + "30" }]}>
+            {STAGES.map((s, i) => (
+              <View key={i} style={[styles.stageDot, { backgroundColor: s.color, flex: 1 }]} />
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  }
+
   return (
     <TouchableOpacity
       ref={ref}
@@ -61,14 +171,7 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
       }}
       onLongPress={() => setShowActions(true)}
       activeOpacity={0.85}
-      style={[
-        styles.card,
-        {
-          backgroundColor: colors.card,
-          borderColor: allDone ? "#10B981" + "60" : colors.border,
-          borderWidth: allDone ? 1.5 : 1,
-        },
-      ]}
+      style={[styles.card, cardChromeStyle]}
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>

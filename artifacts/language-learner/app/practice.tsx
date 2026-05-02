@@ -22,6 +22,7 @@ import Animated, {
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
+import { TextCard } from "@/components/TextCard";
 import { VocabularyList } from "@/components/VocabularyList";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
@@ -63,10 +64,18 @@ export default function PracticeScreen() {
   const initialGeom = useRef(parseGeom(params, screenW, screenH)).current;
   const hasGeom = initialGeom != null && Platform.OS !== "web";
 
-  // progress: 0 = card geometry, 1 = fullscreen
+  // Match the originating card chrome so the start of the animation lines up
+  // with what the user just tapped (mastered cards get a green tint + 1.5px
+  // border; everything else uses the standard border at hairline width).
+  const overlayStagePassed = progress?.stagePassed ?? STAGES.map(() => false);
+  const overlayAllDone = STAGES.every((_, i) => overlayStagePassed[i]);
+  const overlayBorderColor = overlayAllDone ? "#10B981" + "60" : colors.border;
+  const overlayMaxBorder = overlayAllDone ? 1.5 : StyleSheet.hairlineWidth;
+
+  // progress: 0 = card geometry, 1 = fullscreen. The snapshot opacity and the
+  // underlying screen opacity are both derived from this so they crossfade
+  // exactly in sync (no blank/white-box moment in the middle of the animation).
   const progressSV = useSharedValue(hasGeom ? 0 : 1);
-  // contentOpacity for the underlying screen content (separate from the overlay)
-  const contentOpacity = useSharedValue(hasGeom ? 0 : 1);
   // overlayVisible toggles the overlay node (kept mounted while animating, hidden after)
   const [overlayMounted, setOverlayMounted] = useState(hasGeom);
   const closingRef = useRef(false);
@@ -77,10 +86,6 @@ export default function PracticeScreen() {
     const handle = requestAnimationFrame(() => {
       progressSV.value = withTiming(1, { duration: OPEN_DURATION, easing: OPEN_EASING }, (finished) => {
         if (finished) runOnJS(setOverlayMounted)(false);
-      });
-      contentOpacity.value = withTiming(1, {
-        duration: OPEN_DURATION,
-        easing: OPEN_EASING,
       });
     });
     return () => cancelAnimationFrame(handle);
@@ -93,12 +98,11 @@ export default function PracticeScreen() {
       if (closingRef.current) return;
       closingRef.current = true;
       setOverlayMounted(true);
-      contentOpacity.value = withTiming(0, { duration: CLOSE_DURATION, easing: CLOSE_EASING });
       progressSV.value = withTiming(0, { duration: CLOSE_DURATION, easing: CLOSE_EASING }, (finished) => {
         if (finished) runOnJS(onDone)();
       });
     },
-    [contentOpacity, progressSV],
+    [progressSV],
   );
 
   // Intercept navigation back to play the reverse animation first.
@@ -130,18 +134,40 @@ export default function PracticeScreen() {
     }
     const p = progressSV.value;
     const inv = 1 - p;
+    // The overlay panel AND its snapshot child fade together. Crucially this
+    // means at p=1 the overlay is fully transparent, so when we mount it on
+    // close (which happens at p=1) the user keeps seeing the practice screen
+    // underneath rather than a blank fullscreen panel for a frame.
+    const overlayOp = p <= 0.55 ? 1 : p >= 0.95 ? 0 : 1 - (p - 0.55) / 0.4;
     return {
       top: initialGeom.y * inv,
       left: initialGeom.x * inv,
       width: initialGeom.width + (screenW - initialGeom.width) * p,
       height: initialGeom.height + (screenH - initialGeom.height) * p,
       borderRadius: initialGeom.radius * inv,
+      // Match the originating card border, fade thickness to 0 by the time
+      // the overlay reaches fullscreen so no stray edge or radius gap shows.
+      borderWidth: overlayMaxBorder * inv,
+      opacity: overlayOp,
     };
-  }, [initialGeom?.x, initialGeom?.y, initialGeom?.width, initialGeom?.height, screenW, screenH]);
+  }, [
+    initialGeom?.x,
+    initialGeom?.y,
+    initialGeom?.width,
+    initialGeom?.height,
+    screenW,
+    screenH,
+    overlayMaxBorder,
+  ]);
 
-  const contentStyle = useAnimatedStyle(() => ({
-    opacity: contentOpacity.value,
-  }));
+  // Underlying screen content fades in (open) / out (close) symmetrically, in
+  // a window that fully overlaps the snapshot's fade so neither layer is
+  // invisible while the other is also invisible.
+  const contentStyle = useAnimatedStyle(() => {
+    const p = progressSV.value;
+    const op = p <= 0.5 ? 0 : p >= 0.95 ? 1 : (p - 0.5) / 0.45;
+    return { opacity: op };
+  });
 
   const handleBack = useCallback(() => {
     router.back();
@@ -361,12 +387,30 @@ export default function PracticeScreen() {
             styles.overlay,
             {
               backgroundColor: colors.card,
-              borderColor: colors.border,
-              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: overlayBorderColor,
+              overflow: "hidden",
             },
             overlayStyle,
           ]}
-        />
+        >
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: initialGeom.width,
+              height: initialGeom.height,
+            }}
+          >
+            <TextCard
+              snapshot
+              item={text}
+              onPress={() => {}}
+              stagesPassed={stagePassed}
+            />
+          </View>
+        </Animated.View>
       ) : null}
     </View>
   );
