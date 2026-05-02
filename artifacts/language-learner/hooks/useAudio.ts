@@ -852,9 +852,20 @@ export function useAudioRecorder() {
         // HIGH_QUALITY preset (`.m4a` extension). Tag the blob accordingly —
         // the server also sniffs magic bytes via `ensureCompatibleFormat`,
         // so this just helps any consumer that trusts Content-Type.
-        return new Blob([byteArray], { type: "audio/mp4" });
+        let blob: Blob | null = null;
+        try {
+          console.log("[REC] constructing Blob from", byteArray.length, "bytes");
+          blob = new Blob([byteArray], { type: "audio/mp4" });
+          console.log("[REC] Blob constructed, size=", blob.size, "type=", blob.type);
+        } catch (e) {
+          console.warn("[REC] new Blob() THREW", e);
+          return null;
+        }
+        console.log("[REC] stopRecording: returning blob to caller");
+        return blob;
       }
-    } catch {
+    } catch (e) {
+      console.warn("[REC] stopRecording outer catch", e);
       return null;
     }
   }, [isRecording, recorder]);
