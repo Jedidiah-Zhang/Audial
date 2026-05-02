@@ -44,14 +44,93 @@ function keysFor(userId: string) {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  nativeLanguage: "en",
-  targetLanguage: "en",
+  nativeLanguage: "en-US",
+  targetLanguage: "en-US",
   defaultDifficulty: "intermediate",
   preferredVoice: "nova",
+  // Default false: until the user explicitly picks a voice we use the
+  // language-default voice per article (en-GB → fable, en-US → nova).
+  preferredVoiceUserSet: false,
   autoPlayAudio: true,
   ambientSound: true,
   onboarded: false,
 };
+
+// One-shot migration: any persisted "en" code (settings + texts) is rewritten
+// to "en-US" so the new variant-aware UI doesn't render a "globe" icon for
+// legacy data and the AI/TTS layers can pick a default voice. Idempotent —
+// guarded by a global flag in AsyncStorage.
+const LANG_MIGRATION_FLAG = "ll:migrated_lang_v1";
+
+async function migrateLegacyEnglishCodeIfNeeded() {
+  try {
+    const flag = await AsyncStorage.getItem(LANG_MIGRATION_FLAG);
+    if (flag === "1") return;
+    const allKeys = await AsyncStorage.getAllKeys();
+    // Touch settings + texts under every per-user prefix the app may have
+    // written (guest, local:*, Clerk userIds) plus the legacy unscoped keys.
+    const targetKeys = allKeys.filter(
+      (k) =>
+        k === LEGACY_KEYS.SETTINGS ||
+        k === LEGACY_KEYS.TEXTS ||
+        (k.startsWith("ll:") && (k.endsWith(":settings") || k.endsWith(":texts")))
+    );
+    for (const key of targetKeys) {
+      const raw = await AsyncStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        let mutated = false;
+        if (key.endsWith(":settings") || key === LEGACY_KEYS.SETTINGS) {
+          if (parsed && typeof parsed === "object") {
+            if (parsed.nativeLanguage === "en") {
+              parsed.nativeLanguage = "en-US";
+              mutated = true;
+            }
+            if (parsed.targetLanguage === "en") {
+              parsed.targetLanguage = "en-US";
+              mutated = true;
+            }
+            // Backfill preferredVoiceUserSet for legacy installs. We can't
+            // distinguish a user who explicitly picked the previous default
+            // ("nova") from one who simply accepted it, so we treat only
+            // persisted voices that differ from "nova" as evidence of an
+            // explicit pick. Everyone else gets the new language-aware
+            // defaults (en-GB → fable, en-US → nova) until they actively
+            // choose something via the voice picker.
+            if (parsed.preferredVoiceUserSet === undefined) {
+              parsed.preferredVoiceUserSet =
+                typeof parsed.preferredVoice === "string" &&
+                parsed.preferredVoice !== "nova";
+              mutated = true;
+            }
+          }
+        } else if (Array.isArray(parsed)) {
+          for (const t of parsed) {
+            if (t && typeof t === "object") {
+              if (t.targetLanguage === "en") {
+                t.targetLanguage = "en-US";
+                mutated = true;
+              }
+              if (t.nativeLanguage === "en") {
+                t.nativeLanguage = "en-US";
+                mutated = true;
+              }
+            }
+          }
+        }
+        if (mutated) {
+          await AsyncStorage.setItem(key, JSON.stringify(parsed));
+        }
+      } catch {
+        // ignore individual parse failures
+      }
+    }
+    await AsyncStorage.setItem(LANG_MIGRATION_FLAG, "1");
+  } catch {
+    // best effort
+  }
+}
 
 function defaultProgress(textId: string): UserProgress {
   return {
@@ -243,6 +322,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function loadAll(uid: string) {
     const K = keysFor(uid);
     try {
+      await migrateLegacyEnglishCodeIfNeeded();
       await migrateLegacyIfNeeded(K, uid === GUEST_USER_ID);
       const [textsRaw, resultsRaw, progressRaw, settingsRaw] = await Promise.all([
         AsyncStorage.getItem(K.TEXTS),

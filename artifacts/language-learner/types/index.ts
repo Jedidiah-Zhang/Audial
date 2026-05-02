@@ -62,6 +62,14 @@ export interface AppSettings {
   targetLanguage: string;
   defaultDifficulty: Difficulty;
   preferredVoice: string;
+  /**
+   * True once the user has manually picked a voice (in settings or in the
+   * practice voice chips). When false, the per-article TTS uses the
+   * language-default voice (see `getDefaultVoiceForLanguage`) so en-GB
+   * articles read with a British voice and en-US articles with an American
+   * one without forcing the user to pick.
+   */
+  preferredVoiceUserSet?: boolean;
   autoPlayAudio: boolean;
   ambientSound: boolean;
   onboarded: boolean;
@@ -104,7 +112,8 @@ export const STAGES = [
 
 export const LANGUAGES = [
   { code: "zh", name: "中文", english: "Chinese" },
-  { code: "en", name: "English", english: "English" },
+  { code: "en-US", name: "English (US)", english: "American English" },
+  { code: "en-GB", name: "English (UK)", english: "British English" },
   { code: "ja", name: "日本語", english: "Japanese" },
   { code: "ko", name: "한국어", english: "Korean" },
   { code: "es", name: "Español", english: "Spanish" },
@@ -145,18 +154,26 @@ export const MODE_LABELS: Record<LearningMode, string> = {
   recitation: "背诵",
 };
 
+export type VoiceAccent = "american" | "british" | "neutral";
+
 export interface VoiceOption {
   id: string;
   label: string;
   gender: "male" | "female" | "neutral";
+  /**
+   * Accent hint used both for choosing a sensible default per article
+   * language (see `getDefaultVoiceForLanguage`) and for surfacing a small
+   * "US"/"UK" badge in the voice picker.
+   */
+  accent: VoiceAccent;
   description: string;
 }
 
 export const VOICE_OPTIONS: VoiceOption[] = [
-  { id: "nova", label: "Nova", gender: "female", description: "女声 · 明亮自然" },
-  { id: "shimmer", label: "Shimmer", gender: "female", description: "女声 · 温柔轻盈" },
-  { id: "alloy", label: "Alloy", gender: "neutral", description: "中性 · 平稳清晰" },
-  { id: "echo", label: "Echo", gender: "male", description: "男声 · 沉稳标准" },
-  { id: "fable", label: "Fable", gender: "male", description: "男声 · 略带英伦腔" },
-  { id: "onyx", label: "Onyx", gender: "male", description: "男声 · 低沉浑厚" },
+  { id: "nova", label: "Nova", gender: "female", accent: "american", description: "女声 · 明亮自然" },
+  { id: "shimmer", label: "Shimmer", gender: "female", accent: "american", description: "女声 · 温柔轻盈" },
+  { id: "alloy", label: "Alloy", gender: "neutral", accent: "neutral", description: "中性 · 平稳清晰" },
+  { id: "echo", label: "Echo", gender: "male", accent: "neutral", description: "男声 · 沉稳标准" },
+  { id: "fable", label: "Fable", gender: "male", accent: "british", description: "男声 · 略带英伦腔" },
+  { id: "onyx", label: "Onyx", gender: "male", accent: "neutral", description: "男声 · 低沉浑厚" },
 ];

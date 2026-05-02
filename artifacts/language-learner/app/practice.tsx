@@ -283,10 +283,10 @@ export default function PracticeScreen() {
         >
           <SentenceArticle
             text={text.text}
-            voice={settings.preferredVoice}
             accentColor={colors.primary}
             contentType={text.contentType}
             articleId={text.id}
+            targetLanguage={text.targetLanguage}
           />
 
           <View style={styles.textActions}>

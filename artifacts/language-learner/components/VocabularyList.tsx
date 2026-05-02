@@ -7,6 +7,7 @@ import { useApp } from "@/context/AppContext";
 import type { VocabularyItem, LearningText } from "@/types";
 import { useT } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
+import { getDefaultVoiceForLanguage } from "@/utils/voiceForLanguage";
 
 interface Props {
   text: LearningText;
@@ -28,6 +29,15 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
+  // Mirror SentenceArticle's voice resolution so the vocabulary playback
+  // uses the same per-language default (en-GB → fable, en-US → nova) when
+  // the user hasn't manually picked a voice.
+  const voice =
+    (settings.preferredVoiceUserSet
+      ? settings.preferredVoice
+      : getDefaultVoiceForLanguage(text.targetLanguage) ?? settings.preferredVoice) ??
+    "nova";
+
   const handlePlay = useCallback(
     async (idx: number) => {
       const item = items[idx];
@@ -35,12 +45,12 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
       setPlayingIdx(idx);
       await playTTS(
         item.word,
-        settings.preferredVoice ?? "nova",
+        voice,
         () => setPlayingIdx((cur) => (cur === idx ? null : cur)),
         1
       );
     },
-    [items, playTTS, settings.preferredVoice]
+    [items, playTTS, voice]
   );
 
   const handlePlayExample = useCallback(
@@ -49,12 +59,12 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
       void idx;
       await playTTS(
         sentence,
-        settings.preferredVoice ?? "nova",
+        voice,
         () => {},
         1
       );
     },
-    [playTTS, settings.preferredVoice]
+    [playTTS, voice]
   );
 
   const fetchDetail = useCallback(

@@ -6,7 +6,11 @@ import * as FlagSvgs from "country-flag-icons/string/3x2";
 
 export const LANG_TO_COUNTRY: Record<string, string> = {
   zh: "CN",
+  // Legacy plain "en" still resolves to the US flag so any not-yet-migrated
+  // entry doesn't render a globe icon. New code uses the BCP-47 variants.
   en: "US",
+  "en-US": "US",
+  "en-GB": "GB",
   ja: "JP",
   ko: "KR",
   es: "ES",
@@ -38,6 +42,16 @@ const FLAG_SVG = FlagSvgs as unknown as Record<string, string>;
 
 export function getCountryCode(langCode: string | undefined | null): string | null {
   if (!langCode) return null;
+  // Direct hit first so BCP-47 region tags like "en-US" / "en-GB" find their
+  // entries (the LANG_TO_COUNTRY map keeps the canonical mixed casing).
+  if (LANG_TO_COUNTRY[langCode]) return LANG_TO_COUNTRY[langCode];
+  // Normalise mixed-casing variants such as "en-us" → "en-US" before falling
+  // back to the lower-cased base lookup.
+  const [base, region] = langCode.split("-");
+  if (region) {
+    const normalised = `${base.toLowerCase()}-${region.toUpperCase()}`;
+    if (LANG_TO_COUNTRY[normalised]) return LANG_TO_COUNTRY[normalised];
+  }
   return LANG_TO_COUNTRY[langCode.toLowerCase()] ?? null;
 }
 

@@ -13,6 +13,7 @@ import { detectContentType, CONTENT_TYPE_META } from "@/utils/contentType";
 import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
 import { useT, getContentTypeLabel } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
+import { getDefaultVoiceForLanguage } from "@/utils/voiceForLanguage";
 
 interface SentenceArticleProps {
   text: string;
@@ -28,6 +29,13 @@ interface SentenceArticleProps {
   articleId?: string;
   /** When true, sentence taps and Play All controls are disabled (e.g. during mic recording). */
   disablePlayback?: boolean;
+  /**
+   * The article's target language code (e.g. `en-US`, `en-GB`). When the user
+   * has not manually picked a voice, we default to a voice matching this
+   * language's accent (en-GB → fable, en-US → nova). An explicit `voice` prop
+   * always wins.
+   */
+  targetLanguage?: string;
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -47,11 +55,23 @@ export function SentenceArticle({
   maxTextHeight = 320,
   articleId,
   disablePlayback = false,
+  targetLanguage,
 }: SentenceArticleProps) {
   const colors = useColors();
   const t = useT();
   const { settings, updateSettings, userId } = useApp();
-  const voice = voiceProp ?? settings.preferredVoice ?? "nova";
+  // Resolve the effective voice with this priority:
+  //   1. explicit `voice` prop (always wins),
+  //   2. user's preferred voice if they've manually picked one,
+  //   3. language-default voice for the article's targetLanguage,
+  //   4. user's preferred voice fallback,
+  //   5. hard fallback to "nova".
+  const voice =
+    voiceProp ??
+    (settings.preferredVoiceUserSet
+      ? settings.preferredVoice
+      : getDefaultVoiceForLanguage(targetLanguage) ?? settings.preferredVoice) ??
+    "nova";
   const { playTTS, stop, isLoading, setRate } = useAudioPlayer({
     articleId,
     userId,
@@ -195,7 +215,10 @@ export function SentenceArticle({
       setActiveIdx(null);
       stop();
       ambient.stop();
-      updateSettings({ preferredVoice: newVoice });
+      // Once the user explicitly picks a voice, mark the preference as
+      // user-set so future articles stop auto-switching to a language
+      // default behind their back.
+      updateSettings({ preferredVoice: newVoice, preferredVoiceUserSet: true });
     },
     [stop, updateSettings, ambient]
   );
@@ -351,6 +374,12 @@ export function SentenceArticle({
                 const active = voice === opt.id;
                 const genderLabel =
                   opt.gender === "female" ? "♀" : opt.gender === "male" ? "♂" : "·";
+                const accentBadge =
+                  opt.accent === "british"
+                    ? t("accent.uk")
+                    : opt.accent === "american"
+                    ? t("accent.us")
+                    : null;
                 return (
                   <TouchableOpacity
                     key={opt.id}
@@ -373,14 +402,29 @@ export function SentenceArticle({
                       {genderLabel}
                     </Text>
                     <View style={styles.voiceChipTextWrap}>
-                      <Text
-                        style={[
-                          styles.voiceChipName,
-                          { color: active ? "#fff" : colors.foreground },
-                        ]}
-                      >
-                        {opt.label}
-                      </Text>
+                      <View style={styles.voiceChipNameRow}>
+                        <Text
+                          style={[
+                            styles.voiceChipName,
+                            { color: active ? "#fff" : colors.foreground },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                        {accentBadge ? (
+                          <Text
+                            style={[
+                              styles.voiceChipAccent,
+                              {
+                                color: active ? "#fff" : accentColor,
+                                borderColor: active ? "rgba(255,255,255,0.5)" : accentColor + "55",
+                              },
+                            ]}
+                          >
+                            {accentBadge}
+                          </Text>
+                        ) : null}
+                      </View>
                       <Text
                         numberOfLines={1}
                         style={[
@@ -585,9 +629,23 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  voiceChipNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   voiceChipName: {
     fontSize: 12,
     fontFamily: "Inter_600SemiBold",
+  },
+  voiceChipAccent: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 3,
+    borderWidth: 1,
+    overflow: "hidden",
   },
   voiceChipDesc: {
     fontSize: 10,

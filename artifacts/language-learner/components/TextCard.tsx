@@ -38,6 +38,19 @@ const DIFF_COLORS: Record<string, string> = {
   advanced: "#ef4444",
 };
 
+/**
+ * Display a language code as a compact tag. BCP-47 hyphenated codes like
+ * `en-US` keep the region in upper-case (`EN-US`) instead of being mangled
+ * by a naive `.toUpperCase()` (which would leave the same string but used
+ * to be the only formatting step).
+ */
+function formatLangCode(code: string): string {
+  if (!code) return "";
+  const [base, region] = code.split("-");
+  if (region) return `${base.toUpperCase()}-${region.toUpperCase()}`;
+  return code.toUpperCase();
+}
+
 export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, TextCardProps>(function TextCard(
   { item, onPress, onDelete, onRename, stagesPassed, snapshot = false },
   ref,
@@ -90,7 +103,7 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
           <View style={styles.headerRight}>
             <Flag code={item.targetLanguage} size={18} />
             <Text style={[styles.lang, { color: colors.mutedForeground }]}>
-              {item.targetLanguage.toUpperCase()}
+              {formatLangCode(item.targetLanguage)}
             </Text>
           </View>
         </View>
@@ -188,7 +201,7 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
         <View style={styles.headerRight}>
           <Flag code={item.targetLanguage} size={18} />
           <Text style={[styles.lang, { color: colors.mutedForeground }]}>
-            {item.targetLanguage.toUpperCase()}
+            {formatLangCode(item.targetLanguage)}
           </Text>
         </View>
       </View>

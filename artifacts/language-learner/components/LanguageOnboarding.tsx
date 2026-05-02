@@ -23,7 +23,7 @@ export function LanguageOnboarding() {
   if (isLoading) return null;
   if (settings.onboarded) return null;
 
-  const code = selected ?? settings.nativeLanguage ?? "en";
+  const code = selected ?? settings.nativeLanguage ?? "en-US";
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(code, key, params);
   const previewRTL = isRTL(code);

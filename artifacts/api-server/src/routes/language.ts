@@ -61,7 +61,17 @@ router.post("/language/generate-text", requireDeepseek, async (req, res) => {
 
     const levelDesc = difficultyMap[difficulty] || difficultyMap.intermediate;
 
-    const systemPrompt = `You are a language learning content creator. Generate authentic, natural-sounding ${targetLanguage} text that a native speaker would actually say or write. The text should be at ${levelDesc}. The topic is: ${topic}.
+    // When the target is one of the explicit English dialects, force the
+    // model to use that dialect's spelling and vocabulary. Without this, the
+    // model tends to default to American English regardless of the request.
+    const dialectInstruction =
+      targetLanguage === "British English"
+        ? `\n\nIMPORTANT: Use British English spelling (colour, organise, centre, favourite, travelling, programme, practise as a verb) and British vocabulary (lift, lorry, biscuit, flat, holiday, autumn, mum) consistently throughout the text, title, vocabulary words, and example sentences. Do not mix in American English.`
+        : targetLanguage === "American English"
+        ? `\n\nIMPORTANT: Use American English spelling (color, organize, center, favorite, traveling, program, practice as both noun and verb) and American vocabulary (elevator, truck, cookie, apartment, vacation, fall, mom) consistently throughout the text, title, vocabulary words, and example sentences. Do not mix in British English.`
+        : "";
+
+    const systemPrompt = `You are a language learning content creator. Generate authentic, natural-sounding ${targetLanguage} text that a native speaker would actually say or write. The text should be at ${levelDesc}. The topic is: ${topic}.${dialectInstruction}
 
 Format your response as JSON with these fields:
 - "text": the main text in ${targetLanguage}

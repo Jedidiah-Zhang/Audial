@@ -475,10 +475,10 @@ export default function SessionScreen() {
             </View>
             <SentenceArticle
               text={text.text}
-              voice={settings.preferredVoice}
               accentColor={stageColor}
               contentType={text.contentType}
               articleId={text.id}
+              targetLanguage={text.targetLanguage}
             />
             <Text style={[styles.memorizeHint, { color: colors.mutedForeground }]}>
               {t("session.memorize.hint")}
@@ -512,11 +512,11 @@ export default function SessionScreen() {
 
             <SentenceArticle
               text={text.text}
-              voice={settings.preferredVoice}
               accentColor={stageColor}
               visible={false}
               contentType={text.contentType}
               articleId={text.id}
+              targetLanguage={text.targetLanguage}
             />
 
             <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>

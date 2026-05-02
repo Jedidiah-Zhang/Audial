@@ -81,7 +81,7 @@ export default function SettingsScreen() {
             icon="globe"
             label={t("settings.uiLanguage")}
             value={currentUi?.name ?? "English"}
-            valuePrefix={<Flag code={currentUi?.code ?? "en"} size={18} />}
+            valuePrefix={<Flag code={currentUi?.code ?? "en-US"} size={18} />}
             onPress={() => setPicker("ui")}
           />
           <Row
@@ -89,7 +89,7 @@ export default function SettingsScreen() {
             icon="book-open"
             label={t("settings.targetLanguage")}
             value={currentTarget?.name ?? "English"}
-            valuePrefix={<Flag code={currentTarget?.code ?? "en"} size={18} />}
+            valuePrefix={<Flag code={currentTarget?.code ?? "en-US"} size={18} />}
             onPress={() => setPicker("target")}
           />
         </Section>
@@ -224,19 +224,46 @@ export default function SettingsScreen() {
                 renderItem={({ item }) => {
                   const selected = item.id === settings.preferredVoice;
                   const genderLabel = item.gender === "female" ? "♀" : item.gender === "male" ? "♂" : "·";
+                  const accentBadge =
+                    item.accent === "british"
+                      ? t("accent.uk")
+                      : item.accent === "american"
+                      ? t("accent.us")
+                      : null;
                   return (
                     <TouchableOpacity
                       style={[styles.row, { borderBottomColor: colors.border }, selected && { backgroundColor: colors.primary + "15" }]}
                       onPress={async () => {
-                        await updateSettings({ preferredVoice: item.id });
+                        // Mark the preference as user-set so future articles
+                        // stop auto-defaulting to a language-specific voice.
+                        await updateSettings({ preferredVoice: item.id, preferredVoiceUserSet: true });
                         closePicker();
                       }}
                     >
                       <Text style={[styles.rowFlag, { color: colors.mutedForeground }]}>{genderLabel}</Text>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ color: selected ? colors.primary : colors.foreground, fontSize: 15, fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium" }}>
-                          {item.label}
-                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={{ color: selected ? colors.primary : colors.foreground, fontSize: 15, fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium" }}>
+                            {item.label}
+                          </Text>
+                          {accentBadge ? (
+                            <Text
+                              style={{
+                                fontSize: 9,
+                                fontFamily: "Inter_700Bold",
+                                color: colors.primary,
+                                borderColor: colors.primary + "55",
+                                borderWidth: 1,
+                                paddingHorizontal: 4,
+                                paddingVertical: 1,
+                                borderRadius: 3,
+                                overflow: "hidden",
+                              }}
+                            >
+                              {accentBadge}
+                            </Text>
+                          ) : null}
+                        </View>
                         <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }} numberOfLines={1}>
                           {item.description}
                         </Text>

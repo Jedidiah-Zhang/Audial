@@ -226,7 +226,16 @@ export default function GenerateScreen() {
           topic,
           difficulty,
           language: LANGUAGES.find((l) => l.code === nativeLanguage)?.english ?? "English",
-          targetLanguage: LANGUAGES.find((l) => l.code === targetLanguage)?.name ?? "English",
+          // Send the dialect-explicit English label ("American English" /
+          // "British English") so the server prompt forces the right
+          // spelling/vocabulary. For non-English target languages the
+          // localized name (e.g. "Español") is fine.
+          targetLanguage: (() => {
+            const lang = LANGUAGES.find((l) => l.code === targetLanguage);
+            if (!lang) return "English";
+            if (lang.code === "en-US" || lang.code === "en-GB") return lang.english;
+            return lang.name;
+          })(),
         }),
       });
 

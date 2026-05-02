@@ -3,7 +3,8 @@ import type { ContentType, Difficulty, LearningMode } from "@/types";
 export { isRTL } from "./rtl";
 
 export type UILang =
-  | "zh" | "en" | "ja" | "ko" | "es" | "fr" | "de" | "ru" | "hu"
+  | "zh" | "en" | "en-US" | "en-GB"
+  | "ja" | "ko" | "es" | "fr" | "de" | "ru" | "hu"
   | "it" | "pt" | "ar" | "pl" | "nl" | "sv" | "no" | "da" | "fi"
   | "cs" | "ro" | "el" | "tr" | "uk" | "vi" | "th" | "id" | "hi";
 
@@ -174,6 +175,8 @@ const en: Dict = {
   "sentence.loading": "Loading...",
   "sentence.voice": "Voice",
   "sentence.speed": "Speed",
+  "accent.uk": "UK",
+  "accent.us": "US",
   "sentence.hint": "Tap any sentence to play it (total {n})",
   "sentence.progress": "Sentence {i} of {n}",
   "vocab.expand": "Hide example",
@@ -419,6 +422,8 @@ const zh: Dict = {
   "sentence.loading": "加载中...",
   "sentence.voice": "音色",
   "sentence.speed": "语速",
+  "accent.uk": "英式",
+  "accent.us": "美式",
   "sentence.hint": "点击任意句子单独播放（共 {n} 句）",
   "sentence.progress": "第 {i} / {n} 句",
   "vocab.expand": "收起例句",
@@ -659,6 +664,8 @@ const ja: Dict = {
   "sentence.loading": "読込中...",
   "sentence.voice": "音声",
   "sentence.speed": "速度",
+  "accent.uk": "英国",
+  "accent.us": "米国",
   "sentence.hint": "任意の文をタップして再生（全 {n} 文）",
   "sentence.progress": "{i} / {n} 文目",
   "vocab.expand": "例文を閉じる",
@@ -6499,13 +6506,30 @@ const hi: Dict = {
   "auth.local.deleteMsg": "\"{name}\" हटाएं? इस डिवाइस पर इस प्रोफ़ाइल के तहत सभी लेख और प्रगति हटा दी जाएगी।",
 };
 
+// English variants. The base `en` dict above is treated as American English;
+// `enGB` rewrites only the strings that differ in British spelling/word
+// choice. Keeping `en` as an alias for `en-US` lets any legacy persisted
+// settings (`nativeLanguage: "en"`) keep working until they migrate.
+const enUS: Dict = en;
+// Only the strings whose American spelling/word choice actually differs in
+// British English. Everything else falls through to the base `en` dict.
+const enGB: Dict = {
+  ...en,
+  // -ize → -ise / "memorize" → "memorise"
+  "stage.recitation.desc": "Memorise the text, then recite it from memory",
+  "session.memorize.hint": "Memorise the text carefully — you'll recite from memory after the countdown",
+  // "practice" as a verb in BrE is "practise"
+  "score.keep_trying": "Keep practising",
+};
+
 const DICTIONARIES: Partial<Record<UILang, Dict>> = {
-  en, zh, ja, ko, es, fr, de, ru, hu, it, pt, ar, pl, nl, sv, no, da, fi, cs, ro, el, tr, uk, vi, th, id, hi,
+  en, "en-US": enUS, "en-GB": enGB,
+  zh, ja, ko, es, fr, de, ru, hu, it, pt, ar, pl, nl, sv, no, da, fi, cs, ro, el, tr, uk, vi, th, id, hi,
 };
 
 export function translate(lang: string | undefined, key: string, params?: Record<string, string | number>): string {
-  const code = (lang ?? "en") as UILang;
-  const dict = DICTIONARIES[code] ?? en;
+  const code = (lang ?? "en-US") as UILang;
+  const dict = DICTIONARIES[code] ?? DICTIONARIES["en-US"] ?? en;
   let str = dict[key] ?? en[key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
