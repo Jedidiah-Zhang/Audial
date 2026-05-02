@@ -21,8 +21,8 @@ const API_BASE =
 export function VocabularyList({ text, onUpdateVocabulary }: Props) {
   const colors = useColors();
   const t = useT();
-  const { settings } = useApp();
-  const { playTTS } = useAudioPlayer();
+  const { settings, userId } = useApp();
+  const { playTTS } = useAudioPlayer({ articleId: text.id, userId });
   const [items, setItems] = useState<VocabularyItem[]>(text.vocabulary);
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);

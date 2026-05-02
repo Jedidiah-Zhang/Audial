@@ -195,6 +195,7 @@ export default function PracticeScreen() {
             voice={settings.preferredVoice}
             accentColor={colors.primary}
             contentType={text.contentType}
+            articleId={text.id}
           />
 
           <View style={styles.textActions}>

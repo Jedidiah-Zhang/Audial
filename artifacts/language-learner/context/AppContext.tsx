@@ -9,6 +9,7 @@ import type {
 } from "@/types";
 import { STAGE_PASS_SCORE, STAGES } from "@/types";
 import { detectContentType } from "@/utils/contentType";
+import { clearArticleAudio } from "@/utils/ttsCache";
 
 const GUEST_USER_ID = "guest";
 
@@ -258,6 +259,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const removeText = useCallback(async (id: string) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
+    clearArticleAudio(uidAtCall, id).catch(() => {});
     setTexts((prev) => {
       const next = prev.filter((t) => t.id !== id);
       safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));

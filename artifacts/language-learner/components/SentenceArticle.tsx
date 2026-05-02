@@ -23,6 +23,8 @@ interface SentenceArticleProps {
   contentType?: ContentType;
   /** Maximum height (px) of the scrollable text card. 0 / undefined => no cap. */
   maxTextHeight?: number;
+  /** Owning article id, used to scope persistent TTS cache cleanup. */
+  articleId?: string;
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -47,12 +49,16 @@ export function SentenceArticle({
   onPlay,
   contentType,
   maxTextHeight = 320,
+  articleId,
 }: SentenceArticleProps) {
   const colors = useColors();
   const t = useT();
-  const { settings, updateSettings } = useApp();
+  const { settings, updateSettings, userId } = useApp();
   const voice = voiceProp ?? settings.preferredVoice ?? "nova";
-  const { playTTS, stop, isLoading, setRate } = useAudioPlayer();
+  const { playTTS, stop, isLoading, setRate } = useAudioPlayer({
+    articleId,
+    userId,
+  });
   const ambient = useAmbientPlayer();
   const ambientEnabled = settings.ambientSound !== false;
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
@@ -104,13 +110,13 @@ export function SentenceArticle({
     (async () => {
       for (const s of playableSentences) {
         if (cancelled) return;
-        await prefetchTTS(s, voice);
+        await prefetchTTS(s, voice, { userId, articleId });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [playableSentences, voice]);
+  }, [playableSentences, voice, userId, articleId]);
 
   useEffect(() => {
     return () => {
@@ -161,7 +167,7 @@ export function SentenceArticle({
         }
         setActiveIdx(i);
         if (i + 1 < playableSentences.length) {
-          prefetchTTS(playableSentences[i + 1], voice);
+          prefetchTTS(playableSentences[i + 1], voice, { userId, articleId });
         }
         playTTS(
           playableSentences[i],

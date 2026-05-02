@@ -107,6 +107,34 @@ async function writeIndex(
   }
 }
 
+// Per-user serialization for read-modify-write on the index. Without this,
+// concurrent prefetch/play calls (and concurrent remove) can lose updates.
+const _indexQueues = new Map<string, Promise<unknown>>();
+function withIndexLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = _indexQueues.get(userId) ?? Promise.resolve();
+  const next = prev.then(fn, fn);
+  _indexQueues.set(
+    userId,
+    next.catch(() => undefined)
+  );
+  return next;
+}
+
+// Articles that have been removed but may still have in-flight prefetch/play
+// calls trying to register against them. Per-user set of article ids.
+const _tombstones = new Map<string, Set<string>>();
+function isTombstoned(userId: string, articleId: string): boolean {
+  return _tombstones.get(userId)?.has(articleId) ?? false;
+}
+function addTombstone(userId: string, articleId: string) {
+  let set = _tombstones.get(userId);
+  if (!set) {
+    set = new Set();
+    _tombstones.set(userId, set);
+  }
+  set.add(articleId);
+}
+
 /**
  * Register that a given (text, voice) audio file belongs to an article so it
  * can be cleaned up when the article is removed. Safe to call repeatedly; the
@@ -120,14 +148,19 @@ export async function registerArticleAudio(
 ): Promise<void> {
   if (!userId || !articleId) return;
   if (Platform.OS === "web") return;
+  if (isTombstoned(userId, articleId)) return;
   try {
     const name = await fileNameFor(text, voice);
-    const idx = await readIndex(userId);
-    const list = idx[articleId] ?? [];
-    if (!list.includes(name)) {
-      idx[articleId] = [...list, name];
-      await writeIndex(userId, idx);
-    }
+    await withIndexLock(userId, async () => {
+      // Re-check inside the lock in case removal happened while we hashed.
+      if (isTombstoned(userId, articleId)) return;
+      const idx = await readIndex(userId);
+      const list = idx[articleId] ?? [];
+      if (!list.includes(name)) {
+        idx[articleId] = [...list, name];
+        await writeIndex(userId, idx);
+      }
+    });
   } catch {
     // ignore
   }
@@ -135,33 +168,47 @@ export async function registerArticleAudio(
 
 /**
  * Delete every cached audio file associated with an article and remove its
- * index entry. No-op on web (web has no persistent file cache).
+ * index entry. Files referenced by other articles are kept. No-op on web
+ * (web has no persistent file cache).
  */
 export async function clearArticleAudio(
   userId: string | null | undefined,
   articleId: string | null | undefined
 ): Promise<void> {
   if (!userId || !articleId) return;
+  // Mark tombstone synchronously so any in-flight register is suppressed even
+  // before the lock is acquired.
+  addTombstone(userId, articleId);
   try {
-    const idx = await readIndex(userId);
-    const files = idx[articleId] ?? [];
-    if (files.length > 0) {
-      const FS = await getFs();
-      if (FS?.File && FS?.Paths) {
-        for (const name of files) {
-          try {
-            const f = new FS.File(FS.Paths.document, SUBDIR, name);
-            if (f.exists) f.delete();
-          } catch {
-            // ignore individual failures
+    await withIndexLock(userId, async () => {
+      const idx = await readIndex(userId);
+      const files = idx[articleId] ?? [];
+      if (files.length > 0) {
+        // Build a set of filenames still referenced by *other* articles so we
+        // don't delete shared files.
+        const referencedElsewhere = new Set<string>();
+        for (const [otherId, list] of Object.entries(idx)) {
+          if (otherId === articleId) continue;
+          for (const n of list) referencedElsewhere.add(n);
+        }
+        const FS = await getFs();
+        if (FS?.File && FS?.Paths) {
+          for (const name of files) {
+            if (referencedElsewhere.has(name)) continue;
+            try {
+              const f = new FS.File(FS.Paths.document, SUBDIR, name);
+              if (f.exists) f.delete();
+            } catch {
+              // ignore individual failures
+            }
           }
         }
       }
-    }
-    if (articleId in idx) {
-      delete idx[articleId];
-      await writeIndex(userId, idx);
-    }
+      if (articleId in idx) {
+        delete idx[articleId];
+        await writeIndex(userId, idx);
+      }
+    });
   } catch {
     // ignore
   }

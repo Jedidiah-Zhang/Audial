@@ -291,6 +291,7 @@ export default function SessionScreen() {
               voice={settings.preferredVoice}
               accentColor={stageColor}
               contentType={text.contentType}
+              articleId={text.id}
             />
             <Text style={[styles.memorizeHint, { color: colors.mutedForeground }]}>
               {t("session.memorize.hint")}
@@ -305,6 +306,7 @@ export default function SessionScreen() {
               voice={settings.preferredVoice}
               accentColor={stageColor}
               contentType={text.contentType}
+              articleId={text.id}
             />
 
             <View style={styles.recordSection}>
@@ -342,6 +344,7 @@ export default function SessionScreen() {
               accentColor={stageColor}
               visible={false}
               contentType={text.contentType}
+              articleId={text.id}
             />
 
             <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
