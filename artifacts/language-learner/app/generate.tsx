@@ -260,6 +260,13 @@ export default function GenerateScreen() {
         "x-tier": subscriptionTier,
       };
       if (rewardToken) headers["x-reward-token"] = rewardToken;
+      // When the user taps "Regenerate" on the draft preview, we already
+      // have a previous draft. Tell the server this is a retry and pass
+      // the previous text so it can instruct the model to produce a
+      // *different* article on the same topic instead of recomputing the
+      // same one.
+      const previous = draft;
+      const isRetry = previous !== null;
       const response = await fetch(`${BASE_URL}/api/language/generate-text`, {
         method: "POST",
         headers,
@@ -277,6 +284,13 @@ export default function GenerateScreen() {
             if (lang.code === "en-US" || lang.code === "en-GB") return lang.english;
             return lang.name;
           })(),
+          ...(isRetry
+            ? {
+                regenerate: true,
+                previousText: previous.text,
+                previousTitle: previous.title,
+              }
+            : {}),
         }),
       });
 

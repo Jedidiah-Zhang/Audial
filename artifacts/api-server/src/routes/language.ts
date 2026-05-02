@@ -215,11 +215,14 @@ const requireOpenai: RequestHandler = (_req, res, next) => {
 
 router.post("/language/generate-text", requireDeepseek, enforceGenerationQuota, async (req, res) => {
   try {
-    const { topic, difficulty, language, targetLanguage } = req.body as {
+    const { topic, difficulty, language, targetLanguage, regenerate, previousText, previousTitle } = req.body as {
       topic: string;
       difficulty: string;
       language: string;
       targetLanguage: string;
+      regenerate?: boolean;
+      previousText?: string;
+      previousTitle?: string;
     };
 
     const difficultyMap: Record<string, string> = {
@@ -241,7 +244,17 @@ router.post("/language/generate-text", requireDeepseek, enforceGenerationQuota, 
         ? `\n\nIMPORTANT: Use American English spelling (color, organize, center, favorite, traveling, program, practice as both noun and verb) and American vocabulary (elevator, truck, cookie, apartment, vacation, fall, mom) consistently throughout the text, title, vocabulary words, and example sentences. Do not mix in British English.`
         : "";
 
-    const systemPrompt = `You are a language learning content creator. Generate authentic, natural-sounding ${targetLanguage} text that a native speaker would actually say or write. The text should be at ${levelDesc}. The topic is: ${topic}.${dialectInstruction}
+    // On a regenerate request the client passes the previous draft and a
+    // `regenerate: true` flag. We append an explicit "produce a different
+    // version" instruction and quote the previous text so the model can
+    // actually steer away from it. Without this the same prompt collapses
+    // back to nearly identical output.
+    const regenerateInstruction =
+      regenerate && previousText
+        ? `\n\nIMPORTANT — RETRY: The user already saw a previous draft on this exact topic and asked for a different one. Produce a NOTICEABLY DIFFERENT article: pick a different angle or sub-topic, open with a different first sentence, use different examples, and prefer different vocabulary picks. Keep the same topic, difficulty, target language and dialect. Do NOT paraphrase or lightly edit the previous draft — write a fresh version. Previous draft to AVOID REPEATING (do not reuse its opening sentence, structure, or vocabulary list verbatim):\n"""${previousTitle ? previousTitle + "\n\n" : ""}${previousText}"""`
+        : "";
+
+    const systemPrompt = `You are a language learning content creator. Generate authentic, natural-sounding ${targetLanguage} text that a native speaker would actually say or write. The text should be at ${levelDesc}. The topic is: ${topic}.${dialectInstruction}${regenerateInstruction}
 
 Format your response as JSON with these fields:
 - "text": the main text in ${targetLanguage}
@@ -267,14 +280,30 @@ Format your response as JSON with these fields:
 
 Make the text feel like something a real native speaker would say - not textbook language. Use natural expressions and colloquialisms appropriate for the level.`;
 
+    // For regeneration, raise sampling variability and pick a fresh
+    // random seed so identical prompts don't collapse to the same
+    // output. Keep first-time generations on the default settings.
     const response = await deepseek.chat.completions.create({
       model: DEEPSEEK_MODEL,
       max_completion_tokens: 2048,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Generate a ${difficulty} level text about: ${topic}` },
+        {
+          role: "user",
+          content:
+            regenerate && previousText
+              ? `Generate a ${difficulty} level text about: ${topic}. Remember: this must be a DIFFERENT article from the previous draft shown above — different angle, different opening, different examples.`
+              : `Generate a ${difficulty} level text about: ${topic}`,
+        },
       ],
       response_format: { type: "json_object" },
+      ...(regenerate
+        ? {
+            temperature: 1.1,
+            top_p: 0.95,
+            seed: Math.floor(Math.random() * 2_147_483_647),
+          }
+        : {}),
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
