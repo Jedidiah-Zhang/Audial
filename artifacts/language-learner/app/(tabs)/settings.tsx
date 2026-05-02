@@ -109,9 +109,6 @@ export default function SettingsScreen() {
             valuePrefix={<Flag code={currentTarget?.code ?? "en-US"} size={18} />}
             onPress={() => setPicker("target")}
           />
-        </Section>
-
-        <Section title={t("settings.section.learning")} colors={colors}>
           <Row
             colors={colors}
             icon="bar-chart-2"
