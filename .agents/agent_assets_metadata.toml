@@ -24,8 +24,44 @@ uri = "file://attached_assets/generated_images/audial_fish_v2.png"
 type = "image"
 title = "generated_image"
 
+[[generated]]
+id = "NaEPU7RKNiKhqt88bRNdq"
+uri = "file://attached_assets/generated_images/logo_v1_blue_orange.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "abQ5tnickwJe-sIYQKRkm"
+uri = "file://attached_assets/generated_images/logo_v2_pink_teal.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "APDk6fH5jRjgR1dl2Q51v"
+uri = "file://attached_assets/generated_images/logo_v3_indigo_coral.png"
+type = "image"
+title = "generated_image"
+
 [[outputs]]
 id = "biYEemwyYwu-r3eJ6Zcko"
 uri = "file://artifacts/language-learner/assets/images/icon.png"
 type = "image"
 title = "Audial Logo (icon.png)"
+
+[[outputs]]
+id = "vttl14e7AKpU64wWACnHz"
+uri = "file://attached_assets/generated_images/logo_v1_blue_orange.png"
+type = "image"
+title = "方案 1 · 钴蓝 × 橘橙（声波气泡）"
+
+[[outputs]]
+id = "USk07729-YCg8Kf4Jp9gB"
+uri = "file://attached_assets/generated_images/logo_v2_pink_teal.png"
+type = "image"
+title = "方案 2 · 洋红 × 薄荷（说话星点）"
+
+[[outputs]]
+id = "dGgCK3u7Fz7InmWtEdlda"
+uri = "file://attached_assets/generated_images/logo_v3_indigo_coral.png"
+type = "image"
+title = "方案 3 · 靛紫 × 珊瑚红（双气泡耳形）"
