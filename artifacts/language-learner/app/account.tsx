@@ -32,7 +32,7 @@ export default function AccountScreen() {
   const { signOut } = useClerk();
   const [accountModal, setAccountModal] = useState<AccountModalKind>(null);
 
-  const topPad = Platform.OS === "web" ? 16 : insets.top;
+  const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -67,40 +67,36 @@ export default function AccountScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: topPad + 16 }]}>
         <TouchableOpacity onPress={goBack} style={styles.backBtn} hitSlop={10}>
-          <Feather name="chevron-left" size={24} color={colors.foreground} />
+          <Feather name="chevron-left" size={26} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.foreground }]}>
           {t("settings.section.account")}
         </Text>
-        <View style={{ width: 32 }} />
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingTop: 16,
           paddingBottom: insets.bottom + 32,
           gap: 18,
         }}
+        showsVerticalScrollIndicator={Platform.OS === "web"}
       >
-        <View
-          style={[
-            styles.sectionCard,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          {!authLoaded ? (
+        {!authLoaded ? (
+          <Section title={t("settings.section.account")} colors={colors}>
             <View style={[styles.itemRow, { borderBottomColor: colors.border }]}>
               <ActivityIndicator size="small" color={colors.mutedForeground} />
               <Text style={[styles.itemDesc, { color: colors.mutedForeground, marginLeft: 8 }]}>
                 …
               </Text>
             </View>
-          ) : isSignedIn && user ? (
-            <>
+          </Section>
+        ) : isSignedIn && user ? (
+          <>
+            <Section title={t("auth.account.signedIn")} colors={colors}>
               <View style={[styles.itemRow, { borderBottomColor: colors.border }]}>
                 <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
                   <Feather name="user" size={16} color={colors.primary} />
@@ -116,58 +112,34 @@ export default function AccountScreen() {
                   ) : null}
                 </View>
               </View>
-              <TouchableOpacity
-                activeOpacity={0.7}
+              <Row
+                colors={colors}
+                icon="edit-3"
+                label={t("auth.username.change")}
+                value={user.username || ""}
                 onPress={() => setAccountModal("username")}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="edit-3" size={16} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
-                    {t("auth.username.change")}
-                  </Text>
-                </View>
-                <Text style={[styles.itemValue, { color: colors.mutedForeground }]} numberOfLines={1}>
-                  {user.username || ""}
-                </Text>
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-              </TouchableOpacity>
+              />
               {hasPasswordCredential && (
-                <TouchableOpacity
-                  activeOpacity={0.7}
+                <Row
+                  colors={colors}
+                  icon="lock"
+                  label={t("auth.password.change")}
                   onPress={() => setAccountModal("password")}
-                  style={[styles.itemRow, { borderBottomColor: colors.border }]}
-                >
-                  <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                    <Feather name="lock" size={16} color={colors.primary} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.itemLabel, { color: colors.foreground }]}>
-                      {t("auth.password.change")}
-                    </Text>
-                  </View>
-                  <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-                </TouchableOpacity>
+                />
               )}
-              <TouchableOpacity
-                activeOpacity={0.7}
+            </Section>
+            <Section title={t("settings.section.account")} colors={colors}>
+              <DangerRow
+                colors={colors}
+                icon="log-out"
+                label={t("auth.signOut.title")}
                 onPress={confirmSignOut}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.destructive + "15" }]}>
-                  <Feather name="log-out" size={16} color={colors.destructive} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.destructive }]}>
-                    {t("auth.signOut.title")}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </>
-          ) : activeLocalAccount ? (
-            <>
+              />
+            </Section>
+          </>
+        ) : activeLocalAccount ? (
+          <>
+            <Section title={t("auth.local.activeLabel")} colors={colors}>
               <View style={[styles.itemRow, { borderBottomColor: colors.border }]}>
                 <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
                   <Feather name="user" size={16} color={colors.primary} />
@@ -181,107 +153,52 @@ export default function AccountScreen() {
                   </Text>
                 </View>
               </View>
-              <TouchableOpacity
-                activeOpacity={0.7}
+              <Row
+                colors={colors}
+                icon="users"
+                label={t("auth.local.manage")}
                 onPress={() => router.push("/(auth)/local")}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="users" size={16} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
-                    {t("auth.local.manage")}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
+              />
+              <Row
+                colors={colors}
+                icon="log-in"
+                label={t("auth.signIn.title")}
                 onPress={() => router.push("/(auth)/sign-in")}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="log-in" size={16} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
-                    {t("auth.signIn.title")}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
+              />
+            </Section>
+            <Section title={t("settings.section.account")} colors={colors}>
+              <DangerRow
+                colors={colors}
+                icon="log-out"
+                label={t("auth.local.exit")}
                 onPress={exitLocalAccount}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.destructive + "15" }]}>
-                  <Feather name="log-out" size={16} color={colors.destructive} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.destructive }]}>
-                    {t("auth.local.exit")}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => router.push("/(auth)/sign-in")}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="log-in" size={16} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
-                    {t("auth.signIn.title")}
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
-                    {t("auth.account.guestHint")}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => router.push("/(auth)/sign-up")}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="user-plus" size={16} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
-                    {t("auth.signUp.title")}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => router.push("/(auth)/local")}
-                style={[styles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="users" size={16} color={colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.itemLabel, { color: colors.foreground }]}>
-                    {t("auth.local.use")}
-                  </Text>
-                  <Text style={[styles.itemDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
-                    {t("auth.local.useHint")}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+              />
+            </Section>
+          </>
+        ) : (
+          <Section title={t("auth.account.notSignedIn")} colors={colors}>
+            <RowWithDesc
+              colors={colors}
+              icon="log-in"
+              label={t("auth.signIn.title")}
+              description={t("auth.account.guestHint")}
+              onPress={() => router.push("/(auth)/sign-in")}
+            />
+            <Row
+              colors={colors}
+              icon="user-plus"
+              label={t("auth.signUp.title")}
+              onPress={() => router.push("/(auth)/sign-up")}
+            />
+            <RowWithDesc
+              colors={colors}
+              icon="users"
+              label={t("auth.local.use")}
+              description={t("auth.local.useHint")}
+              onPress={() => router.push("/(auth)/local")}
+            />
+          </Section>
+        )}
       </ScrollView>
 
       <AccountEditModal
@@ -290,6 +207,120 @@ export default function AccountScreen() {
         colors={colors}
       />
     </View>
+  );
+}
+
+function Section({
+  title,
+  children,
+  colors,
+}: {
+  title: string;
+  children: React.ReactNode;
+  colors: ReturnType<typeof useColors>;
+}) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{title.toUpperCase()}</Text>
+      <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {children}
+      </View>
+    </View>
+  );
+}
+
+function Row({
+  colors,
+  icon,
+  label,
+  value,
+  onPress,
+}: {
+  colors: ReturnType<typeof useColors>;
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  value?: string;
+  onPress?: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={[styles.itemRow, { borderBottomColor: colors.border }]}
+    >
+      <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
+        <Feather name={icon} size={16} color={colors.primary} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>
+      </View>
+      {value ? (
+        <Text style={[styles.itemValue, { color: colors.mutedForeground }]} numberOfLines={1}>
+          {value}
+        </Text>
+      ) : null}
+      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+    </TouchableOpacity>
+  );
+}
+
+function RowWithDesc({
+  colors,
+  icon,
+  label,
+  description,
+  onPress,
+}: {
+  colors: ReturnType<typeof useColors>;
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  description: string;
+  onPress?: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={[styles.itemRow, { borderBottomColor: colors.border }]}
+    >
+      <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
+        <Feather name={icon} size={16} color={colors.primary} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>
+        <Text style={[styles.itemDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
+          {description}
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+    </TouchableOpacity>
+  );
+}
+
+function DangerRow({
+  colors,
+  icon,
+  label,
+  onPress,
+}: {
+  colors: ReturnType<typeof useColors>;
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  onPress?: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={[styles.itemRow, { borderBottomColor: colors.border }]}
+    >
+      <View style={[styles.iconWrap, { backgroundColor: colors.destructive + "15" }]}>
+        <Feather name={icon} size={16} color={colors.destructive} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.itemLabel, { color: colors.destructive }]}>{label}</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -483,23 +514,28 @@ function AccountEditModal({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   header: {
+    paddingHorizontal: 12,
+    paddingBottom: 16,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 4,
   },
   backBtn: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
+    marginLeft: -4,
   },
   title: {
-    flex: 1,
-    fontSize: 17,
+    fontSize: 28,
+    fontFamily: "Inter_700Bold",
+  },
+  sectionLabel: {
+    fontSize: 11,
     fontFamily: "Inter_600SemiBold",
-    textAlign: "center",
+    letterSpacing: 0.6,
+    paddingHorizontal: 6,
   },
   sectionCard: {
     borderWidth: 1,
