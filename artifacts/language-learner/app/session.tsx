@@ -700,6 +700,15 @@ export default function SessionScreen() {
   // covers the in-app back button, the iOS swipe-back gesture (since
   // navigation events fire for it too), and any router.back() calls
   // emitted from inside the session screen (e.g. handleNextStage).
+  //
+  // We deliberately do NOT re-dispatch `e.data.action`. In this app the
+  // /session screen sits on top of /practice, and both are presented as
+  // `transparentModal`. Re-dispatching the original GO_BACK action in
+  // that nested-transparent-modal stack can cascade through both modals
+  // at once — the user lands on the home article list, completely
+  // skipping the article practice page underneath. Forcing an explicit
+  // single-step pop keeps the back action scoped to just this screen so
+  // we always land on /practice with its expanded state intact.
   useEffect(() => {
     if (!hasGeom) return;
     const sub = navigation.addListener("beforeRemove", (e) => {
@@ -709,7 +718,9 @@ export default function SessionScreen() {
         // Wait one extra frame before handing control to the navigator;
         // see the same comment in app/practice.tsx for why.
         requestAnimationFrame(() => {
-          navigation.dispatch(e.data.action);
+          // Inline POP action (equivalent to StackActions.pop(1) from
+          // @react-navigation/native, which expo-router does not re-export).
+          navigation.dispatch({ type: "POP", payload: { count: 1 } });
         });
       });
     });
