@@ -220,6 +220,80 @@ export async function speechToText(
   return response.text;
 }
 
+/**
+ * Detailed Speech-to-Text using whisper-1 with verbose_json + word
+ * timestamps. Returns word-level timings + per-segment log-probs so
+ * downstream code can compute confidence / pace / pause metrics.
+ *
+ * Kept separate from `speechToText` (which uses gpt-4o-mini-transcribe
+ * for plain text and is much cheaper) so other call sites — recitation,
+ * dictation, generic STT — are unaffected. Only the shadowing scoring
+ * path needs the extra signal.
+ */
+export interface DetailedTranscriptWord {
+  word: string;
+  start: number;
+  end: number;
+}
+export interface DetailedTranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+  avg_logprob: number;
+  no_speech_prob: number;
+}
+export interface DetailedTranscript {
+  text: string;
+  words: DetailedTranscriptWord[];
+  segments: DetailedTranscriptSegment[];
+  duration: number;
+}
+
+export async function speechToTextDetailed(
+  audioBuffer: Buffer,
+  format: "wav" | "mp3" = "wav"
+): Promise<DetailedTranscript> {
+  assertOpenaiConfigured();
+  const file = await toFile(audioBuffer, `audio.${format}`);
+  const response = (await openai.audio.transcriptions.create({
+    file,
+    model: "whisper-1",
+    response_format: "verbose_json",
+    timestamp_granularities: ["word", "segment"],
+  } as never)) as unknown as {
+    text: string;
+    duration?: number;
+    words?: { word: string; start: number; end: number }[];
+    segments?: {
+      start: number;
+      end: number;
+      text: string;
+      avg_logprob: number;
+      no_speech_prob: number;
+    }[];
+  };
+  return {
+    text: response.text ?? "",
+    duration: typeof response.duration === "number" ? response.duration : 0,
+    words: Array.isArray(response.words)
+      ? response.words.map((w) => ({
+          word: String(w.word ?? ""),
+          start: Number(w.start ?? 0),
+          end: Number(w.end ?? 0),
+        }))
+      : [],
+    segments: Array.isArray(response.segments)
+      ? response.segments.map((s) => ({
+          start: Number(s.start ?? 0),
+          end: Number(s.end ?? 0),
+          text: String(s.text ?? ""),
+          avg_logprob: Number(s.avg_logprob ?? 0),
+          no_speech_prob: Number(s.no_speech_prob ?? 0),
+        }))
+      : [],
+  };
+}
+
 /** Streaming Speech-to-Text. */
 export async function speechToTextStream(
   audioBuffer: Buffer,

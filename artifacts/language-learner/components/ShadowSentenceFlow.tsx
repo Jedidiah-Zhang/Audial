@@ -24,7 +24,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { useAudioPlayer, useAudioRecorder, transcribeAudio, prefetchTTS } from "@/hooks/useAudio";
+import { useAudioPlayer, useAudioRecorder, prefetchTTS } from "@/hooks/useAudio";
 import { useMicPermissionGate } from "@/components/MicPermissionPrompt";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { Icon } from "@/components/Icon";
@@ -44,19 +44,32 @@ export interface ShadowFlowResult {
   feedback: string;
   fluency?: number;
   accuracy?: number;
+  /** New multi-signal sub-scores (0-100). Optional for backwards compat. */
+  pace?: number;
+  confidence?: number;
+  /** Null when prosody analysis was unavailable for this take. */
+  prosody?: number | null;
+  prosodyAvailable?: boolean;
+  lowConfidenceWords?: string[];
   targetAnnotations?: Annotation[];
   userTranscript?: string;
   recordingUri?: string | null;
 }
 
-interface ScorePronunciationResponse {
+interface ScoreShadowingResponse {
   success: boolean;
   data?: {
     score?: number;
     feedback?: string;
     fluency?: number;
     accuracy?: number;
+    pace?: number;
+    confidence?: number;
+    prosody?: number | null;
+    prosodyAvailable?: boolean;
+    lowConfidenceWords?: unknown;
     targetAnnotations?: unknown;
+    userTranscript?: string;
     [key: string]: unknown;
   };
   error?: string;
@@ -583,28 +596,50 @@ export function ShadowSentenceFlow({
     setPhase("full-read-intro");
   }, [cancelFullPlay]);
 
+  // Holds the audio blob from the last full-passage take so the user can
+  // hit "retry score" without re-recording. We keep the bytes in memory
+  // rather than the temp URI because the multi-signal scorer needs the
+  // raw buffer (it does its own STT + prosody pass), and we don't want
+  // to re-read the file twice.
+  const lastFullAudioRef = useRef<Blob | null>(null);
+
   const scoreFullPassage = useCallback(
-    async (transcript: string) => {
+    async (audioBlob: Blob) => {
       setPhase("full-scoring");
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const response = await fetch(`${BASE_URL}/api/language/score-pronunciation`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            targetText: text,
-            transcribedText: transcript,
-            language,
-          }),
-          signal: controller.signal,
-        });
-        const json: ScorePronunciationResponse = await response.json();
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        // Target text and language travel as headers so the body can be
+        // the raw audio bytes (matching the /stt endpoint's wire shape).
+        // Base64 keeps non-ASCII / multi-line passages safe over HTTP.
+        const targetTextB64 =
+          typeof btoa !== "undefined"
+            ? btoa(unescape(encodeURIComponent(text)))
+            : Buffer.from(text, "utf8").toString("base64");
+        const response = await fetch(
+          `${BASE_URL}/api/language/score-shadowing`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": audioBlob.type || "audio/webm",
+              "x-target-text": targetTextB64,
+              "x-language": settings.nativeLanguage || "en",
+              "x-target-language": language,
+            },
+            body: arrayBuffer,
+            signal: controller.signal,
+          }
+        );
+        const json: ScoreShadowingResponse = await response.json();
         if (!json.success || !json.data) throw new Error("Scoring failed");
         const d = json.data;
         const score: number = typeof d.score === "number" ? d.score : 0;
         const targetAnnotations =
           sanitizeAnnotations(d.targetAnnotations as never, text) ?? undefined;
+        const transcript =
+          typeof d.userTranscript === "string" ? d.userTranscript : "";
+        setLastFullTranscript(transcript);
         completedRef.current = true;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         onComplete({
@@ -612,6 +647,24 @@ export function ShadowSentenceFlow({
           feedback: typeof d.feedback === "string" ? d.feedback : "",
           fluency: typeof d.fluency === "number" ? d.fluency : undefined,
           accuracy: typeof d.accuracy === "number" ? d.accuracy : undefined,
+          pace: typeof d.pace === "number" ? d.pace : undefined,
+          confidence:
+            typeof d.confidence === "number" ? d.confidence : undefined,
+          prosody:
+            typeof d.prosody === "number"
+              ? d.prosody
+              : d.prosody === null
+              ? null
+              : undefined,
+          prosodyAvailable:
+            typeof d.prosodyAvailable === "boolean"
+              ? d.prosodyAvailable
+              : undefined,
+          lowConfidenceWords: Array.isArray(d.lowConfidenceWords)
+            ? (d.lowConfidenceWords as unknown[]).filter(
+                (w): w is string => typeof w === "string"
+              )
+            : undefined,
           targetAnnotations,
           userTranscript: transcript,
           recordingUri: lastRecordingUriRef.current ?? null,
@@ -622,7 +675,7 @@ export function ShadowSentenceFlow({
         clearTimeout(timer);
       }
     },
-    [text, language, onComplete]
+    [text, language, onComplete, settings.nativeLanguage]
   );
 
   const finalizeFullRecording = useCallback(async () => {
@@ -655,25 +708,16 @@ export function ShadowSentenceFlow({
       setPhase("full-error-no-audio");
       return;
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      console.log("[REC] finalizeFullRecording: blob size=", blob.size, "type=", blob.type);
-      const transcript = await transcribeAudio(blob, controller.signal);
-      if (!transcript || !transcript.trim()) {
-        console.warn("[REC] finalizeFullRecording: empty transcript");
-        setPhase("full-error-transcribe");
-        return;
-      }
-      const cleaned = transcript.trim();
-      setLastFullTranscript(cleaned);
-      await scoreFullPassage(cleaned);
-    } catch (e) {
-      console.warn("[REC] finalizeFullRecording: transcribe/score threw", e);
-      setPhase("full-error-transcribe");
-    } finally {
-      clearTimeout(timer);
-    }
+    // Hand the raw audio straight to the multi-signal scorer. The
+    // server now does its own STT (verbose_json) plus prosody pass, so
+    // we no longer pre-transcribe on the client — saves a round trip
+    // and lets the scorer use word-level confidence we'd otherwise
+    // throw away. Keep the blob-size log from the previous transcribe
+    // path: it's the single most useful breadcrumb when a take comes
+    // back as 0 bytes mid-flow on real devices.
+    console.log("[REC] finalizeFullRecording: blob size=", blob.size, "type=", blob.type);
+    lastFullAudioRef.current = blob;
+    await scoreFullPassage(blob);
   }, [stopRecording, scoreFullPassage, permission]);
 
   const startFullRecording = useCallback(async () => {
@@ -720,16 +764,22 @@ export function ShadowSentenceFlow({
 
   const handleRetryFullRecord = useCallback(() => {
     setLastFullTranscript("");
+    lastFullAudioRef.current = null;
     setPhase("full-read-intro");
   }, []);
 
   const handleRetryFullScore = useCallback(() => {
-    if (!lastFullTranscript) {
+    // The new scorer needs the original audio (not just the transcript)
+    // because pace / confidence / prosody all come from the waveform.
+    // If the blob is gone (process restart, GC, etc.) we drop back to
+    // the read-intro screen instead of silently downgrading.
+    const blob = lastFullAudioRef.current;
+    if (!blob) {
       setPhase("full-read-intro");
       return;
     }
-    scoreFullPassage(lastFullTranscript);
-  }, [lastFullTranscript, scoreFullPassage]);
+    scoreFullPassage(blob);
+  }, [scoreFullPassage]);
 
   // ── rendering ─────────────────────────────────────────────────────────
 

@@ -58,7 +58,7 @@ catalogs:
       specifier: ^4.1.14
       version: 4.2.1
     tsx:
-      specifier: ^4.21.0
+      specifier: 4.21.0
       version: 4.21.0
     vite:
       specifier: ^7.3.0
@@ -205,6 +205,9 @@ importers:
       pino-http:
         specifier: ^10
         version: 10.5.0
+      pitchfinder:
+        specifier: ^2.3.4
+        version: 2.3.4
     devDependencies:
       '@types/cookie-parser':
         specifier: ^1.4.10
@@ -230,6 +233,9 @@ importers:
       thread-stream:
         specifier: 3.1.0
         version: 3.1.0
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
 
   artifacts/language-learner:
     dependencies:
@@ -5488,6 +5494,9 @@ packages:
   pirates@4.0.7:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
+
+  pitchfinder@2.3.4:
+    resolution: {integrity: sha512-GK1bWPaS1p2fB8ZUh1qXi/6iA55qxLoAS9NgqvReM5+tlUr1ch3dJvO9pikp7qpWLI7FlQBQhsl9eOwR6GAPwg==}
 
   plist@3.1.0:
     resolution: {integrity: sha512-uysumyrvkUX0rX/dEVqt8gC3sTBzd4zoWfLeS29nb53imdaXVvLINYXTI2GNqzaMuvacNx4uJQ8+b3zXR0pkgQ==}
@@ -12578,6 +12587,8 @@ snapshots:
       thread-stream: 3.1.0
 
   pirates@4.0.7: {}
+
+  pitchfinder@2.3.4: {}
 
   plist@3.1.0:
     dependencies:

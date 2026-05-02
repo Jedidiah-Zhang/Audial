@@ -1,6 +1,6 @@
 import type { Annotation } from "@/components/AnnotatedText";
 
-const VALID_STATUSES = new Set(["ok", "wrong", "missed", "extra"]);
+const VALID_STATUSES = new Set(["ok", "wrong", "missed", "extra", "unsure"]);
 
 /**
  * Defensively normalize the AI's annotation array. Returns null if the input

@@ -2,7 +2,12 @@ import React from "react";
 import { View, Text, StyleSheet, type TextStyle } from "react-native";
 import { useColors } from "@/hooks/useColors";
 
-export type AnnotationStatus = "ok" | "wrong" | "missed" | "extra";
+export type AnnotationStatus =
+  | "ok"
+  | "wrong"
+  | "missed"
+  | "extra"
+  | "unsure";
 
 export interface Annotation {
   word: string;
@@ -110,12 +115,28 @@ export function AnnotatedText({
                 textDecorationColor: colors.mutedForeground,
               };
               break;
+            case "unsure":
+              // Amber dotted underline — the STT couldn't tell what the
+              // user said, so we don't want to imply a hard error like
+              // "wrong" does. The dotted style cues "uncertain" and the
+              // amber matches the warning color in the rest of the UI.
+              style = {
+                color: colors.warning,
+                backgroundColor: colors.warning + "1A",
+                textDecorationLine: "underline",
+                textDecorationColor: colors.warning,
+                textDecorationStyle: "dotted",
+              };
+              break;
             default:
               style = null;
           }
 
           const tappable =
-            !!onWordPress && (a.status === "wrong" || a.status === "missed");
+            !!onWordPress &&
+            (a.status === "wrong" ||
+              a.status === "missed" ||
+              a.status === "unsure");
           const isActive = activeIndex === i;
           const activeStyle: TextStyle | null = isActive
             ? {
@@ -152,17 +173,18 @@ export function AnnotatedText({
 }
 
 interface AnnotatedLegendProps {
-  show: { wrong?: boolean; missed?: boolean; extra?: boolean };
+  show: { wrong?: boolean; missed?: boolean; extra?: boolean; unsure?: boolean };
   labels: {
     wrong: string;
     missed: string;
     extra: string;
+    unsure?: string;
   };
 }
 
 export function AnnotatedLegend({ show, labels }: AnnotatedLegendProps) {
   const colors = useColors();
-  const items: { key: string; color: string; bg?: string; deco?: "underline" | "line-through"; label: string }[] = [];
+  const items: { key: string; color: string; bg?: string; deco?: "underline" | "line-through"; decoStyle?: "solid" | "dotted"; label: string }[] = [];
   if (show.wrong) {
     items.push({
       key: "wrong",
@@ -189,6 +211,16 @@ export function AnnotatedLegend({ show, labels }: AnnotatedLegendProps) {
       label: labels.extra,
     });
   }
+  if (show.unsure && labels.unsure) {
+    items.push({
+      key: "unsure",
+      color: colors.warning,
+      bg: colors.warning + "1A",
+      deco: "underline",
+      decoStyle: "dotted",
+      label: labels.unsure,
+    });
+  }
   if (items.length === 0) return null;
   return (
     <View style={styles.legend}>
@@ -202,6 +234,7 @@ export function AnnotatedLegend({ show, labels }: AnnotatedLegendProps) {
                 backgroundColor: it.bg ?? "transparent",
                 textDecorationLine: it.deco ?? "none",
                 textDecorationColor: it.color,
+                textDecorationStyle: it.decoStyle ?? "solid",
               },
             ]}
           >

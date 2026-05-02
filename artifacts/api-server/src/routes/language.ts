@@ -8,10 +8,17 @@ import {
 import {
   textToSpeech,
   speechToText,
+  speechToTextDetailed,
   ensureCompatibleFormat,
   isOpenaiConfigured,
   OpenAINotConfiguredError,
 } from "@workspace/integrations-openai-ai-server/audio";
+import {
+  computeSttMetrics,
+  computeProsodyMetrics,
+  scoreFromSignals,
+  SCORE_WEIGHTS,
+} from "../lib/pronunciation";
 
 const router = Router();
 
@@ -587,6 +594,182 @@ For non-spaced languages (Chinese / Japanese / Korean), tokenize at word/charact
     res.status(500).json({ success: false, error: "Scoring failed" });
   }
 });
+
+/**
+ * Multi-signal shadowing scorer.
+ *
+ * Accepts the user's raw audio recording in the request body (same wire
+ * format as `/language/stt`) plus the target text and BCP-47 language
+ * code via headers. Pipeline:
+ *   1. Decode → Whisper verbose_json → word + segment timings.
+ *   2. Compute deterministic STT metrics (pace, confidence, pauses).
+ *   3. Compute prosody features (F0, energy) — gracefully null on
+ *      decode failure.
+ *   4. Ask DeepSeek to grade *accuracy* only, and to mark words as
+ *      "unsure" when our low-confidence list flags them.
+ *   5. Blend everything with the configured weights and return both
+ *      sub-scores and the LLM's annotated breakdown.
+ *
+ * Headers:
+ *   x-target-text — base64-encoded UTF-8 target text. Base64 because
+ *                   passages may contain newlines / non-ASCII that would
+ *                   otherwise be a footgun in a single header line.
+ *   x-language    — BCP-47 native language code for feedback localization.
+ *   x-target-language — BCP-47 code of the *target* (read-aloud) language.
+ *                        Used to pick the pace target band.
+ */
+router.post(
+  "/language/score-shadowing",
+  requireOpenai,
+  requireDeepseek,
+  async (req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", async () => {
+      try {
+        const audioBuffer = Buffer.concat(chunks);
+        if (audioBuffer.length === 0) {
+          res.status(400).json({ success: false, error: "Empty audio" });
+          return;
+        }
+        const headers = req.headers as Record<string, string | undefined>;
+        const targetTextRaw = headers["x-target-text"] ?? "";
+        const targetText = (() => {
+          try {
+            return Buffer.from(targetTextRaw, "base64").toString("utf8");
+          } catch {
+            return "";
+          }
+        })().trim();
+        if (!targetText) {
+          res
+            .status(400)
+            .json({ success: false, error: "Missing x-target-text header" });
+          return;
+        }
+        const language = (headers["x-language"] ?? "en").toString();
+        const targetLanguage = (
+          headers["x-target-language"] ?? language
+        ).toString();
+
+        // Always coerce to a Whisper-friendly container before STT and
+        // *also* run prosody analysis on the same compatible buffer —
+        // pitch detection on a raw .webm header would silently fail.
+        const { buffer: compatBuffer, format } =
+          await ensureCompatibleFormat(audioBuffer);
+
+        const [detailed, prosody] = await Promise.all([
+          speechToTextDetailed(compatBuffer, format),
+          computeProsodyMetrics(compatBuffer),
+        ]);
+        const stt = computeSttMetrics(detailed);
+
+        // Build a compact evidence packet for the LLM. We give it the
+        // full transcript, the words our STT was unsure about, and the
+        // raw pace/pause numbers — the model uses the unsure list to
+        // tag annotations as "unsure" instead of guessing "wrong".
+        const evidence = {
+          transcript: detailed.text,
+          wordsPerSec: Number(stt.wordsPerSec.toFixed(2)),
+          pauseCount: stt.pauseCount,
+          longestPauseSec: Number(stt.longestPauseSec.toFixed(2)),
+          meanConfidence: Number(stt.meanConfidence.toFixed(2)),
+          lowConfidenceWords: stt.lowConfidenceWords.slice(0, 12),
+          prosody: prosody
+            ? {
+                f0StdHz: Number(prosody.f0StdHz.toFixed(1)),
+                voicedRatio: Number(prosody.voicedRatio.toFixed(2)),
+              }
+            : null,
+        };
+
+        const response = await deepseek.chat.completions.create({
+          model: DEEPSEEK_MODEL,
+          max_completion_tokens: 2048,
+          messages: [
+            {
+              role: "system",
+              content: `You are a language pronunciation judge for a shadowing exercise.
+
+You will receive (a) the target text the learner was supposed to read aloud, (b) the speech-to-text transcript of what they actually said, and (c) deterministic acoustic / STT-confidence evidence. Your job is to produce a *content accuracy* judgment ONLY — pacing, prosody, and per-word confidence are scored separately by the server, so do NOT factor them into "accuracy".
+
+Return JSON with:
+- "accuracy": 0-100 numeric sub-score for word-level reading accuracy. A perfect read of the target text scores 100.
+- "feedback": 1-2 sentences of constructive feedback in the user's native language (${language}).
+- "mistakes": array of specific words/phrases that were truly wrong or missing (max 3). Do NOT include words that only appear in "lowConfidenceWords" — those are STT-uncertain, not necessarily mispronounced.
+- "praise": one specific thing they did well.
+- "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed" | "unsure"} that tokenizes the target text in original order. Use "wrong" for words clearly mispronounced or substituted, "missed" for words skipped entirely, "unsure" for words whose target form appears in the provided lowConfidenceWords list AND the transcript is genuinely ambiguous (the STT couldn't tell), "ok" otherwise. The concatenation of all words MUST exactly reproduce the target text (include punctuation as its own token or attached to the previous word).
+- "userAnnotations": array of {"word": string, "status": "ok" | "wrong" | "extra" | "unsure"} that tokenizes the transcript in original order. Use "wrong" for words that don't match the target, "extra" for filler/inserted words not in the target, "unsure" for words flagged in lowConfidenceWords, "ok" otherwise.
+For non-spaced languages (Chinese / Japanese / Korean), tokenize at word/character boundaries that preserve readability when concatenated without spaces.`,
+            },
+            {
+              role: "user",
+              content: `Target: "${targetText}"
+Transcript: "${detailed.text}"
+Evidence: ${JSON.stringify(evidence)}`,
+            },
+          ],
+          response_format: { type: "json_object" },
+        });
+
+        const llm = JSON.parse(
+          response.choices[0]?.message?.content ?? "{}"
+        ) as {
+          accuracy?: number;
+          feedback?: string;
+          mistakes?: unknown;
+          praise?: unknown;
+          targetAnnotations?: unknown;
+          userAnnotations?: unknown;
+        };
+        const llmAccuracy =
+          typeof llm.accuracy === "number" ? llm.accuracy : 0;
+
+        const blended = scoreFromSignals({
+          llmAccuracy,
+          stt,
+          prosody,
+          language: targetLanguage,
+        });
+
+        res.json({
+          success: true,
+          data: {
+            score: blended.overall,
+            accuracy: Math.round(llmAccuracy),
+            pace: blended.pace,
+            confidence: blended.confidence,
+            prosody: blended.prosody,
+            // Legacy "fluency" alias kept so older clients that still
+            // read it don't go blank — same value as confidence, which
+            // best matches the previous semantics.
+            fluency: blended.confidence,
+            feedback: typeof llm.feedback === "string" ? llm.feedback : "",
+            mistakes: Array.isArray(llm.mistakes) ? llm.mistakes : [],
+            praise: typeof llm.praise === "string" ? llm.praise : "",
+            targetAnnotations: Array.isArray(llm.targetAnnotations)
+              ? llm.targetAnnotations
+              : [],
+            userAnnotations: Array.isArray(llm.userAnnotations)
+              ? llm.userAnnotations
+              : [],
+            userTranscript: detailed.text,
+            lowConfidenceWords: stt.lowConfidenceWords,
+            prosodyAvailable: prosody !== null,
+            weights: SCORE_WEIGHTS,
+          },
+        });
+      } catch (err) {
+        if (err instanceof OpenAINotConfiguredError) {
+          res.status(503).json({ success: false, error: err.message });
+          return;
+        }
+        req.log.error({ err }, "Score shadowing failed");
+        res.status(500).json({ success: false, error: "Scoring failed" });
+      }
+    });
+  }
+);
 
 router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
   try {

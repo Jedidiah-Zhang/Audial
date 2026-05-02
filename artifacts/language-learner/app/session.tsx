@@ -390,16 +390,45 @@ export default function SessionScreen() {
     // details strip that the other stages use so users get a quick glance
     // at fluency vs accuracy without digging into per-sentence rows.
     const details: Record<string, string | number> = {};
-    if (typeof flow.fluency === "number") {
-      details[t("session.detail.fluency")] = `${flow.fluency}%`;
-    }
     if (typeof flow.accuracy === "number") {
       details[t("session.detail.accuracy")] = `${flow.accuracy}%`;
+    }
+    if (typeof flow.confidence === "number") {
+      details[t("session.detail.confidence")] = `${flow.confidence}%`;
+    }
+    if (typeof flow.pace === "number") {
+      details[t("session.detail.pace")] = `${flow.pace}%`;
+    }
+    if (typeof flow.prosody === "number") {
+      details[t("session.detail.prosody")] = `${flow.prosody}%`;
+    } else if (flow.prosodyAvailable === false) {
+      // Surface the missing-signal state explicitly so users don't
+      // wonder why prosody dropped out — better than silently hiding
+      // it. The "—" is treated as a string, so it renders as a label
+      // value rather than a number.
+      details[t("session.detail.prosody")] = t("session.detail.unavailable");
+    }
+    // Keep the legacy "fluency" row for users who still expect it,
+    // mapping to the same value as confidence (closest semantic match).
+    if (
+      typeof flow.fluency === "number" &&
+      typeof flow.confidence !== "number"
+    ) {
+      details[t("session.detail.fluency")] = `${flow.fluency}%`;
     }
 
     const persistedDetails: Record<string, unknown> = { ...details };
     if (typeof flow.fluency === "number") persistedDetails.fluency = flow.fluency;
     if (typeof flow.accuracy === "number") persistedDetails.accuracy = flow.accuracy;
+    if (typeof flow.pace === "number") persistedDetails.pace = flow.pace;
+    if (typeof flow.confidence === "number")
+      persistedDetails.confidence = flow.confidence;
+    if (typeof flow.prosody === "number" || flow.prosody === null)
+      persistedDetails.prosody = flow.prosody;
+    if (typeof flow.prosodyAvailable === "boolean")
+      persistedDetails.prosodyAvailable = flow.prosodyAvailable;
+    if (flow.lowConfidenceWords && flow.lowConfidenceWords.length > 0)
+      persistedDetails.lowConfidenceWords = flow.lowConfidenceWords;
     if (flow.targetAnnotations) {
       persistedDetails.targetAnnotations = flow.targetAnnotations;
     }
@@ -845,11 +874,22 @@ export default function SessionScreen() {
                         </Text>
                       ) : null}
                       <AnnotatedLegend
-                        show={{ wrong: true, missed: true, extra: showExtra }}
+                        show={{
+                          wrong: true,
+                          missed: true,
+                          extra: showExtra,
+                          // Only the shadowing stage produces "unsure"
+                          // tokens (it's the only flow with the
+                          // multi-signal scorer behind it). Hide the
+                          // legend entry elsewhere to avoid implying
+                          // the status exists in dictation/recitation.
+                          unsure: stageIdx === 0,
+                        }}
                         labels={{
                           wrong: t("session.annot.legend.wrong"),
                           missed: t("session.annot.legend.missed"),
                           extra: t("session.annot.legend.extra"),
+                          unsure: t("session.annot.legend.unsure"),
                         }}
                       />
                     </>
