@@ -14,7 +14,14 @@ export interface SttMetrics {
   durationSec: number;
   /** Total number of words Whisper transcribed. */
   wordCount: number;
-  /** Words per second across the full take. 0 if duration ≈ 0. */
+  /**
+   * Words per second across the *speech-active* window (last word.end −
+   * first word.start), NOT the wallclock recording duration. This makes
+   * paceScore robust to the leading + trailing silence that surrounds
+   * every tap-to-record take. Falls back to wallclock when word timings
+   * are degenerate. 0 when there are no words. See `durationSec` for
+   * the full wallclock value.
+   */
   wordsPerSec: number;
   /** Pauses > PAUSE_THRESHOLD_SEC between consecutive transcribed words. */
   pauseCount: number;
@@ -120,8 +127,27 @@ export function computeSttMetrics(
   const meanConfidence =
     words.length > 0 ? confidenceSum / words.length : 0;
 
+  // Pace must be measured against speech-active time, not wallclock.
+  // Users almost always tap record → pause → speak → pause → tap stop,
+  // so the wallclock duration includes leading + trailing silence that
+  // would dilute words/sec down to 0 and collapse paceScore to 0 even
+  // for normally-paced reads. Derive a separate "speech duration" from
+  // the word timings (last word.end − first word.start). For a single
+  // word, fall back to its own duration. If word timings are degenerate
+  // (e.g. start ≥ end), fall back to wallclock so we never divide by
+  // zero or a negative number. With zero words, keep wps = 0 so
+  // paceScore returns 0 as before.
+  let speechDurationSec = 0;
+  if (words.length === 1) {
+    speechDurationSec = words[0].end - words[0].start;
+  } else if (words.length > 1) {
+    speechDurationSec = words[words.length - 1].end - words[0].start;
+  }
+  if (!(speechDurationSec > 0)) speechDurationSec = durationSec;
   const wordsPerSec =
-    durationSec > 0 ? words.length / durationSec : 0;
+    words.length > 0 && speechDurationSec > 0
+      ? words.length / speechDurationSec
+      : 0;
 
   return {
     durationSec,

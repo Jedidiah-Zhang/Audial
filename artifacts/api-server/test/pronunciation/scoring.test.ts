@@ -220,6 +220,99 @@ test("score weights sum to 1", () => {
   assert.ok(Math.abs(total - 1) < 1e-9, `weights sum = ${total}`);
 });
 
+test("pace ignores leading/trailing silence around normal speech", () => {
+  // The user spoke 6 words across 2.4s of actual speech (≈ 2.5 wps,
+  // mid English band) but tapped record 3s before they started and
+  // waited 4s before tapping stop, so the wallclock duration is 9.4s.
+  // Using wallclock would give 0.64 wps → paceScore 0; using the
+  // speech-active window must give in-band 100.
+  const padded: DetailedTranscript = {
+    text: "the quick brown fox jumps over",
+    duration: 9.4,
+    words: [
+      { word: "the", start: 3.0, end: 3.3 },
+      { word: "quick", start: 3.35, end: 3.7 },
+      { word: "brown", start: 3.75, end: 4.1 },
+      { word: "fox", start: 4.15, end: 4.5 },
+      { word: "jumps", start: 4.55, end: 4.9 },
+      { word: "over", start: 4.95, end: 5.3 },
+    ],
+    segments: [
+      {
+        start: 3,
+        end: 5.3,
+        text: "the quick brown fox jumps over",
+        avg_logprob: -0.1,
+        no_speech_prob: 0.01,
+      },
+    ],
+  };
+  const stt = computeSttMetrics(padded);
+  // Wallclock duration is preserved for any consumer that wants it.
+  assert.equal(stt.durationSec, 9.4);
+  // wps is now based on speech-active duration (last.end − first.start).
+  assert.ok(
+    stt.wordsPerSec > 2 && stt.wordsPerSec < 3.5,
+    `wps ${stt.wordsPerSec} should be in band, not diluted by silence`
+  );
+  assert.equal(paceScore(stt.wordsPerSec, "en"), 100);
+});
+
+test("pace handles edge cases without crashing", () => {
+  // Zero words → wps = 0, pace 0.
+  const empty: DetailedTranscript = {
+    text: "",
+    duration: 5,
+    words: [],
+    segments: [],
+  };
+  const sttEmpty = computeSttMetrics(empty);
+  assert.equal(sttEmpty.wordsPerSec, 0);
+  assert.equal(paceScore(sttEmpty.wordsPerSec, "en"), 0);
+
+  // Single word → uses that word's own duration.
+  const single: DetailedTranscript = {
+    text: "hello",
+    duration: 4,
+    words: [{ word: "hello", start: 1.5, end: 2.0 }],
+    segments: [
+      {
+        start: 1.5,
+        end: 2.0,
+        text: "hello",
+        avg_logprob: -0.2,
+        no_speech_prob: 0.02,
+      },
+    ],
+  };
+  const sttSingle = computeSttMetrics(single);
+  assert.ok(
+    sttSingle.wordsPerSec > 1.5 && sttSingle.wordsPerSec < 3,
+    `single-word wps ${sttSingle.wordsPerSec} should use its own duration`
+  );
+
+  // Degenerate timings (all zero) → falls back to wallclock duration.
+  const degenerate: DetailedTranscript = {
+    text: "a b",
+    duration: 2,
+    words: [
+      { word: "a", start: 0, end: 0 },
+      { word: "b", start: 0, end: 0 },
+    ],
+    segments: [
+      {
+        start: 0,
+        end: 2,
+        text: "a b",
+        avg_logprob: -0.3,
+        no_speech_prob: 0.02,
+      },
+    ],
+  };
+  const sttDegen = computeSttMetrics(degenerate);
+  assert.equal(sttDegen.wordsPerSec, 1, "falls back to wallclock");
+});
+
 test("paceScore behaves on either side of the band", () => {
   assert.equal(paceScore(2.5, "en"), 100);
   assert.ok(paceScore(0.5, "en") < 50);
