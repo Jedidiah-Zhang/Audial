@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -61,6 +61,143 @@ export default function GenerateScreen() {
   const [draftText, setDraftText] = useState("");
   const [draftTranslation, setDraftTranslation] = useState("");
 
+  // Bidirectional sync state for the draft preview screen
+  const [textSyncing, setTextSyncing] = useState(false);
+  const [translationSyncing, setTranslationSyncing] = useState(false);
+  const [textSyncError, setTextSyncError] = useState(false);
+  const [translationSyncError, setTranslationSyncError] = useState(false);
+
+  const draftTextRef = useRef("");
+  const draftTranslationRef = useRef("");
+  const lastSyncedTextRef = useRef("");
+  const lastSyncedTranslationRef = useRef("");
+  const focusedSideRef = useRef<"text" | "translation" | null>(null);
+  const pendingResyncRef = useRef<"text" | "translation" | null>(null);
+  const syncDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncReqIdRef = useRef(0);
+  const targetLangRef = useRef(targetLangObj.english);
+  const nativeLangRef = useRef(nativeLangObj.english);
+
+  draftTextRef.current = draftText;
+  draftTranslationRef.current = draftTranslation;
+  targetLangRef.current = targetLangObj.english;
+  nativeLangRef.current = nativeLangObj.english;
+
+  useEffect(() => {
+    return () => {
+      if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
+      syncReqIdRef.current++;
+    };
+  }, []);
+
+  const cancelPendingSync = () => {
+    if (syncDebounceRef.current) {
+      clearTimeout(syncDebounceRef.current);
+      syncDebounceRef.current = null;
+    }
+    syncReqIdRef.current++;
+    pendingResyncRef.current = null;
+    setTextSyncing(false);
+    setTranslationSyncing(false);
+  };
+
+  const handleSideBlur = (side: "text" | "translation") => {
+    if (focusedSideRef.current === side) focusedSideRef.current = null;
+    // If a sync was deferred because the user was editing this side,
+    // re-run it now that they've moved away.
+    const pending = pendingResyncRef.current;
+    if (pending && pending !== side) {
+      pendingResyncRef.current = null;
+      scheduleSync(pending);
+    }
+  };
+
+  const runSync = async (source: "text" | "translation") => {
+    const sourceText = source === "text" ? draftTextRef.current : draftTranslationRef.current;
+    const trimmed = sourceText.trim();
+    if (!trimmed) return;
+    if (source === "text" && trimmed === lastSyncedTextRef.current) return;
+    if (source === "translation" && trimmed === lastSyncedTranslationRef.current) return;
+
+    const reqId = ++syncReqIdRef.current;
+    if (source === "text") {
+      setTranslationSyncing(true);
+      setTranslationSyncError(false);
+    } else {
+      setTextSyncing(true);
+      setTextSyncError(false);
+    }
+
+    try {
+      const fromLanguage = source === "text" ? targetLangRef.current : nativeLangRef.current;
+      const toLanguage = source === "text" ? nativeLangRef.current : targetLangRef.current;
+      const resp = await fetch(`${BASE_URL}/api/language/translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: trimmed, fromLanguage, toLanguage }),
+      });
+      const result = (await resp.json()) as { success: boolean; data?: { translation?: string } };
+      if (reqId !== syncReqIdRef.current) return; // superseded
+      if (!result.success) throw new Error("translate failed");
+      const out = (result.data?.translation ?? "").trim();
+      if (!out) throw new Error("empty translation");
+
+      if (source === "text") {
+        if (focusedSideRef.current === "translation") {
+          pendingResyncRef.current = "text";
+          return;
+        }
+        lastSyncedTextRef.current = trimmed;
+        lastSyncedTranslationRef.current = out;
+        setDraftTranslation(out);
+      } else {
+        if (focusedSideRef.current === "text") {
+          pendingResyncRef.current = "translation";
+          return;
+        }
+        lastSyncedTranslationRef.current = trimmed;
+        lastSyncedTextRef.current = out;
+        setDraftText(out);
+      }
+    } catch {
+      if (reqId !== syncReqIdRef.current) return;
+      if (source === "text") setTranslationSyncError(true);
+      else setTextSyncError(true);
+    } finally {
+      if (reqId === syncReqIdRef.current) {
+        if (source === "text") setTranslationSyncing(false);
+        else setTextSyncing(false);
+      }
+    }
+  };
+
+  const scheduleSync = (source: "text" | "translation") => {
+    if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
+    // Bump the in-flight reqId so any not-yet-returned response is discarded
+    syncReqIdRef.current++;
+    if (source === "text") {
+      setTranslationSyncing(false);
+      setTranslationSyncError(false);
+    } else {
+      setTextSyncing(false);
+      setTextSyncError(false);
+    }
+    syncDebounceRef.current = setTimeout(() => {
+      syncDebounceRef.current = null;
+      void runSync(source);
+    }, 750);
+  };
+
+  const handleDraftTextChange = (v: string) => {
+    setDraftText(v);
+    scheduleSync("text");
+  };
+
+  const handleDraftTranslationChange = (v: string) => {
+    setDraftTranslation(v);
+    scheduleSync("translation");
+  };
+
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   const handleGenerate = async () => {
@@ -96,6 +233,11 @@ export default function GenerateScreen() {
         vocabulary: result.data.vocabulary ?? [],
         contentType: isContentType(declaredType) ? declaredType : detectContentType(rawText),
       };
+      cancelPendingSync();
+      lastSyncedTextRef.current = payload.text.trim();
+      lastSyncedTranslationRef.current = payload.translation.trim();
+      setTextSyncError(false);
+      setTranslationSyncError(false);
       setDraft(payload);
       setDraftTitle(payload.title);
       setDraftText(payload.text);
@@ -134,6 +276,12 @@ export default function GenerateScreen() {
   };
 
   const handleDiscardDraft = () => {
+    cancelPendingSync();
+    lastSyncedTextRef.current = "";
+    lastSyncedTranslationRef.current = "";
+    setTextSyncError(false);
+    setTranslationSyncError(false);
+    focusedSideRef.current = null;
     setDraft(null);
     setDraftTitle("");
     setDraftText("");
@@ -242,11 +390,27 @@ export default function GenerateScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>{t("generate.label.body")}</Text>
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.body")}</Text>
+              {textSyncing ? (
+                <View style={styles.syncBadge}>
+                  <ActivityIndicator size="small" color={colors.mutedForeground} />
+                  <Text style={[styles.syncBadgeText, { color: colors.mutedForeground }]}>
+                    {t("generate.preview.syncing")}
+                  </Text>
+                </View>
+              ) : textSyncError ? (
+                <Text style={[styles.syncBadgeText, { color: colors.mutedForeground }]}>
+                  {t("generate.preview.syncFailed")}
+                </Text>
+              ) : null}
+            </View>
             <TextInput
               style={[styles.bigTextarea, inputStyle]}
               value={draftText}
-              onChangeText={setDraftText}
+              onChangeText={handleDraftTextChange}
+              onFocus={() => { focusedSideRef.current = "text"; }}
+              onBlur={() => handleSideBlur("text")}
               placeholder={t("generate.placeholder.text")}
               placeholderTextColor={colors.mutedForeground}
               multiline
@@ -255,11 +419,27 @@ export default function GenerateScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={[styles.label, labelStyle]}>{t("generate.label.translation")}</Text>
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.translation")}</Text>
+              {translationSyncing ? (
+                <View style={styles.syncBadge}>
+                  <ActivityIndicator size="small" color={colors.mutedForeground} />
+                  <Text style={[styles.syncBadgeText, { color: colors.mutedForeground }]}>
+                    {t("generate.preview.syncing")}
+                  </Text>
+                </View>
+              ) : translationSyncError ? (
+                <Text style={[styles.syncBadgeText, { color: colors.mutedForeground }]}>
+                  {t("generate.preview.syncFailed")}
+                </Text>
+              ) : null}
+            </View>
             <TextInput
               style={[styles.textarea, inputStyle]}
               value={draftTranslation}
-              onChangeText={setDraftTranslation}
+              onChangeText={handleDraftTranslationChange}
+              onFocus={() => { focusedSideRef.current = "translation"; }}
+              onBlur={() => handleSideBlur("translation")}
               placeholder={t("generate.placeholder.translationOpt")}
               placeholderTextColor={colors.mutedForeground}
               multiline
@@ -635,6 +815,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_500Medium",
     letterSpacing: 0.3,
+  },
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  syncBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  syncBadgeText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
   },
   langScroll: {
     flexGrow: 0,
