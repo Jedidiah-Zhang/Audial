@@ -61,12 +61,20 @@ export const FREE_DAILY_GENERATION_LIMIT = 3;
 const ANALYSIS_UNLOCK_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface DailyGenerationCount {
-  date: string; // YYYY-MM-DD (UTC)
+  date: string; // YYYY-MM-DD in the device's *local* timezone
   count: number;
 }
 
+// Local-date key (NOT UTC). The user thinks of "today" in their wall-clock
+// timezone — using UTC here would reset the quota at midnight UTC, which
+// for most of the world is the middle of the day. Computing from local
+// year/month/day avoids both that and any DST/IANA edge cases.
 function todayDateKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function defaultGenerationCount(): DailyGenerationCount {
@@ -204,6 +212,22 @@ interface AppContextValue {
   dailyGenerationCount: DailyGenerationCount;
   generationLimit: number;
   generationsRemaining: number;
+  /**
+   * Single source of truth for "is this user allowed to create another
+   * article right now?". All article-creation entry points should call
+   * this *before* hitting the network so free users at the daily cap
+   * see the paywall flow without a wasted round-trip.
+   *
+   * - Pro users: always `{ allowed: true, remaining: Infinity }`.
+   * - Free users: gated by today's persisted count vs
+   *   `FREE_DAILY_GENERATION_LIMIT`.
+   *
+   * Note: this only protects the *create* step (the one that triggers
+   * paid TTS generation downstream). It does not gate retries / edits /
+   * re-translates of an already-saved article — those are intentionally
+   * free.
+   */
+  canCreateArticle: () => { allowed: boolean; remaining: number };
   incrementGenerationCount: () => Promise<void>;
   syncGenerationQuota: (entry: { date: string; count: number }) => Promise<void>;
   // Per-result detailed analysis unlocks (sessionResultId -> unlocked
@@ -636,6 +660,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     safeWrite(uidAtCall, K.SUBSCRIPTION, JSON.stringify(next));
   }, []);
 
+  // Pure read of the current quota state; safe to call from render and
+  // from event handlers. Centralized here so every "create article"
+  // entry point gates on the exact same logic.
+  const canCreateArticle = useCallback((): { allowed: boolean; remaining: number } => {
+    if (subscriptionRef.current.tier === "pro") {
+      return { allowed: true, remaining: Number.POSITIVE_INFINITY };
+    }
+    const today = todayDateKey();
+    const cur = dailyGenerationCountRef.current;
+    const usedToday = cur.date === today ? cur.count : 0;
+    const remaining = Math.max(0, FREE_DAILY_GENERATION_LIMIT - usedToday);
+    return { allowed: remaining > 0, remaining };
+  }, []);
+
   const incrementGenerationCount = useCallback(async () => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
@@ -790,10 +828,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         downgradeToFree,
         dailyGenerationCount,
         generationLimit: FREE_DAILY_GENERATION_LIMIT,
+        // Mirrors `canCreateArticle().remaining` so the UI never shows a
+        // stale chip after the local-date rolls over (e.g. user kept the
+        // app open through midnight). Treat any persisted count whose
+        // date isn't today's local date as 0 used.
         generationsRemaining:
           subscription.tier === "pro"
             ? Number.POSITIVE_INFINITY
-            : Math.max(0, FREE_DAILY_GENERATION_LIMIT - dailyGenerationCount.count),
+            : Math.max(
+                0,
+                FREE_DAILY_GENERATION_LIMIT -
+                  (dailyGenerationCount.date === todayDateKey()
+                    ? dailyGenerationCount.count
+                    : 0),
+              ),
+        canCreateArticle,
         incrementGenerationCount,
         syncGenerationQuota,
         isAnalysisUnlocked,

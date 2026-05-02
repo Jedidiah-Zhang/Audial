@@ -20,12 +20,19 @@ interface Props {
   onClose: () => void;
 }
 
+// Only list features that the free tier *actually* differs on today. Each
+// entry here is enforced somewhere in the app (see "Pro feature gates" in
+// `context/AppContext.tsx`):
+//   - `unlimited`: gated by `canCreateArticle()` / daily generation quota.
+//   - `noAds`: a side-effect of `isPro` short-circuiting every rewarded-ad
+//     path (generation quota wall, dictation listen quota,
+//     per-result analysis unlock).
+// Aspirational selling points (high-quality scoring, early access, "support
+// indie") were removed in Task #38 to keep marketing copy honest. Add them
+// back here only after the corresponding gate ships.
 const FEATURE_KEYS = [
   "paywall.feature.unlimited",
-  "paywall.feature.scoring",
   "paywall.feature.noAds",
-  "paywall.feature.early",
-  "paywall.feature.support",
 ] as const;
 
 export function PaywallModal({ visible, onClose }: Props) {

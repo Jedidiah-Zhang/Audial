@@ -50,6 +50,7 @@ export default function GenerateScreen() {
     subscriptionTier,
     generationLimit,
     generationsRemaining,
+    canCreateArticle,
     incrementGenerationCount,
     syncGenerationQuota,
   } = useApp();
@@ -318,6 +319,26 @@ export default function GenerateScreen() {
       return;
     }
 
+    // The "Regenerate" button in the draft preview reuses this handler.
+    // Per task spec, refining an in-progress draft is a *retry* of the
+    // same in-flight creation, not a brand-new one — it must NOT count
+    // against today's quota and must NOT be blocked even when the user
+    // is at the cap. The first creation already paid the slot; further
+    // regenerations are free.
+    const isRegenerate = draft !== null;
+
+    if (!isRegenerate) {
+      // Local pre-flight against the per-day quota. Skips a wasted round-
+      // trip + lets the user immediately see the upgrade / watch-ad
+      // sheet when they've already hit today's free cap. Pro users
+      // always pass.
+      const gate = canCreateArticle();
+      if (!gate.allowed) {
+        setQuotaSheetOpen(true);
+        return;
+      }
+    }
+
     setIsGenerating(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -326,8 +347,9 @@ export default function GenerateScreen() {
       if (attempt.ok) {
         applyDraftPayload(attempt.payload);
         // Mirror the successful generation in our local quota counter so
-        // the chip ticks down without waiting for a separate /quota call.
-        if (!isPro) await incrementGenerationCount();
+        // the chip ticks down without waiting for a separate /quota
+        // call. Skip on regenerate — see comment above.
+        if (!isPro && !isRegenerate) await incrementGenerationCount();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         return;
       }
@@ -335,7 +357,12 @@ export default function GenerateScreen() {
         // Re-sync the local mirror with whatever the server says so the
         // chip & sheet are accurate even if our local count drifted.
         if (!isPro && attempt.quota) {
-          const today = new Date().toISOString().slice(0, 10);
+          // Tag with the device's *local* date so it matches the
+          // AppContext quota key (the gate resets at local midnight,
+          // not UTC midnight). The server's count is still trusted —
+          // we only override the date label.
+          const now = new Date();
+          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
           await syncGenerationQuota({ date: today, count: attempt.quota.used });
         }
         setQuotaSheetOpen(true);
@@ -431,6 +458,14 @@ export default function GenerateScreen() {
       return;
     }
 
+    // Manual entries still trigger TTS for the saved article, so they
+    // count against the same daily quota as AI-generated ones.
+    const gate = canCreateArticle();
+    if (!gate.allowed) {
+      setQuotaSheetOpen(true);
+      return;
+    }
+
     const inputText = manualText.trim();
     setIsTranslating(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -484,6 +519,9 @@ export default function GenerateScreen() {
     };
 
     await addText(text);
+    // Count this manual save against today's quota — same TTS cost as
+    // an AI-generated article. Pro users skip the counter entirely.
+    if (!isPro) await incrementGenerationCount();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.back();
   };
