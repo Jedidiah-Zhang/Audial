@@ -506,6 +506,36 @@ export function ShadowSentenceFlow({
     setPhase("full-read-intro");
   }, [phase, player, recordingPlayer, clearPlaybackWatchdog]);
 
+  // Whether the user has heard every sentence at least once. Used both
+  // by the per-sentence loop UI (to enable the "continue" CTA) and by
+  // the auto-advance effect right below.
+  const allListened = states.length > 0 && states.every((s) => s.listened);
+
+  // First time the user has heard every sentence at least once, slide
+  // into the full-read intro card automatically — this is the
+  // "transition card" UX that signals the listening half is done. The
+  // flag prevents re-triggering if the user backs out of the intro and
+  // returns to the loop, so the CTA still works as a manual re-entry.
+  //
+  // This ref + effect MUST live up here at the top of the component
+  // alongside the other hooks. They previously lived after the
+  // `sentences.length === 0` and `phase === "full-*"` early returns,
+  // which meant the render that switched into a full-passage phase
+  // called fewer hooks than the previous render — violating the Rules
+  // of Hooks and producing a "Rendered fewer hooks than expected"
+  // crash exactly at the moment of the auto-advance.
+  const autoIntroFiredRef = useRef(false);
+  useEffect(() => {
+    if (
+      allListened &&
+      !autoIntroFiredRef.current &&
+      (phase === "ready" || phase === "playing")
+    ) {
+      autoIntroFiredRef.current = true;
+      enterFullReadIntro();
+    }
+  }, [allListened, phase, enterFullReadIntro]);
+
   const playFullPassage = useCallback(() => {
     cancelFullPlay();
     let cancelled = false;
@@ -848,23 +878,10 @@ export function ShadowSentenceFlow({
   }
 
   // ── per-sentence loop screen ──────────────────────────────────────────
-  const allListened = states.length > 0 && states.every((s) => s.listened);
-  // First time the user has heard every sentence at least once, slide
-  // into the full-read intro card automatically — this is the "transition
-  // card" UX that signals the listening half is done. The flag prevents
-  // re-triggering if the user backs out of the intro and returns to the
-  // loop, so the CTA still works as a manual re-entry.
-  const autoIntroFiredRef = useRef(false);
-  useEffect(() => {
-    if (
-      allListened &&
-      !autoIntroFiredRef.current &&
-      (phase === "ready" || phase === "playing")
-    ) {
-      autoIntroFiredRef.current = true;
-      enterFullReadIntro();
-    }
-  }, [allListened, phase, enterFullReadIntro]);
+  // `allListened` and the auto-advance effect that consumes it have
+  // been hoisted up next to `enterFullReadIntro` so that no hooks live
+  // after the early returns above. See the comment block at that
+  // declaration for the full story.
   const loopHint =
     phase === "recording"
       ? t("session.shadow.stopHint")
