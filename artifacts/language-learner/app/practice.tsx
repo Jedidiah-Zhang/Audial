@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -6,10 +6,19 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
+  BackHandler,
+  useWindowDimensions,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Book, Check, ChevronRight, Lock, Star } from "lucide-react-native";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
@@ -18,12 +27,27 @@ import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
 
+const OPEN_DURATION = 360;
+const CLOSE_DURATION = 280;
+const OPEN_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
+
 export default function PracticeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    oX?: string;
+    oY?: string;
+    oW?: string;
+    oH?: string;
+    oR?: string;
+  }>();
+  const { id } = params;
   const { texts, getProgressForText, settings, addText } = useApp();
+  const navigation = useNavigation();
+  const { width: screenW, height: screenH } = useWindowDimensions();
 
   const text = texts.find((x) => x.id === id);
   const lang = settings.nativeLanguage;
@@ -34,6 +58,94 @@ export default function PracticeScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
+
+  // ---- Card-expand transition (overlay) ----
+  const initialGeom = useRef(parseGeom(params, screenW, screenH)).current;
+  const hasGeom = initialGeom != null && Platform.OS !== "web";
+
+  // progress: 0 = card geometry, 1 = fullscreen
+  const progressSV = useSharedValue(hasGeom ? 0 : 1);
+  // contentOpacity for the underlying screen content (separate from the overlay)
+  const contentOpacity = useSharedValue(hasGeom ? 0 : 1);
+  // overlayVisible toggles the overlay node (kept mounted while animating, hidden after)
+  const [overlayMounted, setOverlayMounted] = useState(hasGeom);
+  const closingRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasGeom) return;
+    // Run open animation on next frame so the initial state is committed first.
+    const handle = requestAnimationFrame(() => {
+      progressSV.value = withTiming(1, { duration: OPEN_DURATION, easing: OPEN_EASING }, (finished) => {
+        if (finished) runOnJS(setOverlayMounted)(false);
+      });
+      contentOpacity.value = withTiming(1, {
+        duration: OPEN_DURATION,
+        easing: OPEN_EASING,
+      });
+    });
+    return () => cancelAnimationFrame(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reverse animation -> then dispatch the original navigation action.
+  const runCloseAnimation = useCallback(
+    (onDone: () => void) => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      setOverlayMounted(true);
+      contentOpacity.value = withTiming(0, { duration: CLOSE_DURATION, easing: CLOSE_EASING });
+      progressSV.value = withTiming(0, { duration: CLOSE_DURATION, easing: CLOSE_EASING }, (finished) => {
+        if (finished) runOnJS(onDone)();
+      });
+    },
+    [contentOpacity, progressSV],
+  );
+
+  // Intercept navigation back to play the reverse animation first.
+  useEffect(() => {
+    if (!hasGeom) return;
+    // The event handler is typed via inference from `navigation.addListener`.
+    const sub = navigation.addListener("beforeRemove", (e) => {
+      if (closingRef.current) return; // already animating, allow it.
+      e.preventDefault();
+      runCloseAnimation(() => {
+        navigation.dispatch(e.data.action);
+      });
+    });
+    return sub;
+  }, [navigation, runCloseAnimation, hasGeom]);
+
+  // Hardware back on Android: let it propagate; beforeRemove will catch it.
+  // But on Android, `BackHandler` fires before navigation listeners only if we
+  // return false. We return false to let the default handler call back().
+  useEffect(() => {
+    if (Platform.OS !== "android" || !hasGeom) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => false);
+    return () => sub.remove();
+  }, [hasGeom]);
+
+  const overlayStyle = useAnimatedStyle(() => {
+    if (!initialGeom) {
+      return { opacity: 0 };
+    }
+    const p = progressSV.value;
+    const inv = 1 - p;
+    return {
+      top: initialGeom.y * inv,
+      left: initialGeom.x * inv,
+      width: initialGeom.width + (screenW - initialGeom.width) * p,
+      height: initialGeom.height + (screenH - initialGeom.height) * p,
+      borderRadius: initialGeom.radius * inv,
+    };
+  }, [initialGeom?.x, initialGeom?.y, initialGeom?.width, initialGeom?.height, screenW, screenH]);
+
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: contentOpacity.value,
+  }));
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, []);
 
   if (!text) {
     return (
@@ -62,188 +174,228 @@ export default function PracticeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <ArrowLeft size={22} color={colors.foreground} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
-          {text.title}
-        </Text>
-        <View style={{ width: 36 }} />
-      </View>
-
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <SentenceArticle
-          text={text.text}
-          voice={settings.preferredVoice}
-          accentColor={colors.primary}
-          contentType={text.contentType}
-        />
-
-        <View style={styles.textActions}>
-          {text.translation ? (
-            <TouchableOpacity
-              onPress={() => setShowTranslation(!showTranslation)}
-              style={[styles.pillBtn, { borderColor: colors.border }]}
-              activeOpacity={0.7}
-            >
-              <Icon name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
-              <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
-                {showTranslation ? t("practice.translation.hide") : t("practice.translation.show")}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-          {text.vocabulary?.length > 0 ? (
-            <TouchableOpacity
-              onPress={() => setShowVocab(!showVocab)}
-              style={[styles.pillBtn, { borderColor: colors.border }]}
-              activeOpacity={0.7}
-            >
-              <Book size={13} color={colors.mutedForeground} />
-              <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
-                {t("practice.vocab", { n: text.vocabulary.length })}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
+      <Animated.View style={[styles.contentWrap, hasGeom ? contentStyle : null]}>
+        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+          <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.7}>
+            <ArrowLeft size={22} color={colors.foreground} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
+            {text.title}
+          </Text>
+          <View style={{ width: 36 }} />
         </View>
 
-        {showTranslation && text.translation ? (
-          <View style={[styles.translationCard, { backgroundColor: colors.muted }]}>
-            <Text style={[styles.translationLabel, { color: colors.mutedForeground }]}>{t("practice.translationLabel")}</Text>
-            <Text style={[styles.translation, { color: colors.foreground }]}>
-              {text.translation}
-            </Text>
-          </View>
-        ) : null}
-
-        {showVocab && text.vocabulary.length > 0 && (
-          <VocabularyList
-            text={text}
-            onUpdateVocabulary={(vocab) => addText({ ...text, vocabulary: vocab })}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <SentenceArticle
+            text={text.text}
+            voice={settings.preferredVoice}
+            accentColor={colors.primary}
+            contentType={text.contentType}
           />
-        )}
 
-        {allPassed && (
-          <View style={[styles.masteredBanner, { backgroundColor: "#10B981" + "20", borderColor: "#10B981" }]}>
-            <Star size={20} color="#10B981" />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.masteredTitle, { color: "#10B981" }]}>{t("practice.mastered.title")}</Text>
-              <Text style={[styles.masteredSub, { color: "#10B981" + "CC" }]}>{t("practice.mastered.sub", { score: totalScore })}</Text>
-            </View>
+          <View style={styles.textActions}>
+            {text.translation ? (
+              <TouchableOpacity
+                onPress={() => setShowTranslation(!showTranslation)}
+                style={[styles.pillBtn, { borderColor: colors.border }]}
+                activeOpacity={0.7}
+              >
+                <Icon name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
+                <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
+                  {showTranslation ? t("practice.translation.hide") : t("practice.translation.show")}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {text.vocabulary?.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setShowVocab(!showVocab)}
+                style={[styles.pillBtn, { borderColor: colors.border }]}
+                activeOpacity={0.7}
+              >
+                <Book size={13} color={colors.mutedForeground} />
+                <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
+                  {t("practice.vocab", { n: text.vocabulary.length })}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
-        )}
 
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{t("practice.section.stages")}</Text>
+          {showTranslation && text.translation ? (
+            <View style={[styles.translationCard, { backgroundColor: colors.muted }]}>
+              <Text style={[styles.translationLabel, { color: colors.mutedForeground }]}>{t("practice.translationLabel")}</Text>
+              <Text style={[styles.translation, { color: colors.foreground }]}>
+                {text.translation}
+              </Text>
+            </View>
+          ) : null}
 
-        <View style={styles.stagesContainer}>
-          {STAGES.map((stage, idx) => {
-            const locked = !isUnlocked(idx);
-            const passed = isPassed(idx);
-            const current = isCurrent(idx);
-            const best = stageBests[idx];
+          {showVocab && text.vocabulary.length > 0 && (
+            <VocabularyList
+              text={text}
+              onUpdateVocabulary={(vocab) => addText({ ...text, vocabulary: vocab })}
+            />
+          )}
 
-            return (
-              <View key={idx} style={styles.stageRow}>
-                {idx < STAGES.length - 1 && (
-                  <View
+          {allPassed && (
+            <View style={[styles.masteredBanner, { backgroundColor: "#10B981" + "20", borderColor: "#10B981" }]}>
+              <Star size={20} color="#10B981" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.masteredTitle, { color: "#10B981" }]}>{t("practice.mastered.title")}</Text>
+                <Text style={[styles.masteredSub, { color: "#10B981" + "CC" }]}>{t("practice.mastered.sub", { score: totalScore })}</Text>
+              </View>
+            </View>
+          )}
+
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>{t("practice.section.stages")}</Text>
+
+          <View style={styles.stagesContainer}>
+            {STAGES.map((stage, idx) => {
+              const locked = !isUnlocked(idx);
+              const passed = isPassed(idx);
+              const current = isCurrent(idx);
+              const best = stageBests[idx];
+
+              return (
+                <View key={idx} style={styles.stageRow}>
+                  {idx < STAGES.length - 1 && (
+                    <View
+                      style={[
+                        styles.stageLine,
+                        { backgroundColor: passed ? stage.color : colors.border },
+                      ]}
+                    />
+                  )}
+
+                  <TouchableOpacity
+                    onPress={() => handleStartStage(idx)}
+                    disabled={locked}
+                    activeOpacity={locked ? 1 : 0.85}
                     style={[
-                      styles.stageLine,
-                      { backgroundColor: passed ? stage.color : colors.border },
-                    ]}
-                  />
-                )}
-
-                <TouchableOpacity
-                  onPress={() => handleStartStage(idx)}
-                  disabled={locked}
-                  activeOpacity={locked ? 1 : 0.85}
-                  style={[
-                    styles.stageCard,
-                    {
-                      backgroundColor: colors.card,
-                      borderColor: current
-                        ? stage.color
-                        : passed
-                        ? stage.color + "60"
-                        : colors.border,
-                      borderWidth: current ? 2 : 1,
-                      opacity: locked ? 0.45 : 1,
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.stageBadge,
+                      styles.stageCard,
                       {
-                        backgroundColor: passed
+                        backgroundColor: colors.card,
+                        borderColor: current
                           ? stage.color
-                          : current
-                          ? stage.color + "20"
-                          : colors.muted,
+                          : passed
+                          ? stage.color + "60"
+                          : colors.border,
+                        borderWidth: current ? 2 : 1,
+                        opacity: locked ? 0.45 : 1,
                       },
                     ]}
                   >
-                    {passed ? (
-                      <Check size={20} color="#fff" />
-                    ) : locked ? (
-                      <Lock size={18} color={colors.mutedForeground} />
-                    ) : (
-                      <Icon name={stage.icon as any} size={20} color={stage.color} />
-                    )}
-                  </View>
-
-                  <View style={styles.stageInfo}>
-                    <View style={styles.stageHeader}>
-                      <Text style={[styles.stageNum, { color: colors.mutedForeground }]}>
-                        {t("practice.stageNum", { n: idx + 1 })}
-                      </Text>
-                      {current && (
-                        <View style={[styles.currentTag, { backgroundColor: stage.color }]}>
-                          <Text style={styles.currentTagText}>{t("practice.current")}</Text>
-                        </View>
+                    <View
+                      style={[
+                        styles.stageBadge,
+                        {
+                          backgroundColor: passed
+                            ? stage.color
+                            : current
+                            ? stage.color + "20"
+                            : colors.muted,
+                        },
+                      ]}
+                    >
+                      {passed ? (
+                        <Check size={20} color="#fff" />
+                      ) : locked ? (
+                        <Lock size={18} color={colors.mutedForeground} />
+                      ) : (
+                        <Icon name={stage.icon as any} size={20} color={stage.color} />
                       )}
                     </View>
-                    <Text style={[styles.stageName, { color: locked ? colors.mutedForeground : colors.foreground }]}>
-                      {getStageName(idx, lang)}
-                    </Text>
-                    <Text style={[styles.stageDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
-                      {getStageDesc(idx, lang)}
-                    </Text>
-                    {stage.needsScore && (
-                      <Text style={[styles.stageThreshold, { color: colors.mutedForeground }]}>
-                        {t("practice.passReq", { n: STAGE_PASS_SCORE })}
-                      </Text>
-                    )}
-                  </View>
 
-                  <View style={styles.stageRight}>
-                    {best > 0 ? (
-                      <View style={styles.scoreBlock}>
-                        <Text style={[styles.scoreBig, { color: passed ? stage.color : colors.mutedForeground }]}>
-                          {best}
+                    <View style={styles.stageInfo}>
+                      <View style={styles.stageHeader}>
+                        <Text style={[styles.stageNum, { color: colors.mutedForeground }]}>
+                          {t("practice.stageNum", { n: idx + 1 })}
                         </Text>
-                        <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>{t("practice.bestLabel")}</Text>
+                        {current && (
+                          <View style={[styles.currentTag, { backgroundColor: stage.color }]}>
+                            <Text style={styles.currentTagText}>{t("practice.current")}</Text>
+                          </View>
+                        )}
                       </View>
-                    ) : locked ? null : (
-                      <ChevronRight size={20} color={stage.color} />
-                    )}
-                  </View>
-                </TouchableOpacity>
-              </View>
-            );
-          })}
-        </View>
-      </ScrollView>
+                      <Text style={[styles.stageName, { color: locked ? colors.mutedForeground : colors.foreground }]}>
+                        {getStageName(idx, lang)}
+                      </Text>
+                      <Text style={[styles.stageDesc, { color: colors.mutedForeground }]} numberOfLines={2}>
+                        {getStageDesc(idx, lang)}
+                      </Text>
+                      {stage.needsScore && (
+                        <Text style={[styles.stageThreshold, { color: colors.mutedForeground }]}>
+                          {t("practice.passReq", { n: STAGE_PASS_SCORE })}
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={styles.stageRight}>
+                      {best > 0 ? (
+                        <View style={styles.scoreBlock}>
+                          <Text style={[styles.scoreBig, { color: passed ? stage.color : colors.mutedForeground }]}>
+                            {best}
+                          </Text>
+                          <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>{t("practice.bestLabel")}</Text>
+                        </View>
+                      ) : locked ? null : (
+                        <ChevronRight size={20} color={stage.color} />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </Animated.View>
+
+      {hasGeom && overlayMounted && initialGeom ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.overlay,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              borderWidth: StyleSheet.hairlineWidth,
+            },
+            overlayStyle,
+          ]}
+        />
+      ) : null}
     </View>
   );
 }
 
+type Geom = { x: number; y: number; width: number; height: number; radius: number };
+
+function parseGeom(
+  params: { oX?: string; oY?: string; oW?: string; oH?: string; oR?: string },
+  screenW: number,
+  screenH: number,
+): Geom | null {
+  const x = params.oX != null ? Number(params.oX) : NaN;
+  const y = params.oY != null ? Number(params.oY) : NaN;
+  const width = params.oW != null ? Number(params.oW) : NaN;
+  const height = params.oH != null ? Number(params.oH) : NaN;
+  const radius = params.oR != null ? Number(params.oR) : 16;
+  if ([x, y, width, height].some((v) => !Number.isFinite(v))) return null;
+  if (width <= 0 || height <= 0) return null;
+  // Sanity: ignore obviously off-screen geometries (e.g. scrolled out of view).
+  if (y + height < 0 || y > screenH || x + width < 0 || x > screenW) return null;
+  return { x, y, width, height, radius: Number.isFinite(radius) ? radius : 16 };
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  contentWrap: { flex: 1 },
+  overlay: {
+    position: "absolute",
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",

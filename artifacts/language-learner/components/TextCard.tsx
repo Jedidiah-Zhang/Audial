@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { forwardRef, useState } from "react";
 import {
   View,
   Text,
@@ -30,7 +30,10 @@ const DIFF_COLORS: Record<string, string> = {
   advanced: "#ef4444",
 };
 
-export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: TextCardProps) {
+export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, TextCardProps>(function TextCard(
+  { item, onPress, onDelete, onRename, stagesPassed },
+  ref,
+) {
   const colors = useColors();
   const t = useT();
   const { settings } = useApp();
@@ -48,6 +51,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
 
   return (
     <TouchableOpacity
+      ref={ref}
       onPress={() => {
         if (showActions) {
           setShowActions(false);
@@ -188,7 +192,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
       )}
     </TouchableOpacity>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: {

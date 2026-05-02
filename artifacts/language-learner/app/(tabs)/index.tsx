@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
+  type View as RNView,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,6 +20,71 @@ import { useApp } from "@/context/AppContext";
 import { TextCard } from "@/components/TextCard";
 import { useT } from "@/utils/i18n";
 import type { LearningText } from "@/types";
+
+type TextCardRowProps = {
+  item: LearningText;
+  stagesPassed: boolean[] | undefined;
+  onDelete: () => void;
+  onRename: () => void;
+};
+
+function TextCardRow({ item, stagesPassed, onDelete, onRename }: TextCardRowProps) {
+  // TouchableOpacity forwards its ref to the underlying View, which exposes
+  // the NativeMethods (including `measureInWindow`).
+  const cardRef = useRef<RNView | null>(null);
+  const navigatingRef = useRef(false);
+
+  const handlePress = useCallback(() => {
+    if (navigatingRef.current) return;
+
+    const goPlain = () => {
+      navigatingRef.current = true;
+      router.push({ pathname: "/practice", params: { id: item.id } });
+      setTimeout(() => {
+        navigatingRef.current = false;
+      }, 600);
+    };
+
+    const node = cardRef.current;
+    if (Platform.OS === "web" || !node || typeof node.measureInWindow !== "function") {
+      goPlain();
+      return;
+    }
+
+    node.measureInWindow((x: number, y: number, width: number, height: number) => {
+      if (!width || !height || Number.isNaN(x) || Number.isNaN(y)) {
+        goPlain();
+        return;
+      }
+      navigatingRef.current = true;
+      router.push({
+        pathname: "/practice",
+        params: {
+          id: item.id,
+          oX: String(Math.round(x)),
+          oY: String(Math.round(y)),
+          oW: String(Math.round(width)),
+          oH: String(Math.round(height)),
+          oR: "16",
+        },
+      });
+      setTimeout(() => {
+        navigatingRef.current = false;
+      }, 600);
+    });
+  }, [item.id]);
+
+  return (
+    <TextCard
+      ref={cardRef}
+      item={item}
+      onPress={handlePress}
+      onDelete={onDelete}
+      onRename={onRename}
+      stagesPassed={stagesPassed}
+    />
+  );
+}
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -96,12 +162,11 @@ export default function HomeScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.list, { paddingBottom: bottomPad }]}
           renderItem={({ item }) => (
-            <TextCard
+            <TextCardRow
               item={item}
-              onPress={() => router.push({ pathname: "/practice", params: { id: item.id } })}
+              stagesPassed={getStagesPassed(item)}
               onDelete={() => openDelete(item)}
               onRename={() => openRename(item)}
-              stagesPassed={getStagesPassed(item)}
             />
           )}
           showsVerticalScrollIndicator={false}
