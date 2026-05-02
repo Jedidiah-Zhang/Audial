@@ -9,7 +9,6 @@ import {
   Text,
   TouchableOpacity,
   View,
-  findNodeHandle,
 } from "react-native";
 import { Check, Play, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -410,25 +409,83 @@ export function ShadowSentenceFlow({
   );
 
   // Auto-scroll the current sentence into view whenever currentIdx changes.
+  //
+  // Why not `row.measureLayout(contentHandle, …)`?
+  //   - On the New Architecture (Fabric), calling `measureLayout` on a
+  //     `Pressable` ref throws "ref.measureLayout must be called with a ref
+  //     to a native component", which on mobile shows up as a red console
+  //     error banner.
+  //   - On `react-native-web`, the `Pressable` ref is a DOM element that
+  //     doesn't expose `measureLayout` at all, so the call throws a
+  //     synchronous TypeError that the surrounding `try/catch` *does*
+  //     catch — but earlier RN versions surfaced the failure path through
+  //     internal validation that bubbled up to the ErrorBoundary anyway,
+  //     producing the "Something went wrong" screen on Edge.
+  //
+  // Instead, we use `measureInWindow` on both the row and the content view
+  // and subtract to recover the row's offset within the scroll content.
+  // `measureInWindow` is implemented on both `react-native` (native) and
+  // `react-native-web`. As a final web safety net, we fall back to
+  // `Element.scrollIntoView` if the ref happens to be a plain DOM node
+  // without `measureInWindow`. Every callback is wrapped so a measurement
+  // failure can never propagate up to the ErrorBoundary or trigger a dev
+  // console error.
   useEffect(() => {
     const row = rowRefs.current.get(currentIdx);
     const sv = scrollRef.current;
     const content = contentRef.current;
     if (!row || !sv || !content) return;
-    const contentHandle = findNodeHandle(content);
-    if (contentHandle == null) return;
-    // Defer one frame so layout has settled after state changes.
+
+    type MeasureFn = (
+      cb: (x: number, y: number, w: number, h: number) => void
+    ) => void;
+    type WebScrollFn = (opts?: { behavior?: string; block?: string }) => void;
+
+    const rowAny = row as unknown as {
+      measureInWindow?: MeasureFn;
+      scrollIntoView?: WebScrollFn;
+    };
+    const contentAny = content as unknown as { measureInWindow?: MeasureFn };
+
+    // Defer one frame so layout has settled after the state change that
+    // triggered the scroll (new currentIdx, new row colors, etc.).
     const tid = setTimeout(() => {
       try {
-        row.measureLayout(
-          contentHandle,
-          (_x, y) => {
-            sv.scrollTo({ y: Math.max(0, y - 24), animated: true });
-          },
-          () => {}
-        );
+        if (
+          typeof rowAny.measureInWindow === "function" &&
+          typeof contentAny.measureInWindow === "function"
+        ) {
+          contentAny.measureInWindow((_cx, cy) => {
+            try {
+              if (!Number.isFinite(cy)) return;
+              rowAny.measureInWindow!((_rx, ry) => {
+                try {
+                  if (!Number.isFinite(ry)) return;
+                  // ry - cy is the row's offset within the scroll content,
+                  // independent of the current scroll position because both
+                  // window-y values shift by the same amount as we scroll.
+                  const target = Math.max(0, ry - cy - 24);
+                  sv.scrollTo({ y: target, animated: true });
+                } catch {
+                  /* swallow — best-effort scroll */
+                }
+              });
+            } catch {
+              /* swallow — best-effort scroll */
+            }
+          });
+          return;
+        }
+
+        // Web fallback when measureInWindow is unavailable on the host node.
+        if (
+          Platform.OS === "web" &&
+          typeof rowAny.scrollIntoView === "function"
+        ) {
+          rowAny.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       } catch {
-        /* swallow — best-effort */
+        /* swallow — never bubble layout failures to ErrorBoundary */
       }
     }, 50);
     return () => clearTimeout(tid);
