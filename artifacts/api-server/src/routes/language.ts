@@ -127,6 +127,70 @@ router.post("/language/translate", requireDeepseek, async (req, res) => {
   }
 });
 
+router.post("/language/process-manual", requireDeepseek, async (req, res) => {
+  try {
+    const { text, targetLanguage, nativeLanguage } = req.body as {
+      text: string;
+      targetLanguage: string;
+      nativeLanguage: string;
+    };
+
+    if (!text || !text.trim()) {
+      res.status(400).json({ success: false, error: "Empty text" });
+      return;
+    }
+
+    const response = await deepseek.chat.completions.create({
+      model: DEEPSEEK_MODEL,
+      max_completion_tokens: 2000,
+      messages: [
+        {
+          role: "system",
+          content: `You are a language learning assistant. The user provided a piece of text. Your job is to:
+1. Detect what language the input is written in.
+2. Produce a natural, fluent version in ${targetLanguage} (the learning target).
+   - If the input is already in ${targetLanguage}, lightly normalize it but keep the wording intact.
+   - Otherwise, translate it into idiomatic ${targetLanguage}.
+3. Produce a natural translation in ${nativeLanguage} (the user's native language).
+   - If the input is already in ${nativeLanguage}, you may use it (lightly cleaned) as the translation.
+4. Assess the difficulty level of the resulting ${targetLanguage} text on the CEFR scale, choosing exactly one of:
+   - "beginner" (A1-A2): very simple sentences, common everyday words.
+   - "elementary" (A2-B1): simple sentences, everyday topics.
+   - "intermediate" (B1-B2): moderate complexity, varied vocabulary.
+   - "advanced" (C1-C2): complex grammar, idiomatic expressions, sophisticated vocabulary.
+
+Preserve line breaks, paragraph breaks, and any "Speaker:" prefixes for dialogue in both versions.
+
+Return JSON only:
+{
+  "targetText": "...",      // text in ${targetLanguage}
+  "nativeText": "...",      // text in ${nativeLanguage}
+  "difficulty": "beginner" | "elementary" | "intermediate" | "advanced"
+}`,
+        },
+        { role: "user", content: text },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content ?? "{}";
+    const data = JSON.parse(content);
+    const allowed = ["beginner", "elementary", "intermediate", "advanced"];
+    const difficulty = allowed.includes(data.difficulty) ? data.difficulty : "intermediate";
+    res.json({
+      success: true,
+      data: {
+        targetText: typeof data.targetText === "string" ? data.targetText : text,
+        nativeText: typeof data.nativeText === "string" ? data.nativeText : "",
+        difficulty,
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "Process manual failed");
+    res.status(500).json({ success: false, error: "Processing failed" });
+  }
+});
+
 router.post("/language/word-detail", requireDeepseek, async (req, res) => {
   try {
     const { word, targetLanguage, language } = req.body as {

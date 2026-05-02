@@ -146,25 +146,40 @@ export default function GenerateScreen() {
       return;
     }
 
-    const finalText = manualText.trim();
+    const inputText = manualText.trim();
     setIsTranslating(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
+    let finalText = inputText;
     let translation = "";
+    let detectedDifficulty: Difficulty = "intermediate";
     try {
-      const resp = await fetch(`${BASE_URL}/api/language/translate`, {
+      const resp = await fetch(`${BASE_URL}/api/language/process-manual`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: finalText,
-          fromLanguage: targetLangObj.english,
-          toLanguage: nativeLangObj.english,
+          text: inputText,
+          targetLanguage: targetLangObj.english,
+          nativeLanguage: nativeLangObj.english,
         }),
       });
-      const result = (await resp.json()) as { success: boolean; data?: { translation?: string } };
-      if (result.success) translation = result.data?.translation ?? "";
+      const result = (await resp.json()) as {
+        success: boolean;
+        data?: { targetText?: string; nativeText?: string; difficulty?: Difficulty };
+      };
+      if (result.success && result.data) {
+        if (result.data.targetText && result.data.targetText.trim()) {
+          finalText = result.data.targetText.trim();
+        }
+        translation = result.data.nativeText?.trim() ?? "";
+        if (result.data.difficulty) detectedDifficulty = result.data.difficulty;
+      } else {
+        Alert.alert(t("common.error"), t("generate.alert.failed"));
+        return;
+      }
     } catch {
-      // proceed without translation if network fails
+      Alert.alert(t("common.error"), t("generate.alert.failed"));
+      return;
     } finally {
       setIsTranslating(false);
     }
@@ -176,7 +191,7 @@ export default function GenerateScreen() {
       translation,
       vocabulary: [],
       topic: t("topic.custom"),
-      difficulty,
+      difficulty: detectedDifficulty,
       targetLanguage,
       nativeLanguage,
       createdAt: Date.now(),
@@ -372,31 +387,31 @@ export default function GenerateScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.field}>
-          <Text style={[styles.label, labelStyle]}>{t("generate.label.difficulty")}</Text>
-          <View style={styles.diffRow}>
-            {(["beginner", "elementary", "intermediate", "advanced"] as Difficulty[]).map((d) => (
-              <TouchableOpacity
-                key={d}
-                onPress={() => setDifficulty(d)}
-                style={[
-                  styles.diffChip,
-                  {
-                    backgroundColor: difficulty === d ? colors.primary : colors.muted,
-                    flex: 1,
-                  },
-                ]}
-              >
-                <Text style={{ color: difficulty === d ? "#fff" : colors.foreground, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center" }}>
-                  {getDifficultyLabel(d, nativeLanguage)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
         {mode === "ai" ? (
           <>
+            <View style={styles.field}>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.difficulty")}</Text>
+              <View style={styles.diffRow}>
+                {(["beginner", "elementary", "intermediate", "advanced"] as Difficulty[]).map((d) => (
+                  <TouchableOpacity
+                    key={d}
+                    onPress={() => setDifficulty(d)}
+                    style={[
+                      styles.diffChip,
+                      {
+                        backgroundColor: difficulty === d ? colors.primary : colors.muted,
+                        flex: 1,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: difficulty === d ? "#fff" : colors.foreground, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center" }}>
+                      {getDifficultyLabel(d, nativeLanguage)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
             <View style={styles.field}>
               <Text style={[styles.label, labelStyle]}>{t("generate.label.topic")}</Text>
               <TextInput
@@ -466,18 +481,18 @@ export default function GenerateScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={[styles.label, labelStyle]}>{t("generate.label.text")}</Text>
+              <Text style={[styles.label, labelStyle]}>{t("generate.label.manualText")}</Text>
               <TextInput
                 style={[styles.textarea, inputStyle]}
                 value={manualText}
                 onChangeText={setManualText}
-                placeholder={t("generate.placeholder.text")}
+                placeholder={t("generate.placeholder.manualText")}
                 placeholderTextColor={colors.mutedForeground}
                 multiline
                 textAlignVertical="top"
               />
               <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: -2 }}>
-                {t("generate.translateNote", { lang: nativeLangObj.name })}
+                {t("generate.manualNote", { target: targetLangObj.name })}
               </Text>
             </View>
 
