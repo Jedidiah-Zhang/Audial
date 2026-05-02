@@ -561,23 +561,10 @@ export function ShadowSentenceFlow({
     setPhase("full-read-intro");
   }, [phase, player, recordingPlayer, clearPlaybackWatchdog]);
 
-  // Whether the user has heard every sentence at least once. Used both
-  // by the per-sentence loop UI (to enable the "continue" CTA) and by
-  // the auto-advance effect right below.
-  const allListened = states.length > 0 && states.every((s) => s.listened);
-
-  // The transition into the full-read intro is now ENTIRELY manual:
-  // once every sentence has been heard at least once, the
-  // "Start full read" CTA below unlocks and the user must tap it to
-  // move on. We deliberately do NOT auto-advance based on
-  // `allListened` — doing so robbed users of the chance to record /
-  // replay the final sentence (the moment the last TTS finished, the
-  // screen would jump away). Keeping the CTA as the single entry
-  // point keeps the "listen → optionally record → tap continue"
-  // rhythm consistent across every sentence, including the last one,
-  // and also fixes the return-trip case where re-listening to the
-  // last sentence after backing out of the intro would re-trigger
-  // the jump.
+  // The "Read the full passage" CTA is always available — users can
+  // jump into the full read at any time, even before listening to any
+  // sentence. The per-sentence loop is now optional warm-up rather
+  // than a gating requirement.
 
   const playFullPassage = useCallback(() => {
     cancelFullPlay();
@@ -990,10 +977,6 @@ export function ShadowSentenceFlow({
   }
 
   // ── per-sentence loop screen ──────────────────────────────────────────
-  // `allListened` and the auto-advance effect that consumes it have
-  // been hoisted up next to `enterFullReadIntro` so that no hooks live
-  // after the early returns above. See the comment block at that
-  // declaration for the full story.
   const loopHint =
     phase === "recording"
       ? t("session.shadow.stopHint")
@@ -1234,12 +1217,12 @@ export function ShadowSentenceFlow({
           up until the user explicitly taps continue. */}
       <TouchableOpacity
         onPress={enterFullReadIntro}
-        disabled={!allListened || phase === "recording"}
+        disabled={phase === "recording"}
         style={[
           styles.fullReadCta,
           {
-            backgroundColor: allListened ? accentColor : accentColor + "55",
-            opacity: !allListened || phase === "recording" ? 0.6 : 1,
+            backgroundColor: accentColor,
+            opacity: phase === "recording" ? 0.6 : 1,
           },
         ]}
         activeOpacity={0.85}
@@ -1247,11 +1230,6 @@ export function ShadowSentenceFlow({
         <Headphones size={18} color="#fff" />
         <Text style={styles.fullReadCtaText}>{t("session.shadow.startFullRead")}</Text>
       </TouchableOpacity>
-      {!allListened ? (
-        <Text style={[styles.fullReadHint, { color: colors.mutedForeground }]}>
-          {t("session.shadow.fullReadHint")}
-        </Text>
-      ) : null}
 
       {micPermissionModal}
     </View>
@@ -1695,12 +1673,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_700Bold",
     letterSpacing: 0.3,
-  },
-  fullReadHint: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    marginTop: -4,
   },
   centerBox: {
     alignItems: "center",
