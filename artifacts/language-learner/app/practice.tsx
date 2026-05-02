@@ -114,7 +114,16 @@ export default function PracticeScreen() {
   // from this so they crossfade exactly in sync — no blank/white-box moment
   // and no stretched-text moment in the middle of the animation.
   const progressSV = useSharedValue(hasGeom ? 0 : 1);
-  const [overlayMounted, setOverlayMounted] = useState(hasGeom);
+  // The overlay mounts once when this screen opens with a geometry param and
+  // then stays mounted for the lifetime of the screen. We deliberately do NOT
+  // unmount it when the open animation completes: on Android, tearing down
+  // the overlay's view tree in the same React commit as the animation
+  // finishing produces a one-frame flash even though the overlay is already
+  // at opacity 0. Leaving it mounted with `pointerEvents="none"` and
+  // `bgOp === 0` at p=1 is invisible and free, and avoids that flash. It
+  // also means the close animation can re-use the same view (no remount
+  // before the reverse interpolation starts).
+  const [overlayMounted] = useState(hasGeom);
   const closingRef = useRef(false);
 
   useEffect(() => {
@@ -125,9 +134,8 @@ export default function PracticeScreen() {
       progressSV.value = withTiming(
         1,
         { duration: OPEN_DURATION, easing: OPEN_EASING },
-        (finished) => {
-          if (finished) runOnJS(setOverlayMounted)(false);
-        },
+        // No completion callback — we intentionally leave the overlay
+        // mounted (see `overlayMounted` comment above).
       );
     });
     return () => cancelAnimationFrame(handle);
@@ -138,9 +146,6 @@ export default function PracticeScreen() {
     (onDone: () => void) => {
       if (closingRef.current) return;
       closingRef.current = true;
-      // Make sure the overlay is mounted again before reversing the timing —
-      // it may have unmounted at the end of the open animation.
-      setOverlayMounted(true);
       progressSV.value = withTiming(
         0,
         { duration: CLOSE_DURATION, easing: CLOSE_EASING },
@@ -159,7 +164,16 @@ export default function PracticeScreen() {
       if (closingRef.current) return; // already animating, allow it.
       e.preventDefault();
       runCloseAnimation(() => {
-        navigation.dispatch(e.data.action);
+        // Wait one extra frame before handing control to the navigator.
+        // The reanimated completion callback fires on the JS thread in the
+        // same tick as this dispatch, so without the rAF Android composites
+        // the (already-cleared) practice content with the still-visible
+        // overlay during the navigation tear-down, producing a flash on
+        // the home screen's first frame. Deferring lets the final clean
+        // overlay-only frame paint first; the home screen then takes over.
+        requestAnimationFrame(() => {
+          navigation.dispatch(e.data.action);
+        });
       });
     });
     return sub;
@@ -232,9 +246,15 @@ export default function PracticeScreen() {
   // Practice screen body crossfades in (open) / out (close) inside the
   // window where the snapshot is fading out, so the user always sees one
   // layer or the other and never a blank screen.
+  //
+  // The fade-in completes at p=0.85, exactly where the overlay's background
+  // begins to fade out. That ordering is important on Android: if the
+  // content is still <1.0 while the overlay is already <1.0 (the previous
+  // 0.85–0.9 window), the two semi-transparent layers composite into a
+  // visibly muddy frame just before the overlay disappears.
   const contentStyle = useAnimatedStyle(() => {
     const p = progressSV.value;
-    const op = p <= 0.4 ? 0 : p >= 0.9 ? 1 : (p - 0.4) / 0.5;
+    const op = p <= 0.4 ? 0 : p >= 0.85 ? 1 : (p - 0.4) / 0.45;
     return { opacity: op };
   });
 
@@ -448,6 +468,13 @@ export default function PracticeScreen() {
       {hasGeom && overlayMounted && initialGeom && (
         <Animated.View
           pointerEvents="none"
+          // Composite the panel + the snapshot inside as a single offscreen
+          // texture before blending over the practice content. Without this,
+          // Android alpha-blends each child View independently against the
+          // underlying content, which produces visible seams during the
+          // open/close crossfade and a flash on the very last frame.
+          renderToHardwareTextureAndroid
+          needsOffscreenAlphaCompositing
           style={[
             styles.overlay,
             {
