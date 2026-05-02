@@ -1,6 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Platform } from "react-native";
 import { AudioModule, RecordingPresets, useAudioRecorder as useExpoAudioRecorder } from "expo-audio";
+import {
+  getCachedTTSUri,
+  writeCachedTTS,
+  registerArticleAudio,
+} from "@/utils/ttsCache";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -37,8 +42,27 @@ async function fetchTTS(text: string, voice: string): Promise<ArrayBuffer> {
   }
 }
 
-export async function prefetchTTS(text: string, voice: string): Promise<void> {
+export async function prefetchTTS(
+  text: string,
+  voice: string,
+  opts?: { userId?: string | null; articleId?: string | null }
+): Promise<void> {
   try {
+    if (Platform.OS !== "web") {
+      const cached = await getCachedTTSUri(text, voice);
+      if (cached) {
+        if (opts?.userId && opts?.articleId) {
+          registerArticleAudio(opts.userId, opts.articleId, text, voice);
+        }
+        return;
+      }
+      const buffer = await fetchTTS(text, voice);
+      const written = await writeCachedTTS(text, voice, buffer);
+      if (written && opts?.userId && opts?.articleId) {
+        registerArticleAudio(opts.userId, opts.articleId, text, voice);
+      }
+      return;
+    }
     await fetchTTS(text, voice);
   } catch {
     /* silent prefetch failure */
@@ -58,13 +82,20 @@ function _arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-export function useAudioPlayer() {
+export function useAudioPlayer(opts?: {
+  articleId?: string | null;
+  userId?: string | null;
+}) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const expoPlayerRef = useRef<any>(null);
   const currentRateRef = useRef<number>(1);
+  const articleIdRef = useRef<string | null | undefined>(opts?.articleId);
+  const userIdRef = useRef<string | null | undefined>(opts?.userId);
+  articleIdRef.current = opts?.articleId;
+  userIdRef.current = opts?.userId;
 
   const cleanupCurrent = useCallback(() => {
     if (audioRef.current) {
@@ -105,15 +136,14 @@ export function useAudioPlayer() {
         cleanupCurrent();
         setIsPlaying(false);
 
-        const key = cacheKey(text, voice);
-        const wasCached = audioCache.has(key);
-        if (!wasCached) setIsLoading(true);
-
-        const buffer = await fetchTTS(text, voice);
         const playbackRate = rate ?? currentRateRef.current;
         currentRateRef.current = playbackRate;
 
         if (Platform.OS === "web") {
+          const key = cacheKey(text, voice);
+          const wasCached = audioCache.has(key);
+          if (!wasCached) setIsLoading(true);
+          const buffer = await fetchTTS(text, voice);
           const blob = new Blob([buffer], { type: "audio/mpeg" });
           const url = URL.createObjectURL(blob);
           const audio = new Audio();
@@ -187,20 +217,53 @@ export function useAudioPlayer() {
           }
         } else {
           const { createAudioPlayer } = await import("expo-audio");
-          const FileSystem = await import("expo-file-system");
-          let uri: string;
-          try {
-            const { File, Paths } = FileSystem as any;
-            const file = new File(Paths.cache, `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
-            try { file.delete(); } catch {}
-            file.create();
-            file.write(new Uint8Array(buffer));
-            uri = file.uri;
-          } catch {
-            const base64 = _arrayBufferToBase64(buffer);
-            uri = `data:audio/mpeg;base64,${base64}`;
+          let uri: string | null = await getCachedTTSUri(text, voice);
+          if (uri) {
+            if (userIdRef.current && articleIdRef.current) {
+              registerArticleAudio(
+                userIdRef.current,
+                articleIdRef.current,
+                text,
+                voice
+              );
+            }
+          } else {
+            const memKey = cacheKey(text, voice);
+            const wasMem = audioCache.has(memKey);
+            if (!wasMem) setIsLoading(true);
+            const buffer = await fetchTTS(text, voice);
+            const written = await writeCachedTTS(text, voice, buffer);
+            if (written) {
+              uri = written.uri;
+              if (userIdRef.current && articleIdRef.current) {
+                registerArticleAudio(
+                  userIdRef.current,
+                  articleIdRef.current,
+                  text,
+                  voice
+                );
+              }
+            } else {
+              // Last-resort fallback: ephemeral cache file or data URI so
+              // playback still works when the persistent write failed.
+              try {
+                const FileSystem = await import("expo-file-system");
+                const { File, Paths } = FileSystem as any;
+                const file = new File(
+                  Paths.cache,
+                  `tts-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`
+                );
+                try { file.delete(); } catch {}
+                file.create();
+                file.write(new Uint8Array(buffer));
+                uri = file.uri;
+              } catch {
+                const base64 = _arrayBufferToBase64(buffer);
+                uri = `data:audio/mpeg;base64,${base64}`;
+              }
+            }
           }
-          const player = createAudioPlayer({ uri });
+          const player = createAudioPlayer({ uri: uri! });
           expoPlayerRef.current = player;
           try {
             if (typeof player.setPlaybackRate === "function") {
