@@ -11,7 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { Check, ChevronRight, X } from "lucide-react-native";
 import { router } from "expo-router";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
@@ -20,6 +20,7 @@ import { useT, getDifficultyLabel } from "@/utils/i18n";
 import { LANGUAGES, VOICE_OPTIONS } from "@/types";
 import type { Difficulty } from "@/types";
 import { getFlag } from "@/utils/flags";
+import { Icon, type IconName } from "@/components/Icon";
 
 const SUPPORTED_UI = new Set([
   "en", "zh", "ja", "ko", "es", "fr", "de", "ru", "hu",
@@ -147,7 +148,7 @@ export default function SettingsScreen() {
                   : t("settings.difficulty")}
               </Text>
               <TouchableOpacity onPress={closePicker} hitSlop={10}>
-                <Feather name="x" size={20} color={colors.mutedForeground} />
+                <X size={20} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
 
@@ -176,7 +177,7 @@ export default function SettingsScreen() {
                           {item.english}{!supported ? "  ·  English UI" : ""}
                         </Text>
                       </View>
-                      {selected && <Feather name="check" size={18} color={colors.primary} />}
+                      {selected && <Check size={18} color={colors.primary} />}
                     </TouchableOpacity>
                   );
                 }}
@@ -207,7 +208,7 @@ export default function SettingsScreen() {
                           {item.english}
                         </Text>
                       </View>
-                      {selected && <Feather name="check" size={18} color={colors.primary} />}
+                      {selected && <Check size={18} color={colors.primary} />}
                     </TouchableOpacity>
                   );
                 }}
@@ -238,7 +239,7 @@ export default function SettingsScreen() {
                           {item.description}
                         </Text>
                       </View>
-                      {selected && <Feather name="check" size={18} color={colors.primary} />}
+                      {selected && <Check size={18} color={colors.primary} />}
                     </TouchableOpacity>
                   );
                 }}
@@ -264,7 +265,7 @@ export default function SettingsScreen() {
                           {getDifficultyLabel(item, lang)}
                         </Text>
                       </View>
-                      {selected && <Feather name="check" size={18} color={colors.primary} />}
+                      {selected && <Check size={18} color={colors.primary} />}
                     </TouchableOpacity>
                   );
                 }}
@@ -304,7 +305,7 @@ function Row({
   onPress,
 }: {
   colors: ReturnType<typeof useColors>;
-  icon: keyof typeof Feather.glyphMap;
+  icon: IconName;
   label: string;
   value: string;
   onPress?: () => void;
@@ -316,7 +317,7 @@ function Row({
       style={[styles.itemRow, { borderBottomColor: colors.border }]}
     >
       <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-        <Feather name={icon} size={16} color={colors.primary} />
+        <Icon name={icon} size={16} color={colors.primary} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>
@@ -324,7 +325,7 @@ function Row({
       <Text style={[styles.itemValue, { color: colors.mutedForeground }]} numberOfLines={1}>
         {value}
       </Text>
-      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      <ChevronRight size={18} color={colors.mutedForeground} />
     </TouchableOpacity>
   );
 }
@@ -338,7 +339,7 @@ function ToggleRow({
   onValueChange,
 }: {
   colors: ReturnType<typeof useColors>;
-  icon: keyof typeof Feather.glyphMap;
+  icon: IconName;
   label: string;
   description?: string;
   value: boolean;
@@ -347,7 +348,7 @@ function ToggleRow({
   return (
     <View style={[styles.itemRow, { borderBottomColor: colors.border }]}>
       <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-        <Feather name={icon} size={16} color={colors.primary} />
+        <Icon name={icon} size={16} color={colors.primary} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>

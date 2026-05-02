@@ -4,7 +4,7 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
-import { useFonts, loadAsync, isLoaded } from "expo-font";
+import { useFonts } from "expo-font";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -48,31 +48,13 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    Feather: require("../assets/fonts/Feather.ttf"),
-    feather: require("../assets/fonts/Feather.ttf"),
   });
 
   useEffect(() => {
-    console.log("[fonts] useFonts state:", { fontsLoaded, fontError: fontError?.message });
-    console.log("[fonts] isLoaded(feather):", isLoaded("feather"));
-    console.log("[fonts] isLoaded(Feather):", isLoaded("Feather"));
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
-
-  useEffect(() => {
-    loadAsync({
-      feather: require("../assets/fonts/Feather.ttf"),
-      Feather: require("../assets/fonts/Feather.ttf"),
-    })
-      .then(() => {
-        console.log("[fonts] explicit loadAsync OK; isLoaded(feather)=", isLoaded("feather"));
-      })
-      .catch((e) => {
-        console.log("[fonts] explicit loadAsync FAILED:", String(e));
-      });
-  }, []);
 
   useEffect(() => {
     if (Platform.OS === "web") return;

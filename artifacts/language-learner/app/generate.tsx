@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { ArrowLeft, Check, ChevronDown, Edit3, RefreshCw, Save, Zap } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -22,6 +22,7 @@ import { LANGUAGES } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
 import { detectContentType, isContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, TOPIC_KEYS } from "@/utils/i18n";
+import { Icon, type IconName } from "@/components/Icon";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -195,7 +196,7 @@ export default function GenerateScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={handleDiscardDraft} style={styles.backBtn} activeOpacity={0.7}>
-            <Feather name="arrow-left" size={22} color={colors.foreground} />
+            <ArrowLeft size={22} color={colors.foreground} />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.preview.headerTitle")}</Text>
           <View style={{ width: 36 }} />
@@ -207,7 +208,7 @@ export default function GenerateScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.previewBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
-            <Feather name="edit-3" size={14} color={colors.primary} />
+            <Edit3 size={14} color={colors.primary} />
             <Text style={[styles.previewBannerText, { color: colors.primary }]}>
               {t("generate.preview.banner")}
             </Text>
@@ -282,7 +283,7 @@ export default function GenerateScreen() {
               {isGenerating ? (
                 <ActivityIndicator size="small" color={colors.foreground} />
               ) : (
-                <Feather name="refresh-cw" size={16} color={colors.foreground} />
+                <RefreshCw size={16} color={colors.foreground} />
               )}
               <Text style={[styles.regenerateBtnText, { color: colors.foreground }]}>
                 {isGenerating ? t("generate.btn.generating") : t("generate.preview.regenerate")}
@@ -294,7 +295,7 @@ export default function GenerateScreen() {
               style={[styles.confirmBtn, { backgroundColor: colors.primary }]}
               activeOpacity={0.85}
             >
-              <Feather name="check" size={18} color="#fff" />
+              <Check size={18} color="#fff" />
               <Text style={styles.confirmBtnText}>{t("generate.preview.confirm")}</Text>
             </TouchableOpacity>
           </View>
@@ -308,7 +309,7 @@ export default function GenerateScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <Feather name="arrow-left" size={22} color={colors.foreground} />
+          <ArrowLeft size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.title")}</Text>
         <View style={{ width: 36 }} />
@@ -325,7 +326,7 @@ export default function GenerateScreen() {
             ]}
             activeOpacity={0.8}
           >
-            <Feather
+            <Icon
               name={m === "ai" ? "cpu" : "edit-3"}
               size={14}
               color={mode === m ? "#fff" : colors.mutedForeground}
@@ -366,7 +367,7 @@ export default function GenerateScreen() {
                 {targetLangObj.english}
               </Text>
             </View>
-            <Feather name="chevron-down" size={18} color={colors.mutedForeground} />
+            <ChevronDown size={18} color={colors.mutedForeground} />
           </TouchableOpacity>
         </View>
 
@@ -444,7 +445,7 @@ export default function GenerateScreen() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Feather name="zap" size={18} color="#fff" />
+                  <Zap size={18} color="#fff" />
                   <Text style={styles.generateBtnText}>{t("generate.btn.generate")}</Text>
                 </>
               )}
@@ -492,7 +493,7 @@ export default function GenerateScreen() {
                 </>
               ) : (
                 <>
-                  <Feather name="save" size={18} color="#fff" />
+                  <Save size={18} color="#fff" />
                   <Text style={styles.generateBtnText}>{t("generate.btn.save")}</Text>
                 </>
               )}
@@ -552,7 +553,7 @@ export default function GenerateScreen() {
                       </Text>
                     </View>
                     {selected && (
-                      <Feather name="check" size={18} color={colors.primary} />
+                      <Check size={18} color={colors.primary} />
                     )}
                   </TouchableOpacity>
                 );

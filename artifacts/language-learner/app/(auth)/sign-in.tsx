@@ -15,7 +15,7 @@ import * as AuthSession from "expo-auth-session";
 import { useSignIn, useSSO, useAuth } from "@clerk/expo";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { User, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 
@@ -103,12 +103,12 @@ export default function SignInScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
-          <Feather name="x" size={22} color={colors.foreground} />
+          <X size={22} color={colors.foreground} />
         </TouchableOpacity>
 
         <View style={styles.heroBox}>
           <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
-            <Feather name="user" size={28} color={colors.primary} />
+            <User size={28} color={colors.primary} />
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>{t("auth.signIn.title")}</Text>
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>

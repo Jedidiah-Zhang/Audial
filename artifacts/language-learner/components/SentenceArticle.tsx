@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Info, PlayCircle, Square } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
 import { useAmbientPlayer } from "@/hooks/useAmbient";
@@ -11,6 +11,7 @@ import { VOICE_OPTIONS } from "@/types";
 import type { ContentType } from "@/types";
 import { detectContentType, parseDialogue, parseParagraphs, CONTENT_TYPE_META } from "@/utils/contentType";
 import { useT, getContentTypeLabel } from "@/utils/i18n";
+import { Icon, type IconName } from "@/components/Icon";
 
 interface SentenceArticleProps {
   text: string;
@@ -248,7 +249,7 @@ export function SentenceArticle({
             const meta = CONTENT_TYPE_META[effectiveType];
             const Badge = meta.showBadge ? (
               <View style={[styles.contentTypeBadge, { backgroundColor: accentColor + "18" }]}>
-                <Feather name={meta.icon as any} size={10} color={accentColor} />
+                <Icon name={meta.icon as any} size={10} color={accentColor} />
                 <Text style={[styles.contentTypeBadgeText, { color: accentColor }]}>
                   {getContentTypeLabel(effectiveType, settings.nativeLanguage)}
                 </Text>
@@ -337,7 +338,7 @@ export function SentenceArticle({
           </ScrollView>
 
           <View style={[styles.hintRow, { borderTopColor: colors.border }]}>
-            <Feather name="info" size={11} color={colors.mutedForeground} />
+            <Info size={11} color={colors.mutedForeground} />
             <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
               {t("sentence.hint", { n: playableSentences.length })}
             </Text>
@@ -437,7 +438,7 @@ export function SentenceArticle({
               style={[styles.bigBtn, { backgroundColor: "#EF4444" }]}
               activeOpacity={0.85}
             >
-              <Feather name="square" size={20} color="#fff" />
+              <Square size={20} color="#fff" />
               <Text style={styles.bigBtnText}>{t("sentence.stop")}</Text>
               <AudioWaveform isActive color="#fff" barCount={4} />
             </TouchableOpacity>
@@ -454,7 +455,7 @@ export function SentenceArticle({
               {isLoading ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Feather name="play-circle" size={22} color="#fff" />
+                <PlayCircle size={22} color="#fff" />
               )}
               <Text style={styles.bigBtnText}>
                 {isLoading ? t("sentence.loading") : t("sentence.playAll")}

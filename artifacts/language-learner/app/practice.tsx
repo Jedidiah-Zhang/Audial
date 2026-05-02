@@ -9,13 +9,14 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { ArrowLeft, Book, Check, ChevronRight, Lock, Star } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
 import { VocabularyList } from "@/components/VocabularyList";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
+import { Icon, type IconName } from "@/components/Icon";
 
 export default function PracticeScreen() {
   const colors = useColors();
@@ -63,7 +64,7 @@ export default function PracticeScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <Feather name="arrow-left" size={22} color={colors.foreground} />
+          <ArrowLeft size={22} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
           {text.title}
@@ -90,7 +91,7 @@ export default function PracticeScreen() {
               style={[styles.pillBtn, { borderColor: colors.border }]}
               activeOpacity={0.7}
             >
-              <Feather name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
+              <Icon name={showTranslation ? "eye-off" : "eye"} size={13} color={colors.mutedForeground} />
               <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
                 {showTranslation ? t("practice.translation.hide") : t("practice.translation.show")}
               </Text>
@@ -102,7 +103,7 @@ export default function PracticeScreen() {
               style={[styles.pillBtn, { borderColor: colors.border }]}
               activeOpacity={0.7}
             >
-              <Feather name="book" size={13} color={colors.mutedForeground} />
+              <Book size={13} color={colors.mutedForeground} />
               <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
                 {t("practice.vocab", { n: text.vocabulary.length })}
               </Text>
@@ -128,7 +129,7 @@ export default function PracticeScreen() {
 
         {allPassed && (
           <View style={[styles.masteredBanner, { backgroundColor: "#10B981" + "20", borderColor: "#10B981" }]}>
-            <Feather name="star" size={20} color="#10B981" />
+            <Star size={20} color="#10B981" />
             <View style={{ flex: 1 }}>
               <Text style={[styles.masteredTitle, { color: "#10B981" }]}>{t("practice.mastered.title")}</Text>
               <Text style={[styles.masteredSub, { color: "#10B981" + "CC" }]}>{t("practice.mastered.sub", { score: totalScore })}</Text>
@@ -187,11 +188,11 @@ export default function PracticeScreen() {
                     ]}
                   >
                     {passed ? (
-                      <Feather name="check" size={20} color="#fff" />
+                      <Check size={20} color="#fff" />
                     ) : locked ? (
-                      <Feather name="lock" size={18} color={colors.mutedForeground} />
+                      <Lock size={18} color={colors.mutedForeground} />
                     ) : (
-                      <Feather name={stage.icon as any} size={20} color={stage.color} />
+                      <Icon name={stage.icon as any} size={20} color={stage.color} />
                     )}
                   </View>
 
@@ -228,7 +229,7 @@ export default function PracticeScreen() {
                         <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>{t("practice.bestLabel")}</Text>
                       </View>
                     ) : locked ? null : (
-                      <Feather name="chevron-right" size={20} color={stage.color} />
+                      <ChevronRight size={20} color={stage.color} />
                     )}
                   </View>
                 </TouchableOpacity>

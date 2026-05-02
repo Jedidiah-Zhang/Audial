@@ -15,7 +15,7 @@ import * as AuthSession from "expo-auth-session";
 import { useSignUp, useSSO, useAuth } from "@clerk/expo";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { UserPlus, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 
@@ -115,12 +115,12 @@ export default function SignUpScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
-          <Feather name="x" size={22} color={colors.foreground} />
+          <X size={22} color={colors.foreground} />
         </TouchableOpacity>
 
         <View style={styles.heroBox}>
           <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
-            <Feather name="user-plus" size={28} color={colors.primary} />
+            <UserPlus size={28} color={colors.primary} />
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>
             {isVerifyStep ? t("auth.verify.title") : t("auth.signUp.title")}

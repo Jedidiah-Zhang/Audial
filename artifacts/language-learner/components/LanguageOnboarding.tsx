@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   Platform,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { ArrowRight, Check, Globe } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
@@ -39,7 +39,7 @@ export function LanguageOnboarding() {
       <View style={[styles.overlay, { backgroundColor: colors.background }]}>
         <View style={styles.inner}>
           <View style={[styles.iconCircle, { backgroundColor: colors.primary + "20" }]}>
-            <Feather name="globe" size={32} color={colors.primary} />
+            <Globe size={32} color={colors.primary} />
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>
             {t("onboarding.title")}
@@ -81,7 +81,7 @@ export function LanguageOnboarding() {
                         {!supported ? "  ·  English UI" : ""}
                       </Text>
                     </View>
-                    {isSelected && <Feather name="check" size={18} color={colors.primary} />}
+                    {isSelected && <Check size={18} color={colors.primary} />}
                   </TouchableOpacity>
                 );
               }}
@@ -94,7 +94,7 @@ export function LanguageOnboarding() {
             activeOpacity={0.85}
           >
             <Text style={styles.continueText}>{t("onboarding.continue")}</Text>
-            <Feather name="arrow-right" size={18} color="#fff" />
+            <ArrowRight size={18} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>

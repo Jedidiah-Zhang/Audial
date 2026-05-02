@@ -13,12 +13,13 @@ import {
   KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { ChevronLeft, ChevronRight, User } from "lucide-react-native";
 import { router } from "expo-router";
 import { useAuth, useUser, useClerk } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useT } from "@/utils/i18n";
+import { Icon, type IconName } from "@/components/Icon";
 
 type AccountModalKind = "username" | "password" | null;
 
@@ -69,7 +70,7 @@ export default function AccountScreen() {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 16 }]}>
         <TouchableOpacity onPress={goBack} style={styles.backBtn} hitSlop={10}>
-          <Feather name="chevron-left" size={26} color={colors.foreground} />
+          <ChevronLeft size={26} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.foreground }]}>
           {t("settings.section.account")}
@@ -99,7 +100,7 @@ export default function AccountScreen() {
             <Section title={t("auth.account.signedIn")} colors={colors}>
               <View style={[styles.itemRow, { borderBottomColor: colors.border }]}>
                 <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="user" size={16} color={colors.primary} />
+                  <User size={16} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[styles.itemLabel, { color: colors.foreground }]} numberOfLines={1}>
@@ -142,7 +143,7 @@ export default function AccountScreen() {
             <Section title={t("auth.local.activeLabel")} colors={colors}>
               <View style={[styles.itemRow, { borderBottomColor: colors.border }]}>
                 <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-                  <Feather name="user" size={16} color={colors.primary} />
+                  <User size={16} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[styles.itemLabel, { color: colors.foreground }]} numberOfLines={1}>
@@ -237,7 +238,7 @@ function Row({
   onPress,
 }: {
   colors: ReturnType<typeof useColors>;
-  icon: keyof typeof Feather.glyphMap;
+  icon: IconName;
   label: string;
   value?: string;
   onPress?: () => void;
@@ -249,7 +250,7 @@ function Row({
       style={[styles.itemRow, { borderBottomColor: colors.border }]}
     >
       <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-        <Feather name={icon} size={16} color={colors.primary} />
+        <Icon name={icon} size={16} color={colors.primary} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>
@@ -259,7 +260,7 @@ function Row({
           {value}
         </Text>
       ) : null}
-      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      <ChevronRight size={18} color={colors.mutedForeground} />
     </TouchableOpacity>
   );
 }
@@ -272,7 +273,7 @@ function RowWithDesc({
   onPress,
 }: {
   colors: ReturnType<typeof useColors>;
-  icon: keyof typeof Feather.glyphMap;
+  icon: IconName;
   label: string;
   description: string;
   onPress?: () => void;
@@ -284,7 +285,7 @@ function RowWithDesc({
       style={[styles.itemRow, { borderBottomColor: colors.border }]}
     >
       <View style={[styles.iconWrap, { backgroundColor: colors.primary + "15" }]}>
-        <Feather name={icon} size={16} color={colors.primary} />
+        <Icon name={icon} size={16} color={colors.primary} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.itemLabel, { color: colors.foreground }]}>{label}</Text>
@@ -292,7 +293,7 @@ function RowWithDesc({
           {description}
         </Text>
       </View>
-      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      <ChevronRight size={18} color={colors.mutedForeground} />
     </TouchableOpacity>
   );
 }
@@ -304,7 +305,7 @@ function DangerRow({
   onPress,
 }: {
   colors: ReturnType<typeof useColors>;
-  icon: keyof typeof Feather.glyphMap;
+  icon: IconName;
   label: string;
   onPress?: () => void;
 }) {
@@ -315,7 +316,7 @@ function DangerRow({
       style={[styles.itemRow, { borderBottomColor: colors.border }]}
     >
       <View style={[styles.iconWrap, { backgroundColor: colors.destructive + "15" }]}>
-        <Feather name={icon} size={16} color={colors.destructive} />
+        <Icon name={icon} size={16} color={colors.destructive} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.itemLabel, { color: colors.destructive }]}>{label}</Text>

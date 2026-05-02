@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { BookOpen, Plus } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { TextCard } from "@/components/TextCard";
@@ -78,13 +78,13 @@ export default function HomeScreen() {
           style={[styles.addBtn, { backgroundColor: colors.primary }]}
           activeOpacity={0.85}
         >
-          <Feather name="plus" size={22} color="#fff" />
+          <Plus size={22} color="#fff" />
         </TouchableOpacity>
       </View>
 
       {texts.length === 0 ? (
         <View style={styles.empty}>
-          <Feather name="book-open" size={48} color={colors.mutedForeground} />
+          <BookOpen size={48} color={colors.mutedForeground} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>{t("home.empty.title")}</Text>
           <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
             {t("home.empty.subtitle")}

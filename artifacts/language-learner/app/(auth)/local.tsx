@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { Edit2, Plus, Trash2, User, Users, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 import { useApp, type LocalAccount } from "@/context/AppContext";
@@ -97,12 +97,12 @@ export default function LocalAccountsScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
-          <Feather name="x" size={22} color={colors.foreground} />
+          <X size={22} color={colors.foreground} />
         </TouchableOpacity>
 
         <View style={styles.heroBox}>
           <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
-            <Feather name="users" size={28} color={colors.primary} />
+            <Users size={28} color={colors.primary} />
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>{t("auth.local.title")}</Text>
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
@@ -142,7 +142,7 @@ export default function LocalAccountsScreen() {
               ]}
               activeOpacity={0.85}
             >
-              <Feather name="plus" size={18} color={colors.primaryForeground} />
+              <Plus size={18} color={colors.primaryForeground} />
             </TouchableOpacity>
           </View>
         </View>
@@ -194,7 +194,7 @@ export default function LocalAccountsScreen() {
                           { backgroundColor: colors.primary + (active ? "30" : "15") },
                         ]}
                       >
-                        <Feather name="user" size={16} color={colors.primary} />
+                        <User size={16} color={colors.primary} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text
@@ -225,14 +225,14 @@ export default function LocalAccountsScreen() {
                       hitSlop={10}
                       style={{ padding: 6 }}
                     >
-                      <Feather name="edit-2" size={16} color={colors.mutedForeground} />
+                      <Edit2 size={16} color={colors.mutedForeground} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => onDelete(acc)}
                       hitSlop={10}
                       style={{ padding: 6 }}
                     >
-                      <Feather name="trash-2" size={16} color={colors.destructive} />
+                      <Trash2 size={16} color={colors.destructive} />
                     </TouchableOpacity>
                   </View>
                 );

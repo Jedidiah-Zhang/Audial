@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Play } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer } from "@/hooks/useAudio";
 import { useApp } from "@/context/AppContext";
 import type { VocabularyItem, LearningText } from "@/types";
 import { useT } from "@/utils/i18n";
+import { Icon, type IconName } from "@/components/Icon";
 
 interface Props {
   text: LearningText;
@@ -132,7 +133,7 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
                       },
                     ]}
                   >
-                    <Feather
+                    <Icon
                       name={isPlaying ? "volume-2" : "volume-1"}
                       size={13}
                       color={isPlaying ? "#fff" : colors.mutedForeground}
@@ -161,7 +162,7 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
               activeOpacity={0.7}
               style={styles.exampleToggle}
             >
-              <Feather
+              <Icon
                 name={isExpanded ? "chevron-up" : "chevron-down"}
                 size={13}
                 color={colors.mutedForeground}
@@ -185,7 +186,7 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
                         activeOpacity={0.7}
                         style={[styles.examplePlayBtn, { borderColor: colors.border }]}
                       >
-                        <Feather name="play" size={11} color={colors.primary} />
+                        <Play size={11} color={colors.primary} />
                         <Text style={[styles.examplePlayText, { color: colors.primary }]}>{t("vocab.read")}</Text>
                       </TouchableOpacity>
                     </View>

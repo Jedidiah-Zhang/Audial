@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Edit2, Play, Star, Trash2, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import type { LearningText } from "@/types";
 import { STAGES } from "@/types";
@@ -13,6 +13,7 @@ import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, getContentTypeLabel, getStageName } from "@/utils/i18n";
 import { useApp } from "@/context/AppContext";
 import { getFlag } from "@/utils/flags";
+import { Icon, type IconName } from "@/components/Icon";
 
 interface TextCardProps {
   item: LearningText;
@@ -73,7 +74,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
             </Text>
           </View>
           <View style={[styles.typeBadge, { backgroundColor: colors.primary + "18" }]}>
-            <Feather name={ctMeta.icon as any} size={10} color={colors.primary} />
+            <Icon name={ctMeta.icon as any} size={10} color={colors.primary} />
             <Text style={[styles.typeText, { color: colors.primary }]}>
               {getContentTypeLabel(ctype, lang)}
             </Text>
@@ -104,19 +105,19 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
 
         {allDone ? (
           <View style={[styles.progressBadge, { backgroundColor: "#10B981" + "20" }]}>
-            <Feather name="star" size={11} color="#10B981" />
+            <Star size={11} color="#10B981" />
             <Text style={[styles.progressText, { color: "#10B981" }]}>{t("card.mastered")}</Text>
           </View>
         ) : hasStarted ? (
           <View style={[styles.progressBadge, { backgroundColor: currentStage.color + "20" }]}>
-            <Feather name={currentStage.icon as any} size={11} color={currentStage.color} />
+            <Icon name={currentStage.icon as any} size={11} color={currentStage.color} />
             <Text style={[styles.progressText, { color: currentStage.color }]}>
               {t("card.stage", { n: passedCount + 1, name: getStageName(passedCount, lang) })}
             </Text>
           </View>
         ) : (
           <View style={[styles.progressBadge, { backgroundColor: colors.muted }]}>
-            <Feather name="play" size={11} color={colors.mutedForeground} />
+            <Play size={11} color={colors.mutedForeground} />
             <Text style={[styles.progressText, { color: colors.mutedForeground }]}>{t("card.start")}</Text>
           </View>
         )}
@@ -161,7 +162,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
                 onRename();
               }}
             >
-              <Feather name="edit-2" size={14} color="#fff" />
+              <Edit2 size={14} color="#fff" />
               <Text style={styles.actionText}>{t("rename.title")}</Text>
             </TouchableOpacity>
           )}
@@ -173,7 +174,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
                 onDelete();
               }}
             >
-              <Feather name="trash-2" size={14} color="#fff" />
+              <Trash2 size={14} color="#fff" />
               <Text style={styles.actionText}>{t("common.delete")}</Text>
             </TouchableOpacity>
           )}
@@ -181,7 +182,7 @@ export function TextCard({ item, onPress, onDelete, onRename, stagesPassed }: Te
             style={[styles.actionBtn, { backgroundColor: colors.muted }]}
             onPress={() => setShowActions(false)}
           >
-            <Feather name="x" size={14} color={colors.foreground} />
+            <X size={14} color={colors.foreground} />
           </TouchableOpacity>
         </View>
       )}

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Square, Target } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -23,6 +23,7 @@ import { SentenceArticle } from "@/components/SentenceArticle";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import type { LearningMode } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
+import { Icon, type IconName } from "@/components/Icon";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -208,7 +209,7 @@ export default function SessionScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <Feather name="arrow-left" size={22} color={colors.foreground} />
+          <ArrowLeft size={22} color={colors.foreground} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerStage, { color: stageColor }]}>
@@ -243,7 +244,7 @@ export default function SessionScreen() {
           <View style={styles.section}>
             <View style={[styles.introCard, { backgroundColor: colors.card, borderColor: stageColor + "40", borderWidth: 2 }]}>
               <View style={[styles.introBadge, { backgroundColor: stageColor + "20" }]}>
-                <Feather name={stage.icon as any} size={36} color={stageColor} />
+                <Icon name={stage.icon as any} size={36} color={stageColor} />
               </View>
               <Text style={[styles.introLabel, { color: stageColor }]}>
                 {t("practice.stageNum", { n: stageIdx + 1 })}
@@ -254,7 +255,7 @@ export default function SessionScreen() {
               </Text>
               {stage.needsScore && (
                 <View style={[styles.thresholdTag, { backgroundColor: colors.muted }]}>
-                  <Feather name="target" size={12} color={colors.mutedForeground} />
+                  <Target size={12} color={colors.mutedForeground} />
                   <Text style={[styles.thresholdText, { color: colors.mutedForeground }]}>
                     {t("session.intro.passRule", { n: STAGE_PASS_SCORE })}
                   </Text>
@@ -266,7 +267,7 @@ export default function SessionScreen() {
                 activeOpacity={0.85}
               >
                 <Text style={styles.startBtnText}>{t("session.intro.start")}</Text>
-                <Feather name="arrow-right" size={18} color="#fff" />
+                <ArrowRight size={18} color="#fff" />
               </TouchableOpacity>
             </View>
 
@@ -315,7 +316,7 @@ export default function SessionScreen() {
                 }]}
                 activeOpacity={0.85}
               >
-                <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
+                <Icon name={isRecording ? "square" : "mic"} size={32} color="#fff" />
               </TouchableOpacity>
               <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
                 {isRecording ? t("session.shadow.stopHint") : t("session.shadow.recordHint")}
@@ -328,7 +329,7 @@ export default function SessionScreen() {
         {phase === "study" && stageIdx === 1 && (
           <View style={styles.section}>
             <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
-              <Feather name="eye-off" size={28} color={colors.mutedForeground} />
+              <EyeOff size={28} color={colors.mutedForeground} />
               <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>{t("session.dictation.hiddenTitle")}</Text>
               <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
                 {t("session.dictation.hiddenSub")}
@@ -365,7 +366,7 @@ export default function SessionScreen() {
               }]}
               activeOpacity={0.85}
             >
-              <Feather name="check" size={20} color="#fff" />
+              <Check size={20} color="#fff" />
               <Text style={styles.submitBtnText}>{t("session.dictation.submit")}</Text>
             </TouchableOpacity>
           </View>
@@ -374,7 +375,7 @@ export default function SessionScreen() {
         {phase === "study" && stageIdx === 2 && (
           <View style={styles.section}>
             <View style={[styles.hiddenCard, { backgroundColor: colors.muted }]}>
-              <Feather name="book-open" size={28} color={colors.mutedForeground} />
+              <BookOpen size={28} color={colors.mutedForeground} />
               <Text style={[styles.hiddenTitle, { color: colors.foreground }]}>{t("session.recite.title")}</Text>
               <Text style={[styles.hiddenSubtitle, { color: colors.mutedForeground }]}>
                 {t("session.recite.sub")}
@@ -390,7 +391,7 @@ export default function SessionScreen() {
                 }]}
                 activeOpacity={0.85}
               >
-                <Feather name={isRecording ? "square" : "mic"} size={32} color="#fff" />
+                <Icon name={isRecording ? "square" : "mic"} size={32} color="#fff" />
               </TouchableOpacity>
               <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>
                 {isRecording ? t("session.shadow.stopHint") : t("session.recite.startHint")}
@@ -408,7 +409,7 @@ export default function SessionScreen() {
               style={[styles.recordBtn, { backgroundColor: "#EF4444", shadowColor: "#EF4444" }]}
               activeOpacity={0.85}
             >
-              <Feather name="square" size={32} color="#fff" />
+              <Square size={32} color="#fff" />
             </TouchableOpacity>
             <Text style={[styles.recordHint, { color: colors.mutedForeground }]}>{t("session.shadow.stopHint")}</Text>
           </View>
@@ -434,7 +435,7 @@ export default function SessionScreen() {
                     borderColor: result.passed ? "#10B981" : "#EF4444",
                   },
                 ]}>
-                  <Feather
+                  <Icon
                     name={result.passed ? "check-circle" : "x-circle"}
                     size={22}
                     color={result.passed ? "#10B981" : "#EF4444"}
@@ -462,7 +463,7 @@ export default function SessionScreen() {
               </>
             ) : (
               <View style={[styles.passedBanner, { backgroundColor: "#10B981" + "15", borderColor: "#10B981" }]}>
-                <Feather name="headphones" size={22} color="#10B981" />
+                <Headphones size={22} color="#10B981" />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.passedTitle, { color: "#10B981" }]}>{t("session.result.listeningDone")}</Text>
                   <Text style={[styles.passedSub, { color: colors.mutedForeground }]}>
@@ -474,7 +475,7 @@ export default function SessionScreen() {
 
             {stageIdx < STAGES.length - 1 && (
               <View style={[styles.nextStageHint, { backgroundColor: colors.muted }]}>
-                <Feather name={STAGES[stageIdx + 1].icon as any} size={16} color={STAGES[stageIdx + 1].color} />
+                <Icon name={STAGES[stageIdx + 1].icon as any} size={16} color={STAGES[stageIdx + 1].color} />
                 <Text style={[styles.nextStageText, { color: colors.foreground }]}>
                   {t("session.result.nextStageHint", { name: getStageName(stageIdx + 1, lang) })}
                 </Text>
@@ -492,7 +493,7 @@ export default function SessionScreen() {
                 style={[styles.retryBtn, { borderColor: colors.border }]}
                 activeOpacity={0.85}
               >
-                <Feather name="refresh-cw" size={16} color={colors.mutedForeground} />
+                <RefreshCw size={16} color={colors.mutedForeground} />
                 <Text style={[styles.retryBtnText, { color: colors.mutedForeground }]}>{t("session.result.retry")}</Text>
               </TouchableOpacity>
 
@@ -504,7 +505,7 @@ export default function SessionScreen() {
                 <Text style={styles.doneBtnText}>
                   {result.passed && !isLastStage ? t("session.result.next") : t("session.result.return")}
                 </Text>
-                <Feather name={result.passed && !isLastStage ? "arrow-right" : "check"} size={16} color="#fff" />
+                <Icon name={result.passed && !isLastStage ? "arrow-right" : "check"} size={16} color="#fff" />
               </TouchableOpacity>
             </View>
           </View>

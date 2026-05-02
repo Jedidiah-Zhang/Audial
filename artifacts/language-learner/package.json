@@ -15,7 +15,6 @@
     "@expo-google-fonts/inter": "^0.4.0",
     "@expo/cli": "54.0.23",
     "@expo/ngrok": "^4.1.0",
-    "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@stardazed/streams-text-encoding": "^1.0.2",
     "@tanstack/react-query": "catalog:",
@@ -62,6 +61,7 @@
   "dependencies": {
     "expo-audio": "^55.0.13",
     "expo-av": "^16.0.8",
-    "expo-file-system": "^55.0.16"
+    "expo-file-system": "^55.0.16",
+    "lucide-react-native": "^1.14.0"
   }
 }
