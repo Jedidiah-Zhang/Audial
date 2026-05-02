@@ -28,9 +28,13 @@ import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
 
-const OPEN_DURATION = 360;
+// Open uses a strong ease-out ("Expo Out") to mimic the iOS App Store launch
+// feel: a sharp, fast initial burst followed by a long, soft settle. The
+// duration is intentionally a bit longer than the close so the deceleration
+// tail has room to be felt without making the open feel sluggish.
+const OPEN_DURATION = 480;
 const CLOSE_DURATION = 280;
-const OPEN_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+const OPEN_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
 
 export default function PracticeScreen() {
@@ -138,7 +142,10 @@ export default function PracticeScreen() {
     // means at p=1 the overlay is fully transparent, so when we mount it on
     // close (which happens at p=1) the user keeps seeing the practice screen
     // underneath rather than a blank fullscreen panel for a frame.
-    const overlayOp = p <= 0.55 ? 1 : p >= 0.95 ? 0 : 1 - (p - 0.55) / 0.4;
+    // Window shifted earlier (0.45 → 0.9) because the new ease-out covers
+    // most of the geometry change in the first ~30% of time; we want the
+    // snapshot to start handing off to real content well before fullscreen.
+    const overlayOp = p <= 0.45 ? 1 : p >= 0.9 ? 0 : 1 - (p - 0.45) / 0.45;
     return {
       top: initialGeom.y * inv,
       left: initialGeom.x * inv,
@@ -162,10 +169,12 @@ export default function PracticeScreen() {
 
   // Underlying screen content fades in (open) / out (close) symmetrically, in
   // a window that fully overlaps the snapshot's fade so neither layer is
-  // invisible while the other is also invisible.
+  // invisible while the other is also invisible. Window shifted earlier to
+  // match the ease-out front-loading, so the practice screen is essentially
+  // fully visible by the time the geometry finishes settling.
   const contentStyle = useAnimatedStyle(() => {
     const p = progressSV.value;
-    const op = p <= 0.5 ? 0 : p >= 0.95 ? 1 : (p - 0.5) / 0.45;
+    const op = p <= 0.4 ? 0 : p >= 0.9 ? 1 : (p - 0.4) / 0.5;
     return { opacity: op };
   });
 
