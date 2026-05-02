@@ -163,6 +163,16 @@ export function ShadowSentenceFlow({
   // just the scoring step (without re-recording) when the score endpoint
   // fails.
   const [lastFullTranscript, setLastFullTranscript] = useState<string>("");
+  // Why the most recent full-passage recording produced no audio. Used to
+  // pick the right copy on the "no audio" error screen — pointing the
+  // user at mic permission only when permission really isn't granted,
+  // and otherwise at the more likely real causes (mic in use elsewhere,
+  // very short take, transient hardware error). The gate normally keeps
+  // us out of the "permission" branch, but we keep it as a fallback in
+  // case state drifts.
+  const [noAudioReason, setNoAudioReason] = useState<"permission" | "capture">(
+    "capture",
+  );
 
   const statesRef = useRef<SentenceState[]>(states);
   const updateStates = useCallback(
@@ -636,6 +646,12 @@ export function ShadowSentenceFlow({
       }),
     ]);
     if (!blob) {
+      // The recorder returned no bytes. If permission really isn't
+      // granted any more (revoked between sessions, etc.) tell the user
+      // to fix permission; otherwise point them at the more likely
+      // causes — another app holding the mic, an extremely short take,
+      // or a transient hardware glitch.
+      setNoAudioReason(permission === "granted" ? "capture" : "permission");
       setPhase("full-error-no-audio");
       return;
     }
@@ -655,7 +671,7 @@ export function ShadowSentenceFlow({
     } finally {
       clearTimeout(timer);
     }
-  }, [stopRecording, scoreFullPassage]);
+  }, [stopRecording, scoreFullPassage, permission]);
 
   const startFullRecording = useCallback(async () => {
     cancelFullPlay();
@@ -1179,7 +1195,9 @@ export function ShadowSentenceFlow({
           : "session.shadow.fullError.score.title";
       const descKey =
         phase === "full-error-no-audio"
-          ? "session.shadow.fullError.noAudio.desc"
+          ? noAudioReason === "capture"
+            ? "session.shadow.fullError.noAudio.descCapture"
+            : "session.shadow.fullError.noAudio.desc"
           : phase === "full-error-transcribe"
           ? "session.shadow.fullError.transcribe.desc"
           : "session.shadow.fullError.score.desc";
