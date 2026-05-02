@@ -3,13 +3,15 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  findNodeHandle,
 } from "react-native";
-import { Check, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
+import { Check, Play, RotateCcw, SkipForward, Volume2, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -119,6 +121,13 @@ export function ShadowSentenceFlow({
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playGenRef = useRef(0);
 
+  // Refs for per-sentence auto-scroll. We measure each row against the
+  // ScrollView's inner content view so nested layouts (dialogue bubbles)
+  // resolve to the correct global y.
+  const scrollRef = useRef<ScrollView>(null);
+  const contentRef = useRef<View>(null);
+  const rowRefs = useRef<Map<number, View | null>>(new Map());
+
   const stopAdvanceTimer = useCallback(() => {
     if (advanceTimerRef.current) {
       clearTimeout(advanceTimerRef.current);
@@ -195,8 +204,9 @@ export function ShadowSentenceFlow({
         mistakes: st.mistakes,
       }));
 
-      const scored = perSentence.filter((p) => (p.score ?? 0) > 0 || p.transcript);
-      const denom = scored.length > 0 ? scored.length : perSentence.length || 1;
+      // Strict mean across ALL sentences. Skipped / unattempted count as 0
+      // so they correctly drag the average down.
+      const denom = perSentence.length || 1;
       const avg =
         perSentence.reduce((s, p) => s + (p.score ?? 0), 0) / denom;
       const score = Math.round(avg);
@@ -333,6 +343,55 @@ export function ShadowSentenceFlow({
     playSentence(currentIdx);
   }, [phase, playSentence, currentIdx]);
 
+  // Replay any sentence (current or not). For a non-current sentence we play
+  // a one-shot TTS that does NOT mutate the flow phase, so users can review
+  // earlier passed sentences without disturbing where they are.
+  const replayAny = useCallback(
+    (idx: number) => {
+      if (
+        phase === "recording" ||
+        phase === "transcribing" ||
+        phase === "scoring" ||
+        phase === "passed-pause"
+      )
+        return;
+      if (idx === currentIdx) {
+        playSentence(idx);
+        return;
+      }
+      // Invalidate any stale "playing" callback so it doesn't bump phase.
+      playGenRef.current++;
+      player.stop();
+      player.playTTS(sentences[idx], voice);
+    },
+    [phase, currentIdx, playSentence, player, sentences, voice]
+  );
+
+  // Auto-scroll the current sentence into view whenever currentIdx changes.
+  useEffect(() => {
+    const row = rowRefs.current.get(currentIdx);
+    const sv = scrollRef.current;
+    const content = contentRef.current;
+    if (!row || !sv || !content) return;
+    const contentHandle = findNodeHandle(content);
+    if (contentHandle == null) return;
+    // Defer one frame so layout has settled after state changes.
+    const tid = setTimeout(() => {
+      try {
+        row.measureLayout(
+          contentHandle,
+          (_x, y) => {
+            sv.scrollTo({ y: Math.max(0, y - 24), animated: true });
+          },
+          () => {}
+        );
+      } catch {
+        /* swallow — best-effort */
+      }
+    }, 50);
+    return () => clearTimeout(tid);
+  }, [currentIdx]);
+
   const handleSkip = useCallback(() => {
     stopAdvanceTimer();
     updateStates((prev) =>
@@ -374,39 +433,71 @@ export function ShadowSentenceFlow({
     </View>
   ) : null;
 
-  const renderSentence = (
-    globalIdx: number,
-    sent: string,
-    isLastInGroup: boolean
-  ) => {
+  const replayDisabled =
+    phase === "recording" ||
+    phase === "transcribing" ||
+    phase === "scoring" ||
+    phase === "passed-pause";
+
+  const renderSentenceRow = (globalIdx: number, sent: string) => {
     const st = states[globalIdx];
     const isCurrent = globalIdx === currentIdx;
     let bg: string | undefined;
-    let color: string | undefined;
+    let color = colors.foreground;
     let opacity = 1;
+    let borderColor = "transparent";
     if (isCurrent) {
-      bg = accentColor + "33";
+      bg = accentColor + "1F";
       color = accentColor;
+      borderColor = accentColor + "55";
     } else if (st.status === "passed") {
-      bg = "#10B98115";
+      bg = "#10B98112";
     } else if (st.status === "failed") {
-      bg = "#EF444415";
+      bg = "#EF444412";
     } else {
-      opacity = 0.45;
+      opacity = 0.55;
     }
+    const iconColor = isCurrent
+      ? accentColor
+      : st.status === "passed"
+      ? "#10B981"
+      : st.status === "failed"
+      ? "#EF4444"
+      : colors.mutedForeground;
     return (
-      <Text
+      <Pressable
         key={globalIdx}
-        suppressHighlighting
-        style={[
-          styles.sentence,
-          { opacity },
-          bg ? { backgroundColor: bg } : null,
-          color ? { color } : null,
+        ref={(r) => {
+          rowRefs.current.set(globalIdx, r as unknown as View | null);
+        }}
+        onPress={() => replayAny(globalIdx)}
+        disabled={replayDisabled}
+        accessibilityRole="button"
+        accessibilityLabel={`${t("session.shadow.replayThis")} ${globalIdx + 1}`}
+        style={({ pressed }) => [
+          styles.sentRow,
+          {
+            backgroundColor: bg,
+            borderColor,
+            opacity: pressed ? 0.7 : opacity,
+          },
         ]}
       >
-        {st.status === "passed" ? "✓ " : st.status === "failed" ? "✗ " : ""}
-        {sent}
+        <View
+          style={[
+            styles.playIconWrap,
+            { backgroundColor: iconColor + "1A", borderColor: iconColor + "33" },
+          ]}
+        >
+          {st.status === "passed" ? (
+            <Check size={12} color={iconColor} />
+          ) : st.status === "failed" ? (
+            <X size={12} color={iconColor} />
+          ) : (
+            <Play size={11} color={iconColor} fill={iconColor} />
+          )}
+        </View>
+        <Text style={[styles.sentText, { color }]}>{sent}</Text>
         {st.score != null && (st.status === "passed" || st.status === "failed") ? (
           <Text
             style={[
@@ -414,11 +505,10 @@ export function ShadowSentenceFlow({
               { color: st.status === "passed" ? "#10B981" : "#EF4444" },
             ]}
           >
-            {" " + st.score}
+            {st.score}
           </Text>
         ) : null}
-        {!isLastInGroup ? " " : ""}
-      </Text>
+      </Pressable>
     );
   };
 
@@ -426,7 +516,7 @@ export function ShadowSentenceFlow({
     if (layout.kind === "dialogue") {
       let cursor = 0;
       return (
-        <View style={styles.dialogueWrap}>
+        <View ref={contentRef} style={styles.dialogueWrap}>
           {Badge}
           {layout.groups.map((g, gi) => {
             const isAlt = gi % 2 === 1;
@@ -458,12 +548,10 @@ export function ShadowSentenceFlow({
                     },
                   ]}
                 >
-                  <Text style={[styles.article, { color: colors.foreground }]}>
-                    {g.sentences.map((s, i) => {
-                      const idx = cursor++;
-                      return renderSentence(idx, s, i === g.sentences.length - 1);
-                    })}
-                  </Text>
+                  {g.sentences.map((s) => {
+                    const idx = cursor++;
+                    return renderSentenceRow(idx, s);
+                  })}
                 </View>
               </View>
             );
@@ -472,21 +560,16 @@ export function ShadowSentenceFlow({
       );
     }
     let cursor = 0;
-    const indent = effectiveType === "news" || effectiveType === "essay";
     return (
-      <View style={styles.newsWrap}>
+      <View ref={contentRef} style={styles.newsWrap}>
         {Badge}
         {layout.groups.map((g, gi) => (
-          <Text
-            key={gi}
-            style={[styles.article, styles.newsParagraph, { color: colors.foreground }]}
-          >
-            {indent && gi !== 0 ? <Text>{"   "}</Text> : null}
-            {g.sentences.map((s, i) => {
+          <View key={gi} style={styles.paragraphBlock}>
+            {g.sentences.map((s) => {
               const idx = cursor++;
-              return renderSentence(idx, s, i === g.sentences.length - 1);
+              return renderSentenceRow(idx, s);
             })}
-          </Text>
+          </View>
         ))}
       </View>
     );
@@ -523,6 +606,7 @@ export function ShadowSentenceFlow({
         style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.border }]}
       >
         <ScrollView
+          ref={scrollRef}
           style={{ maxHeight: 320 }}
           contentContainerStyle={{ paddingRight: 4 }}
           showsVerticalScrollIndicator
@@ -537,17 +621,6 @@ export function ShadowSentenceFlow({
               n: sentences.length,
             })}
           </Text>
-          <TouchableOpacity
-            onPress={handleReplayCurrent}
-            disabled={isProcessing || isPassedPause}
-            style={[styles.replayBtn, { borderColor: colors.border, opacity: isProcessing || isPassedPause ? 0.4 : 1 }]}
-            activeOpacity={0.85}
-          >
-            <Volume2 size={14} color={accentColor} />
-            <Text style={[styles.replayBtnText, { color: accentColor }]}>
-              {t("session.shadow.replayThis")}
-            </Text>
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -630,20 +703,41 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxHeight: 380,
   },
-  article: {
-    fontSize: 16,
-    fontFamily: "Inter_400Regular",
-    lineHeight: 30,
+  sentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 6,
   },
-  sentence: {
-    fontSize: 16,
+  playIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  sentText: {
+    flex: 1,
+    fontSize: 15,
     fontFamily: "Inter_400Regular",
-    lineHeight: 30,
-    borderRadius: 4,
+    lineHeight: 22,
   },
   inlineScore: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: "Inter_700Bold",
+    marginLeft: 6,
+    marginTop: 4,
+    minWidth: 22,
+    textAlign: "right",
+  },
+  paragraphBlock: {
+    marginBottom: 6,
   },
   contentTypeBadge: {
     flexDirection: "row",
@@ -680,8 +774,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: "92%",
   },
-  newsWrap: { gap: 10 },
-  newsParagraph: { marginBottom: 4 },
+  newsWrap: { gap: 4 },
   progressRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -692,19 +785,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   progressText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-  },
-  replayBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  replayBtnText: {
     fontSize: 12,
     fontFamily: "Inter_600SemiBold",
   },
