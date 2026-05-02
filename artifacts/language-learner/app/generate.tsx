@@ -161,8 +161,17 @@ export default function GenerateScreen() {
       }
     } catch {
       if (reqId !== syncReqIdRef.current) return;
-      if (source === "text") setTranslationSyncError(true);
-      else setTextSyncError(true);
+      if (source === "text") {
+        setTranslationSyncError(true);
+        setTimeout(() => {
+          if (reqId === syncReqIdRef.current) setTranslationSyncError(false);
+        }, 2500);
+      } else {
+        setTextSyncError(true);
+        setTimeout(() => {
+          if (reqId === syncReqIdRef.current) setTextSyncError(false);
+        }, 2500);
+      }
     } finally {
       if (reqId === syncReqIdRef.current) {
         if (source === "text") setTranslationSyncing(false);
