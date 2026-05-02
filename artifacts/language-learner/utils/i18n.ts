@@ -1,5 +1,6 @@
 import { useApp } from "@/context/AppContext";
 import type { ContentType, Difficulty, LearningMode } from "@/types";
+export { isRTL } from "./rtl";
 
 export type UILang =
   | "zh" | "en" | "ja" | "ko" | "es" | "fr" | "de" | "ru" | "hu"

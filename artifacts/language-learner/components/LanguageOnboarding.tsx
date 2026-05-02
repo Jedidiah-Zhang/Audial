@@ -13,6 +13,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import { translate } from "@/utils/i18n";
+import { isRTL, rtlFlipStyle } from "@/utils/rtl";
 
 export function LanguageOnboarding() {
   const colors = useColors();
@@ -25,6 +26,7 @@ export function LanguageOnboarding() {
   const code = selected ?? settings.nativeLanguage ?? "en";
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(code, key, params);
+  const previewRTL = isRTL(code);
 
   const handleConfirm = async () => {
     await updateSettings({ nativeLanguage: code, onboarded: true });
@@ -88,7 +90,7 @@ export function LanguageOnboarding() {
             activeOpacity={0.85}
           >
             <Text style={styles.continueText}>{t("onboarding.continue")}</Text>
-            <ArrowRight size={18} color="#fff" />
+            <ArrowRight size={18} color="#fff" style={previewRTL ? rtlFlipStyle : undefined} />
           </TouchableOpacity>
         </View>
       </View>

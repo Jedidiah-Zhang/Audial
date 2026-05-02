@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, ChevronRight, X } from "lucide-react-native";
+import { flipIfRTL } from "@/utils/rtl";
 import { router } from "expo-router";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
@@ -335,7 +336,7 @@ function Row({
       <Text style={[styles.itemValue, { color: colors.mutedForeground }]} numberOfLines={1}>
         {value}
       </Text>
-      <ChevronRight size={18} color={colors.mutedForeground} />
+      <ChevronRight size={18} color={colors.mutedForeground} style={flipIfRTL()} />
     </TouchableOpacity>
   );
 }

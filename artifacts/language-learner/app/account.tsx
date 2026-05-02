@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft, ChevronRight, User } from "lucide-react-native";
+import { flipIfRTL } from "@/utils/rtl";
 import { router } from "expo-router";
 import { useAuth, useUser, useClerk } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
@@ -70,7 +71,7 @@ export default function AccountScreen() {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 16 }]}>
         <TouchableOpacity onPress={goBack} style={styles.backBtn} hitSlop={10}>
-          <ChevronLeft size={26} color={colors.foreground} />
+          <ChevronLeft size={26} color={colors.foreground} style={flipIfRTL()} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.foreground }]}>
           {t("settings.section.account")}
@@ -260,7 +261,7 @@ function Row({
           {value}
         </Text>
       ) : null}
-      <ChevronRight size={18} color={colors.mutedForeground} />
+      <ChevronRight size={18} color={colors.mutedForeground} style={flipIfRTL()} />
     </TouchableOpacity>
   );
 }
@@ -293,7 +294,7 @@ function RowWithDesc({
           {description}
         </Text>
       </View>
-      <ChevronRight size={18} color={colors.mutedForeground} />
+      <ChevronRight size={18} color={colors.mutedForeground} style={flipIfRTL()} />
     </TouchableOpacity>
   );
 }

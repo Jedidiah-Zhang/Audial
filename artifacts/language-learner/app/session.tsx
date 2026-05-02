@@ -13,6 +13,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Square, Target } from "lucide-react-native";
+import { flipIfRTL } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -209,7 +210,7 @@ export default function SessionScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <ArrowLeft size={22} color={colors.foreground} />
+          <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerStage, { color: stageColor }]}>
@@ -267,7 +268,7 @@ export default function SessionScreen() {
                 activeOpacity={0.85}
               >
                 <Text style={styles.startBtnText}>{t("session.intro.start")}</Text>
-                <ArrowRight size={18} color="#fff" />
+                <ArrowRight size={18} color="#fff" style={flipIfRTL()} />
               </TouchableOpacity>
             </View>
 

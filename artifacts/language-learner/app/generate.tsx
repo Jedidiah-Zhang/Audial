@@ -15,6 +15,7 @@ import {
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Check, ChevronDown, Edit3, RefreshCw, Save, Zap } from "lucide-react-native";
+import { flipIfRTL } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -196,7 +197,7 @@ export default function GenerateScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={handleDiscardDraft} style={styles.backBtn} activeOpacity={0.7}>
-            <ArrowLeft size={22} color={colors.foreground} />
+            <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.preview.headerTitle")}</Text>
           <View style={{ width: 36 }} />
@@ -309,7 +310,7 @@ export default function GenerateScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <ArrowLeft size={22} color={colors.foreground} />
+          <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.title")}</Text>
         <View style={{ width: 36 }} />

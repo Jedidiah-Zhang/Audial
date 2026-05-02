@@ -10,6 +10,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Book, Check, ChevronRight, Lock, Star } from "lucide-react-native";
+import { flipIfRTL } from "@/utils/rtl";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
@@ -69,7 +70,7 @@ export default function PracticeScreen() {
       <View style={styles.contentWrap}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.7}>
-            <ArrowLeft size={22} color={colors.foreground} />
+            <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
             {text.title}
@@ -235,7 +236,7 @@ export default function PracticeScreen() {
                           <Text style={[styles.scoreLabel, { color: colors.mutedForeground }]}>{t("practice.bestLabel")}</Text>
                         </View>
                       ) : locked ? null : (
-                        <ChevronRight size={20} color={stage.color} />
+                        <ChevronRight size={20} color={stage.color} style={flipIfRTL()} />
                       )}
                     </View>
                   </TouchableOpacity>
