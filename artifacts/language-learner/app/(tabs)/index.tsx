@@ -10,7 +10,6 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
-  type View as RNView,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,54 +28,19 @@ type TextCardRowProps = {
 };
 
 function TextCardRow({ item, stagesPassed, onDelete, onRename }: TextCardRowProps) {
-  // TouchableOpacity forwards its ref to the underlying View, which exposes
-  // the NativeMethods (including `measureInWindow`).
-  const cardRef = useRef<RNView | null>(null);
   const navigatingRef = useRef(false);
 
   const handlePress = useCallback(() => {
     if (navigatingRef.current) return;
-
-    const goPlain = () => {
-      navigatingRef.current = true;
-      router.push({ pathname: "/practice", params: { id: item.id } });
-      setTimeout(() => {
-        navigatingRef.current = false;
-      }, 600);
-    };
-
-    const node = cardRef.current;
-    if (Platform.OS === "web" || !node || typeof node.measureInWindow !== "function") {
-      goPlain();
-      return;
-    }
-
-    node.measureInWindow((x: number, y: number, width: number, height: number) => {
-      if (!width || !height || Number.isNaN(x) || Number.isNaN(y)) {
-        goPlain();
-        return;
-      }
-      navigatingRef.current = true;
-      router.push({
-        pathname: "/practice",
-        params: {
-          id: item.id,
-          oX: String(Math.round(x)),
-          oY: String(Math.round(y)),
-          oW: String(Math.round(width)),
-          oH: String(Math.round(height)),
-          oR: "16",
-        },
-      });
-      setTimeout(() => {
-        navigatingRef.current = false;
-      }, 600);
-    });
+    navigatingRef.current = true;
+    router.push({ pathname: "/practice", params: { id: item.id } });
+    setTimeout(() => {
+      navigatingRef.current = false;
+    }, 600);
   }, [item.id]);
 
   return (
     <TextCard
-      ref={cardRef}
       item={item}
       onPress={handlePress}
       onDelete={onDelete}

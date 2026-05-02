@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -6,53 +6,24 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
-  BackHandler,
-  useWindowDimensions,
 } from "react-native";
-import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Book, Check, ChevronRight, Lock, Star } from "lucide-react-native";
-import Animated, {
-  Easing,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { SentenceArticle } from "@/components/SentenceArticle";
-import { TextCard } from "@/components/TextCard";
 import { VocabularyList } from "@/components/VocabularyList";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
 import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
 
-// Open uses a strong ease-out ("Expo Out") to mimic the iOS App Store launch
-// feel: a sharp, fast initial burst followed by a long, soft settle. The
-// duration is intentionally a bit longer than the close so the deceleration
-// tail has room to be felt without making the open feel sluggish.
-const OPEN_DURATION = 650;
-const CLOSE_DURATION = 280;
-const OPEN_EASING = Easing.bezier(0.16, 1, 0.3, 1);
-const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
-
 export default function PracticeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const params = useLocalSearchParams<{
-    id: string;
-    oX?: string;
-    oY?: string;
-    oW?: string;
-    oH?: string;
-    oR?: string;
-  }>();
-  const { id } = params;
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { texts, getProgressForText, settings, addText } = useApp();
-  const navigation = useNavigation();
-  const { width: screenW, height: screenH } = useWindowDimensions();
 
   const text = texts.find((x) => x.id === id);
   const lang = settings.nativeLanguage;
@@ -63,120 +34,6 @@ export default function PracticeScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
-
-  // ---- Card-expand transition (overlay) ----
-  const initialGeom = useRef(parseGeom(params, screenW, screenH)).current;
-  const hasGeom = initialGeom != null && Platform.OS !== "web";
-
-  // Match the originating card chrome so the start of the animation lines up
-  // with what the user just tapped (mastered cards get a green tint + 1.5px
-  // border; everything else uses the standard border at hairline width).
-  const overlayStagePassed = progress?.stagePassed ?? STAGES.map(() => false);
-  const overlayAllDone = STAGES.every((_, i) => overlayStagePassed[i]);
-  const overlayBorderColor = overlayAllDone ? "#10B981" + "60" : colors.border;
-  const overlayMaxBorder = overlayAllDone ? 1.5 : StyleSheet.hairlineWidth;
-
-  // progress: 0 = card geometry, 1 = fullscreen. The snapshot opacity and the
-  // underlying screen opacity are both derived from this so they crossfade
-  // exactly in sync (no blank/white-box moment in the middle of the animation).
-  const progressSV = useSharedValue(hasGeom ? 0 : 1);
-  // overlayVisible toggles the overlay node (kept mounted while animating, hidden after)
-  const [overlayMounted, setOverlayMounted] = useState(hasGeom);
-  const closingRef = useRef(false);
-
-  useEffect(() => {
-    if (!hasGeom) return;
-    // Run open animation on next frame so the initial state is committed first.
-    const handle = requestAnimationFrame(() => {
-      progressSV.value = withTiming(1, { duration: OPEN_DURATION, easing: OPEN_EASING }, (finished) => {
-        if (finished) runOnJS(setOverlayMounted)(false);
-      });
-    });
-    return () => cancelAnimationFrame(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Reverse animation -> then dispatch the original navigation action.
-  const runCloseAnimation = useCallback(
-    (onDone: () => void) => {
-      if (closingRef.current) return;
-      closingRef.current = true;
-      setOverlayMounted(true);
-      progressSV.value = withTiming(0, { duration: CLOSE_DURATION, easing: CLOSE_EASING }, (finished) => {
-        if (finished) runOnJS(onDone)();
-      });
-    },
-    [progressSV],
-  );
-
-  // Intercept navigation back to play the reverse animation first.
-  useEffect(() => {
-    if (!hasGeom) return;
-    // The event handler is typed via inference from `navigation.addListener`.
-    const sub = navigation.addListener("beforeRemove", (e) => {
-      if (closingRef.current) return; // already animating, allow it.
-      e.preventDefault();
-      runCloseAnimation(() => {
-        navigation.dispatch(e.data.action);
-      });
-    });
-    return sub;
-  }, [navigation, runCloseAnimation, hasGeom]);
-
-  // Hardware back on Android: let it propagate; beforeRemove will catch it.
-  // But on Android, `BackHandler` fires before navigation listeners only if we
-  // return false. We return false to let the default handler call back().
-  useEffect(() => {
-    if (Platform.OS !== "android" || !hasGeom) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => false);
-    return () => sub.remove();
-  }, [hasGeom]);
-
-  const overlayStyle = useAnimatedStyle(() => {
-    if (!initialGeom) {
-      return { opacity: 0 };
-    }
-    const p = progressSV.value;
-    const inv = 1 - p;
-    // The overlay panel AND its snapshot child fade together. Crucially this
-    // means at p=1 the overlay is fully transparent, so when we mount it on
-    // close (which happens at p=1) the user keeps seeing the practice screen
-    // underneath rather than a blank fullscreen panel for a frame.
-    // Window shifted earlier (0.45 → 0.9) because the new ease-out covers
-    // most of the geometry change in the first ~30% of time; we want the
-    // snapshot to start handing off to real content well before fullscreen.
-    const overlayOp = p <= 0.45 ? 1 : p >= 0.9 ? 0 : 1 - (p - 0.45) / 0.45;
-    return {
-      top: initialGeom.y * inv,
-      left: initialGeom.x * inv,
-      width: initialGeom.width + (screenW - initialGeom.width) * p,
-      height: initialGeom.height + (screenH - initialGeom.height) * p,
-      borderRadius: initialGeom.radius * inv,
-      // Match the originating card border, fade thickness to 0 by the time
-      // the overlay reaches fullscreen so no stray edge or radius gap shows.
-      borderWidth: overlayMaxBorder * inv,
-      opacity: overlayOp,
-    };
-  }, [
-    initialGeom?.x,
-    initialGeom?.y,
-    initialGeom?.width,
-    initialGeom?.height,
-    screenW,
-    screenH,
-    overlayMaxBorder,
-  ]);
-
-  // Underlying screen content fades in (open) / out (close) symmetrically, in
-  // a window that fully overlaps the snapshot's fade so neither layer is
-  // invisible while the other is also invisible. Window shifted earlier to
-  // match the ease-out front-loading, so the practice screen is essentially
-  // fully visible by the time the geometry finishes settling.
-  const contentStyle = useAnimatedStyle(() => {
-    const p = progressSV.value;
-    const op = p <= 0.4 ? 0 : p >= 0.9 ? 1 : (p - 0.4) / 0.5;
-    return { opacity: op };
-  });
 
   const handleBack = useCallback(() => {
     router.back();
@@ -209,7 +66,7 @@ export default function PracticeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Animated.View style={[styles.contentWrap, hasGeom ? contentStyle : null]}>
+      <View style={styles.contentWrap}>
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.7}>
             <ArrowLeft size={22} color={colors.foreground} />
@@ -387,69 +244,14 @@ export default function PracticeScreen() {
             })}
           </View>
         </ScrollView>
-      </Animated.View>
-
-      {hasGeom && overlayMounted && initialGeom ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.overlay,
-            {
-              backgroundColor: colors.card,
-              borderColor: overlayBorderColor,
-              overflow: "hidden",
-            },
-            overlayStyle,
-          ]}
-        >
-          <View
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: initialGeom.width,
-              height: initialGeom.height,
-            }}
-          >
-            <TextCard
-              snapshot
-              item={text}
-              onPress={() => {}}
-              stagesPassed={stagePassed}
-            />
-          </View>
-        </Animated.View>
-      ) : null}
+      </View>
     </View>
   );
-}
-
-type Geom = { x: number; y: number; width: number; height: number; radius: number };
-
-function parseGeom(
-  params: { oX?: string; oY?: string; oW?: string; oH?: string; oR?: string },
-  screenW: number,
-  screenH: number,
-): Geom | null {
-  const x = params.oX != null ? Number(params.oX) : NaN;
-  const y = params.oY != null ? Number(params.oY) : NaN;
-  const width = params.oW != null ? Number(params.oW) : NaN;
-  const height = params.oH != null ? Number(params.oH) : NaN;
-  const radius = params.oR != null ? Number(params.oR) : 16;
-  if ([x, y, width, height].some((v) => !Number.isFinite(v))) return null;
-  if (width <= 0 || height <= 0) return null;
-  // Sanity: ignore obviously off-screen geometries (e.g. scrolled out of view).
-  if (y + height < 0 || y > screenH || x + width < 0 || x > screenW) return null;
-  return { x, y, width, height, radius: Number.isFinite(radius) ? radius : 16 };
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   contentWrap: { flex: 1 },
-  overlay: {
-    position: "absolute",
-  },
   header: {
     flexDirection: "row",
     alignItems: "center",
