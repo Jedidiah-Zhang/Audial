@@ -10,6 +10,7 @@ import type {
 import { STAGE_PASS_SCORE, STAGES } from "@/types";
 import { detectContentType } from "@/utils/contentType";
 import { clearArticleAudio } from "@/utils/ttsCache";
+import { migrateGuestData } from "@/utils/migrateGuestData";
 
 const GUEST_USER_ID = "guest";
 
@@ -111,6 +112,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // before committing state or writes. Updated synchronously on user change.
   const currentUserRef = useRef(userId);
 
+  // Tracks the previously-active userId so we can detect a guest → account
+  // transition and run the one-time migration. Starts undefined so the very
+  // first effect run (mount) is treated as "no previous user" and skips
+  // migration even if we mount straight into a signed-in session.
+  const prevUserIdRef = useRef<string | undefined>(undefined);
+  // Per-target one-shot guard: prevents re-running migration if React fires
+  // the userId effect multiple times for the same destination account (e.g.
+  // Clerk hydration jitter).
+  const migratedTargetsRef = useRef<Set<string>>(new Set());
+
   const [texts, setTexts] = useState<LearningText[]>([]);
   const [results, setResults] = useState<SessionResult[]>([]);
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
@@ -142,13 +153,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authLoaded || !localLoaded) return;
+    const prev = prevUserIdRef.current;
+    prevUserIdRef.current = userId;
     currentUserRef.current = userId;
     setIsLoading(true);
     setTexts([]);
     setResults([]);
     setProgress({});
     setSettings(DEFAULT_SETTINGS);
-    loadAll(userId).catch(() => {});
+
+    // Migrate guest-scoped data into the target account on the first
+    // transition out of the guest scope (covers both Clerk sign-in/sign-up
+    // and switching to a local account). We deliberately skip when:
+    //  - there is no previous user (initial mount)
+    //  - we're going TO guest (sign-out)
+    //  - we're going from one account directly to another (Clerk↔Clerk,
+    //    Clerk↔local, local↔local) — that data belongs to the previous
+    //    account, not to whoever is signing in next
+    //  - we already migrated to this target in this session
+    const shouldMigrate =
+      prev === GUEST_USER_ID &&
+      userId !== GUEST_USER_ID &&
+      !migratedTargetsRef.current.has(userId);
+
+    (async () => {
+      if (shouldMigrate) {
+        migratedTargetsRef.current.add(userId);
+        try {
+          await migrateGuestData(userId);
+        } catch {
+          // best-effort; fall through to loadAll regardless
+        }
+      }
+      // If the active user changed while migration was in flight, abort the
+      // load — the next effect run will handle the new user.
+      if (currentUserRef.current !== userId) return;
+      loadAll(userId).catch(() => {});
+    })();
   }, [authLoaded, localLoaded, userId]);
 
   async function migrateLegacyIfNeeded(K: ReturnType<typeof keysFor>, isGuestScope: boolean) {

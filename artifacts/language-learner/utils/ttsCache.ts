@@ -156,6 +156,44 @@ export async function registerArticleAudio(
 }
 
 /**
+ * Move all audio index entries from one user to another. Used by the guest →
+ * signed-in migration: audio files on disk are content-addressed by
+ * (voice, text) hash, so transferring ownership is just re-keying the index.
+ *
+ * Merge policy on articleId collision: the target user wins (their existing
+ * entry is kept). After a successful merge the source index is removed.
+ */
+export async function transferAudioOwnership(
+  fromUserId: string,
+  toUserId: string
+): Promise<void> {
+  if (!fromUserId || !toUserId || fromUserId === toUserId) return;
+  // Lock both queues. Acquire `from` first then `to` to keep a consistent
+  // ordering across all callers (only this function touches two scopes).
+  await withIndexLock(fromUserId, async () => {
+    await withIndexLock(toUserId, async () => {
+      const fromIdx = await readIndex(fromUserId);
+      if (Object.keys(fromIdx).length === 0) return;
+      const toIdx = await readIndex(toUserId);
+      let mutated = false;
+      for (const [articleId, files] of Object.entries(fromIdx)) {
+        if (toIdx[articleId]) continue; // target wins
+        if (Array.isArray(files) && files.length > 0) {
+          toIdx[articleId] = [...files];
+          mutated = true;
+        }
+      }
+      if (mutated) await writeIndex(toUserId, toIdx);
+      try {
+        await AsyncStorage.removeItem(indexKey(fromUserId));
+      } catch {
+        // ignore
+      }
+    });
+  });
+}
+
+/**
  * Delete every cached audio file associated with an article and remove its
  * index entry. Files referenced by other articles are kept. No-op on web
  * (web has no persistent file cache).
