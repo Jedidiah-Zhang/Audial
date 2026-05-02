@@ -683,14 +683,15 @@ export function useAudioRecorder() {
         setIsRecording(true);
         return true;
       } else {
-        // iOS requires the audio session to be in a recording-capable mode
-        // before `recorder.record()` will succeed. The app sets
-        // `allowsRecording: false` at startup (see `app/_layout.tsx`) so
-        // playback works correctly in silent mode, so we have to flip it on
-        // here and restore it in `stopRecording`. Without this, the system
-        // permission prompt grants successfully but `recorder.record()`
-        // throws and gets swallowed by the catch below — the user sees the
-        // mic button do nothing and assumes permission wasn't granted.
+        // Heavily instrumented native path — the user has hit "no audio"
+        // on Android multiple times across fix iterations and we still
+        // don't have a smoking-gun error. Log every checkpoint with a
+        // stable `[REC]` prefix so the next real-device test produces a
+        // clean trace in Metro. All `console.log`s are intentionally
+        // NOT __DEV__-gated: __DEV__ is true in Expo Go anyway, but
+        // unconditional logs guarantee they show up even if a future
+        // build flips that flag.
+        console.log("[REC] startRecording: native path entered");
         try {
           await setAudioModeAsync({
             playsInSilentMode: true,
@@ -699,56 +700,57 @@ export function useAudioRecorder() {
             shouldRouteThroughEarpiece: false,
             allowsRecording: true,
           });
-        } catch {
-          /* Best-effort — if this fails the recorder.record() below will
-             throw and we'll fall into the existing error path. */
+          console.log("[REC] setAudioModeAsync OK (allowsRecording=true)");
+        } catch (e) {
+          console.warn("[REC] setAudioModeAsync FAILED", e);
+          /* Best-effort — try to record anyway; prepare/record below
+             will surface a clearer error if the session really wasn't
+             switched. */
         }
-        // Explicitly prepare the output file before recording. On Android
-        // the underlying MediaRecorder is much more fragile than on iOS:
-        // calling `record()` without a prior `prepareToRecordAsync()` can
-        // resolve before the backing file is allocated, so a quick
-        // `stop()` then leaves `recorder.uri` null and the caller treats
-        // it as "no audio". Preparing up front guarantees the file is
-        // ready before any audio frames arrive.
-        //
-        // ALSO override `numberOfChannels` to 1 (mono) on Android.
-        // `RecordingPresets.HIGH_QUALITY` defaults to 2 (stereo) but
-        // Android's MediaRecorder + AAC encoder is widely reported to
-        // silently fail with stereo input on many devices — start()
-        // returns OK, no exception is raised, but the resulting .m4a
-        // file is 0 bytes (or just an empty MOOV box). This is the
-        // exact symptom users hit ("permission granted but recording
-        // produces no audio"). Mono is also standard for voice
-        // recording and Whisper STT handles it natively, so there's
-        // no quality cost. iOS keeps the preset's stereo setting
-        // because CoreAudio handles it cleanly. Treat preparation
-        // failures as a clean "couldn't start" — the caller's existing
-        // error path will handle it.
+        // Explicitly prepare the output file before recording. Android
+        // MediaRecorder requires the file to be allocated before
+        // record() will start producing audio frames; a missing prepare
+        // is a known cause of 0-byte output. Force mono on Android —
+        // the HIGH_QUALITY preset's default of 2 channels makes
+        // Android's AAC encoder silently fail on many devices.
         try {
           await recorder.prepareToRecordAsync(
             Platform.OS === "android" ? { numberOfChannels: 1 } : undefined,
           );
+          console.log(
+            "[REC] prepareToRecordAsync OK, recorder.uri=",
+            recorder.uri,
+          );
         } catch (e) {
-          if (__DEV__) {
-            console.warn("[useAudioRecorder] prepareToRecordAsync failed", e);
-          }
+          console.warn("[REC] prepareToRecordAsync FAILED", e);
           setIsRecording(false);
           return false;
         }
-        // `recorder.record()` returns void; the async MediaRecorder.start()
-        // happens on a follow-up tick on Android. Give it ~80ms to
-        // actually begin capturing frames before we let the caller flip
-        // into the "recording" UI state — without this, an immediate
-        // stop (e.g. accidental double-tap, very short auto-stop) can
-        // race the encoder and produce an empty file.
-        recorder.record();
-        if (Platform.OS === "android") {
-          await new Promise((r) => setTimeout(r, 80));
+        // `recorder.record()` returns void; the underlying
+        // MediaRecorder.start() actually fires on a follow-up tick on
+        // Android. Give it ~120ms (bumped from 80ms after still-broken
+        // reports) so the very first frames are flowing before the UI
+        // lets the user tap stop.
+        try {
+          recorder.record();
+          console.log("[REC] recorder.record() returned");
+        } catch (e) {
+          console.warn("[REC] recorder.record() THREW", e);
+          setIsRecording(false);
+          return false;
         }
+        if (Platform.OS === "android") {
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        console.log(
+          "[REC] startRecording success, isRecording=true, uri=",
+          recorder.uri,
+        );
         setIsRecording(true);
         return true;
       }
-    } catch {
+    } catch (e) {
+      console.warn("[REC] startRecording outer catch", e);
       setIsRecording(false);
       return false;
     }
@@ -784,28 +786,22 @@ export function useAudioRecorder() {
           mediaRecorder.stop();
         });
       } else {
+        console.log("[REC] stopRecording: native path entered");
         let uri: string | null | undefined;
         try {
           await recorder.stop();
           uri = recorder.uri;
-          // Android: `recorder.uri` is occasionally still null immediately
-          // after `stop()` resolves — the underlying MediaRecorder writes
-          // out the file on a follow-up tick. Poll briefly so we don't
-          // misreport a successful recording as "no audio". The total
-          // wait stays well under a second so it never noticeably delays
-          // the scoring screen if the URI never appears.
+          console.log("[REC] recorder.stop() OK, initial uri=", uri);
           if (!uri) {
             for (let i = 0; i < 8; i++) {
               await new Promise((r) => setTimeout(r, 50));
               uri = recorder.uri;
               if (uri) break;
             }
-            if (__DEV__ && !uri) {
-              console.warn(
-                "[useAudioRecorder] recorder.uri still null after stop+poll",
-              );
-            }
+            console.log("[REC] uri after poll=", uri);
           }
+        } catch (e) {
+          console.warn("[REC] recorder.stop() THREW", e);
         } finally {
           // Restore the playback-friendly audio mode so subsequent TTS
           // playback (scoring screen, sentence taps, etc.) plays at full
@@ -828,23 +824,22 @@ export function useAudioRecorder() {
                transcript flow still completes. */
           }
         }
-        if (!uri) return null;
+        if (!uri) {
+          console.warn("[REC] no uri after stop+poll, returning null");
+          return null;
+        }
 
-        const file = new File(uri);
-        const byteArray = await file.bytes();
-        // A 0-byte file means we got a valid URI but no audio frames were
-        // ever written (mic muted at OS level, recorder torn down before
-        // the first sample, file system error, ...). Treat it the same
-        // as a missing URI so the caller's "no audio" path runs — but
-        // log it in dev so we can tell the two cases apart on real
-        // devices.
+        let byteArray;
+        try {
+          const file = new File(uri);
+          byteArray = await file.bytes();
+          console.log("[REC] file read OK, bytes=", byteArray.length);
+        } catch (e) {
+          console.warn("[REC] file.bytes() THREW", e);
+          return null;
+        }
         if (byteArray.length === 0) {
-          if (__DEV__) {
-            console.warn(
-              "[useAudioRecorder] recorded file is 0 bytes",
-              uri,
-            );
-          }
+          console.warn("[REC] recorded file is 0 bytes", uri);
           return null;
         }
         // expo-audio's recorder URI points at a real file we can replay
