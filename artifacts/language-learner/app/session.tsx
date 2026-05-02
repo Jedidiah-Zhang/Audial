@@ -17,7 +17,7 @@ import { flipIfRTL } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { useAudioRecorder, transcribeAudio } from "@/hooks/useAudio";
+import { useAudioRecorder, transcribeAudio, useAudioPlayer } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { ScoreCard } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
@@ -94,7 +94,7 @@ export default function SessionScreen() {
   const insets = useSafeAreaInsets();
   const t = useT();
   const { id, stage: stageParam } = useLocalSearchParams<{ id: string; stage: string }>();
-  const { texts, addResult, settings } = useApp();
+  const { texts, addResult, settings, userId } = useApp();
   const { startRecording, stopRecording, isRecording } = useAudioRecorder();
   const lang = settings.nativeLanguage;
 
@@ -115,6 +115,54 @@ export default function SessionScreen() {
   } | null>(null);
   const [memorizeCountdown, setMemorizeCountdown] = useState(30);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Result-page word player: lets users tap a wrong/missed token to hear it.
+  // We keep one player instance and a single "active word" pointer that
+  // identifies both the side ("target" | "user") and the index, so tapping the
+  // same word again stops it and tapping a different one interrupts cleanly.
+  const wordPlayer = useAudioPlayer({ articleId: text?.id, userId });
+  const [activeWord, setActiveWord] = useState<{
+    side: "target" | "user";
+    index: number;
+  } | null>(null);
+  const activeWordRef = useRef<{ side: "target" | "user"; index: number } | null>(
+    null
+  );
+  activeWordRef.current = activeWord;
+
+  const handleWordPress = (side: "target" | "user") => (
+    spoken: string,
+    index: number
+  ) => {
+    const trimmed = spoken.trim();
+    if (!trimmed) return;
+    const cur = activeWordRef.current;
+    // Tapping the currently-playing word stops playback.
+    if (cur && cur.side === side && cur.index === index) {
+      wordPlayer.stop();
+      setActiveWord(null);
+      return;
+    }
+    setActiveWord({ side, index });
+    const voice = settings.preferredVoice ?? "nova";
+    wordPlayer.playTTS(trimmed, voice, () => {
+      // Only clear if we're still the active word (hasn't been preempted).
+      const after = activeWordRef.current;
+      if (after && after.side === side && after.index === index) {
+        setActiveWord(null);
+      }
+    });
+  };
+
+  // Stop word playback and clear the highlight whenever we leave the result
+  // phase (e.g. user taps Try Again or Continue) so nothing keeps playing in
+  // the background.
+  useEffect(() => {
+    if (phase !== "result") {
+      wordPlayer.stop();
+      setActiveWord(null);
+    }
+  }, [phase, wordPlayer]);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
@@ -545,35 +593,63 @@ export default function SessionScreen() {
                   // when the user can supply tokens not in the target (stage 0
                   // shadowing transcript, stage 1 dictation typing).
                   const showExtra = stageIdx === 0 || stageIdx === 1;
+                  const targetActive =
+                    activeWord?.side === "target" ? activeWord.index : null;
+                  const userActive =
+                    activeWord?.side === "user" ? activeWord.index : null;
+                  // Only surface the "tap to hear" hint when something is
+                  // actually tappable (i.e. the model produced annotations
+                  // with at least one wrong/missed token on either side).
+                  const hasTappable =
+                    (result.targetAnnotations?.some(
+                      (a) => a.status === "wrong" || a.status === "missed"
+                    ) ?? false) ||
+                    (result.userAnnotations?.some(
+                      (a) => a.status === "wrong" || a.status === "missed"
+                    ) ?? false);
+                  const targetNode = (
+                    <AnnotatedText
+                      title={targetTitle}
+                      annotations={result.targetAnnotations}
+                      fallbackText={text.text}
+                      onWordPress={handleWordPress("target")}
+                      activeIndex={targetActive}
+                      activeColor={stage.color}
+                    />
+                  );
+                  const userNode = (
+                    <AnnotatedText
+                      title={userTitle}
+                      annotations={result.userAnnotations}
+                      fallbackText={result.userTranscript}
+                      onWordPress={handleWordPress("user")}
+                      activeIndex={userActive}
+                      activeColor={stage.color}
+                    />
+                  );
                   return (
                     <>
                       {stageIdx === 1 ? (
                         <>
-                          <AnnotatedText
-                            title={userTitle}
-                            annotations={result.userAnnotations}
-                            fallbackText={result.userTranscript}
-                          />
-                          <AnnotatedText
-                            title={targetTitle}
-                            annotations={result.targetAnnotations}
-                            fallbackText={text.text}
-                          />
+                          {userNode}
+                          {targetNode}
                         </>
                       ) : (
                         <>
-                          <AnnotatedText
-                            title={targetTitle}
-                            annotations={result.targetAnnotations}
-                            fallbackText={text.text}
-                          />
-                          <AnnotatedText
-                            title={userTitle}
-                            annotations={result.userAnnotations}
-                            fallbackText={result.userTranscript}
-                          />
+                          {targetNode}
+                          {userNode}
                         </>
                       )}
+                      {hasTappable ? (
+                        <Text
+                          style={[
+                            styles.tapHint,
+                            { color: colors.mutedForeground },
+                          ]}
+                        >
+                          {t("session.annot.tapHint")}
+                        </Text>
+                      ) : null}
                       <AnnotatedLegend
                         show={{ wrong: true, missed: true, extra: showExtra }}
                         labels={{
@@ -899,6 +975,13 @@ const styles = StyleSheet.create({
   nextStageText: {
     fontSize: 13,
     fontFamily: "Inter_500Medium",
+  },
+  tapHint: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    fontStyle: "italic",
+    paddingHorizontal: 4,
+    marginTop: -4,
   },
   originalCard: {
     borderRadius: 14,

@@ -17,6 +17,16 @@ interface AnnotatedTextProps {
   fallbackText?: string;
   /** Text to show if both annotations and fallbackText are absent. */
   emptyText?: string;
+  /**
+   * If provided, wrong/missed tokens become tappable. Receives the *spoken*
+   * word (the model's `correct` value if present, otherwise the token itself),
+   * the token index, and the full annotation object.
+   */
+  onWordPress?: (spoken: string, index: number, annotation: Annotation) => void;
+  /** Index of the currently-playing token, used to highlight it. */
+  activeIndex?: number | null;
+  /** Accent color for the active-word highlight. Falls back to the destructive color. */
+  activeColor?: string;
 }
 
 const CJK_RE =
@@ -41,8 +51,12 @@ export function AnnotatedText({
   annotations,
   fallbackText,
   emptyText,
+  onWordPress,
+  activeIndex,
+  activeColor,
 }: AnnotatedTextProps) {
   const colors = useColors();
+  const accent = activeColor ?? colors.destructive;
 
   const items =
     annotations && annotations.length > 0
@@ -100,10 +114,29 @@ export function AnnotatedText({
               style = null;
           }
 
+          const tappable =
+            !!onWordPress && (a.status === "wrong" || a.status === "missed");
+          const isActive = activeIndex === i;
+          const activeStyle: TextStyle | null = isActive
+            ? {
+                backgroundColor: accent + "55",
+                color: accent,
+              }
+            : null;
+          const handlePress = tappable
+            ? () => onWordPress!(a.correct ?? a.word, i, a)
+            : undefined;
+
           return (
             <Text key={i}>
               {space}
-              <Text style={style ?? undefined}>{a.word}</Text>
+              <Text
+                onPress={handlePress}
+                suppressHighlighting={tappable}
+                style={[style, activeStyle].filter(Boolean) as TextStyle[]}
+              >
+                {a.word}
+              </Text>
               {a.correct && a.status === "wrong" ? (
                 <Text style={{ color: colors.success, fontStyle: "italic" }}>
                   {" "}
