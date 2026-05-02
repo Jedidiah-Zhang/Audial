@@ -709,11 +709,25 @@ export function useAudioRecorder() {
         // resolve before the backing file is allocated, so a quick
         // `stop()` then leaves `recorder.uri` null and the caller treats
         // it as "no audio". Preparing up front guarantees the file is
-        // ready before any audio frames arrive. Treat preparation
+        // ready before any audio frames arrive.
+        //
+        // ALSO override `numberOfChannels` to 1 (mono) on Android.
+        // `RecordingPresets.HIGH_QUALITY` defaults to 2 (stereo) but
+        // Android's MediaRecorder + AAC encoder is widely reported to
+        // silently fail with stereo input on many devices — start()
+        // returns OK, no exception is raised, but the resulting .m4a
+        // file is 0 bytes (or just an empty MOOV box). This is the
+        // exact symptom users hit ("permission granted but recording
+        // produces no audio"). Mono is also standard for voice
+        // recording and Whisper STT handles it natively, so there's
+        // no quality cost. iOS keeps the preset's stereo setting
+        // because CoreAudio handles it cleanly. Treat preparation
         // failures as a clean "couldn't start" — the caller's existing
         // error path will handle it.
         try {
-          await recorder.prepareToRecordAsync();
+          await recorder.prepareToRecordAsync(
+            Platform.OS === "android" ? { numberOfChannels: 1 } : undefined,
+          );
         } catch (e) {
           if (__DEV__) {
             console.warn("[useAudioRecorder] prepareToRecordAsync failed", e);
@@ -721,7 +735,16 @@ export function useAudioRecorder() {
           setIsRecording(false);
           return false;
         }
-        await recorder.record();
+        // `recorder.record()` returns void; the async MediaRecorder.start()
+        // happens on a follow-up tick on Android. Give it ~80ms to
+        // actually begin capturing frames before we let the caller flip
+        // into the "recording" UI state — without this, an immediate
+        // stop (e.g. accidental double-tap, very short auto-stop) can
+        // race the encoder and produce an empty file.
+        recorder.record();
+        if (Platform.OS === "android") {
+          await new Promise((r) => setTimeout(r, 80));
+        }
         setIsRecording(true);
         return true;
       }
