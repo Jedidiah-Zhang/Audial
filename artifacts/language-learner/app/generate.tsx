@@ -18,7 +18,7 @@ import { ArrowLeft, Check, ChevronDown, Edit3, RefreshCw, Save, Sparkles, Zap } 
 import { flipIfRTL, rtlTextStyle } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { todayDateKey, useApp } from "@/context/AppContext";
+import { nextQuotaResetAt, todayDateKey, useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
 import { detectContentType, isContentType } from "@/utils/contentType";
@@ -782,11 +782,47 @@ export default function GenerateScreen() {
   }
 
   // ============ FORM MODE (AI / MANUAL) ============
+  // Tapping the chip surfaces a friendly hint of when the daily quota
+  // will refill. Computed on demand — no live ticking countdown — since
+  // a single dialog read is enough for users wondering "when can I
+  // create more?". Reset moment comes from nextQuotaResetAt() so the
+  // app and server can never disagree about it.
+  const handleQuotaChipPress = () => {
+    const reset = nextQuotaResetAt();
+    const ms = Math.max(0, reset.getTime() - Date.now());
+    const totalMin = Math.floor(ms / 60000);
+    const hours = Math.floor(totalMin / 60);
+    const mins = totalMin % 60;
+    // Local clock string in the user's own wall-clock — undefined locale
+    // lets the platform pick the user's preferred 12h/24h format.
+    const time = reset.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const isTomorrowLocal =
+      reset.toDateString() !== new Date().toDateString();
+    const key = isTomorrowLocal
+      ? "quota.gen.resetHint.tomorrow"
+      : "quota.gen.resetHint.today";
+    Alert.alert(
+      t("quota.gen.resetHintTitle"),
+      t(key, { hours, mins, time }),
+    );
+  };
+
   // Single source of truth for the "今日剩余 N/总数" chip — rendered in
   // both the AI and manual tabs so users can see the shared daily quota
   // before they start either flow. Hidden for Pro users.
   const quotaChip = !isPro ? (
-    <View
+    <TouchableOpacity
+      onPress={handleQuotaChipPress}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={t("quota.gen.remaining", {
+        n: generationsRemaining,
+        total: generationLimit,
+      })}
+      accessibilityHint={t("quota.gen.resetHintTitle")}
       style={[
         styles.quotaChip,
         {
@@ -823,7 +859,7 @@ export default function GenerateScreen() {
           total: generationLimit,
         })}
       </Text>
-    </View>
+    </TouchableOpacity>
   ) : null;
 
   return (

@@ -84,6 +84,32 @@ export function todayDateKey(): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+/**
+ * The next moment the daily quota will reset, as a real `Date`. Same
+ * rule as `todayDateKey()`: 04:00 Asia/Shanghai daily. Returned in the
+ * device's local clock so callers can format it however they want
+ * (toLocaleTimeString, etc.) without re-deriving the timezone math.
+ *
+ * Implementation: in the "shifted UTC" space (UTC + 4h), the reset
+ * happens at midnight, so we find the next shifted-midnight and map
+ * back to real UTC by subtracting the 4h shift. This stays correct
+ * regardless of the device's own timezone.
+ */
+export function nextQuotaResetAt(): Date {
+  const shiftMs = 4 * 60 * 60 * 1000;
+  const shifted = new Date(Date.now() + shiftMs);
+  const nextShiftedMidnightUtc = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate() + 1, // tomorrow in shifted space = next reset
+    0,
+    0,
+    0,
+    0,
+  );
+  return new Date(nextShiftedMidnightUtc - shiftMs);
+}
+
 function defaultGenerationCount(): DailyGenerationCount {
   return { date: todayDateKey(), count: 0 };
 }
