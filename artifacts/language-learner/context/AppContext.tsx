@@ -61,20 +61,27 @@ export const FREE_DAILY_GENERATION_LIMIT = 3;
 const ANALYSIS_UNLOCK_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface DailyGenerationCount {
-  date: string; // YYYY-MM-DD in the device's *local* timezone
+  date: string; // YYYY-MM-DD bucket key — see todayDateKey() below.
   count: number;
 }
 
-// Local-date key (NOT UTC). The user thinks of "today" in their wall-clock
-// timezone — using UTC here would reset the quota at midnight UTC, which
-// for most of the world is the middle of the day. Computing from local
-// year/month/day avoids both that and any DST/IANA edge cases.
-function todayDateKey(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+/**
+ * Bucket date for the daily quota. Rolls over at 04:00 Asia/Shanghai
+ * (UTC+8) so every user worldwide hits a daily reset at the exact same
+ * wall-clock instant — and the client mirror never disagrees with the
+ * server's authoritative count. Must stay in sync with `todayKey()` in
+ * artifacts/api-server/src/routes/language.ts; 4am Shanghai was chosen
+ * because it minimizes mid-session rollovers anywhere on the globe.
+ *
+ * Exported so app/generate.tsx can use the same key when relabeling
+ * server quota responses, instead of re-deriving the rollover logic.
+ */
+export function todayDateKey(): string {
+  // China 04:00 = UTC (previous day) 20:00. Adding 4h to UTC time
+  // shifts that rollover to UTC midnight so we can just take the
+  // ISO date.
+  const shifted = new Date(Date.now() + 4 * 60 * 60 * 1000);
+  return shifted.toISOString().slice(0, 10);
 }
 
 function defaultGenerationCount(): DailyGenerationCount {

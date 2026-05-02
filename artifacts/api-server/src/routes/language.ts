@@ -36,15 +36,32 @@ const FREE_DAILY_GENERATION_LIMIT = 3;
 const REWARD_TOKEN_TTL_MS = 30 * 60 * 1000;
 
 interface QuotaEntry {
-  date: string; // YYYY-MM-DD (UTC)
+  date: string; // YYYY-MM-DD — see todayKey() for which timezone.
   count: number;
 }
 
 const generationQuota = new Map<string, QuotaEntry>();
 const rewardTokens = new Map<string, { userId: string; expiresAt: number }>();
 
+/**
+ * Bucket date for the daily quota. Rolls over at 04:00 Asia/Shanghai
+ * (UTC+8) so every user worldwide hits a daily reset at the exact same
+ * wall-clock instant (China 4am = UTC 20:00 previous day = US-East 4pm
+ * = US-West 1pm = London 8pm). This trades "midnight feels right
+ * locally" for a single source of truth: the client mirror and the
+ * server can never disagree about which day "today" is.
+ *
+ * 4am Shanghai is chosen because it's after most users have ended the
+ * previous day's session and before the next day's morning users wake
+ * up, minimizing mid-session rollovers anywhere on the globe.
+ *
+ * The client's `todayDateKey()` in AppContext.tsx must match this
+ * exactly. Adding 4h to UTC shifts the China-4am rollover to UTC
+ * midnight so we can just take the ISO date.
+ */
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  const shifted = new Date(Date.now() + 4 * 60 * 60 * 1000);
+  return shifted.toISOString().slice(0, 10);
 }
 
 function readUserId(req: { headers: Record<string, unknown> }): string {
@@ -58,11 +75,10 @@ function readTier(req: { headers: Record<string, unknown> }): "free" | "pro" {
   return typeof raw === "string" && raw.toLowerCase() === "pro" ? "pro" : "free";
 }
 
-function getQuota(userId: string): QuotaEntry {
-  const today = todayKey();
+function getQuota(userId: string, dateKey: string): QuotaEntry {
   const existing = generationQuota.get(userId);
-  if (!existing || existing.date !== today) {
-    const fresh = { date: today, count: 0 };
+  if (!existing || existing.date !== dateKey) {
+    const fresh = { date: dateKey, count: 0 };
     generationQuota.set(userId, fresh);
     return fresh;
   }
@@ -91,6 +107,28 @@ const enforceGenerationQuota: RequestHandler = (req, res, next) => {
     next();
     return;
   }
+  // Regenerate is a free retry of an already-paid creation. The client
+  // sets `regenerate: true` (with the previous draft attached) only when
+  // refining an existing in-flight draft; the original creation already
+  // cost a quota slot. We skip both the cap check and the increment so
+  // the user can iterate on a draft without burning their daily limit.
+  // Without this, every "Regenerate" tap silently bumped the server count
+  // while the client mirror stayed flat, then the user got a surprise
+  // 429 on their next from-scratch creation. Trust level on the flag
+  // matches the rest of the quota signals (x-tier / x-user-id) — see
+  // follow-up #63 for hardening the whole identity layer.
+  const body = (req.body ?? {}) as {
+    regenerate?: unknown;
+    previousText?: unknown;
+  };
+  if (
+    body.regenerate === true &&
+    typeof body.previousText === "string" &&
+    body.previousText.length > 0
+  ) {
+    next();
+    return;
+  }
   const userId = readUserId(req as never);
   const rewardToken = req.headers["x-reward-token"];
   if (typeof rewardToken === "string" && rewardToken.trim()) {
@@ -99,7 +137,7 @@ const enforceGenerationQuota: RequestHandler = (req, res, next) => {
       return;
     }
   }
-  const entry = getQuota(userId);
+  const entry = getQuota(userId, todayKey());
   if (entry.count >= FREE_DAILY_GENERATION_LIMIT) {
     res.status(429).json({
       success: false,
@@ -121,9 +159,25 @@ const enforceGenerationQuota: RequestHandler = (req, res, next) => {
   next();
 };
 
+/**
+ * Reject empty/whitespace-only manual input BEFORE the quota middleware
+ * runs, so a malformed POST doesn't silently consume one of the user's
+ * 3 daily slots before the route handler ever sees it. The React client
+ * already gates on this, but a curl or replay can slip through.
+ */
+const validateManualPayload: RequestHandler = (req, res, next) => {
+  const body = (req.body ?? {}) as { text?: unknown };
+  if (typeof body.text !== "string" || !body.text.trim()) {
+    res.status(400).json({ success: false, error: "Empty text" });
+    return;
+  }
+  next();
+};
+
 router.get("/language/quota", (req, res) => {
   const tier = readTier(req as never);
   const userId = readUserId(req as never);
+  const today = todayKey();
   if (tier === "pro") {
     res.json({
       success: true,
@@ -132,12 +186,12 @@ router.get("/language/quota", (req, res) => {
         limit: null,
         used: 0,
         remaining: null,
-        resetDate: todayKey(),
+        resetDate: today,
       },
     });
     return;
   }
-  const entry = getQuota(userId);
+  const entry = getQuota(userId, today);
   res.json({
     success: true,
     data: {
@@ -350,18 +404,13 @@ router.post("/language/translate", requireDeepseek, async (req, res) => {
   }
 });
 
-router.post("/language/process-manual", requireDeepseek, enforceGenerationQuota, async (req, res) => {
+router.post("/language/process-manual", requireDeepseek, validateManualPayload, enforceGenerationQuota, async (req, res) => {
   try {
     const { text, targetLanguage, nativeLanguage } = req.body as {
       text: string;
       targetLanguage: string;
       nativeLanguage: string;
     };
-
-    if (!text || !text.trim()) {
-      res.status(400).json({ success: false, error: "Empty text" });
-      return;
-    }
 
     const response = await deepseek.chat.completions.create({
       model: DEEPSEEK_MODEL,

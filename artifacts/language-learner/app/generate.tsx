@@ -18,7 +18,7 @@ import { ArrowLeft, Check, ChevronDown, Edit3, RefreshCw, Save, Sparkles, Zap } 
 import { flipIfRTL } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
-import { useApp } from "@/context/AppContext";
+import { todayDateKey, useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
 import { detectContentType, isContentType } from "@/utils/contentType";
@@ -441,14 +441,14 @@ export default function GenerateScreen() {
       if (attempt.kind === "quota_exceeded") {
         // Re-sync the local mirror with whatever the server says so the
         // chip & sheet are accurate even if our local count drifted.
+        // Client and server share the same rollover (Asia/Shanghai 04:00
+        // — see todayDateKey), so the date label here matches the
+        // server's bucket without further relabeling.
         if (!isPro && attempt.quota) {
-          // Tag with the device's *local* date so it matches the
-          // AppContext quota key (the gate resets at local midnight,
-          // not UTC midnight). The server's count is still trusted —
-          // we only override the date label.
-          const now = new Date();
-          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-          await syncGenerationQuota({ date: today, count: attempt.quota.used });
+          await syncGenerationQuota({
+            date: todayDateKey(),
+            count: attempt.quota.used,
+          });
         }
         setQuotaTrigger("ai");
         setQuotaSheetOpen(true);
@@ -568,12 +568,14 @@ export default function GenerateScreen() {
       if (attempt.ok === false && attempt.kind === "quota_exceeded") {
         // Re-sync the local mirror with whatever the server says so the
         // chip & sheet are accurate even if our local count drifted.
-        // Same date-tagging trick as the AI path: server's count is
-        // trusted, but we relabel the date to local-midnight semantics.
+        // Client and server share the same rollover (Asia/Shanghai 04:00
+        // — see todayDateKey), so the date label here matches the
+        // server's bucket without further relabeling.
         if (!isPro && attempt.quota) {
-          const now = new Date();
-          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-          await syncGenerationQuota({ date: today, count: attempt.quota.used });
+          await syncGenerationQuota({
+            date: todayDateKey(),
+            count: attempt.quota.used,
+          });
         }
         setQuotaTrigger("manual");
         setQuotaSheetOpen(true);
