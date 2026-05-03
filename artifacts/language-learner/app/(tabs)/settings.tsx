@@ -402,7 +402,22 @@ function Row({
       >
         {value}
       </Text>
-      {inlineSlot ? <View style={styles.inlineSlotWrap}>{inlineSlot}</View> : null}
+      {inlineSlot ? (
+        // Stop touches from bubbling into the row's TouchableOpacity so
+        // tapping the inline pill (e.g. SyncIndicator) doesn't also
+        // navigate. `onStartShouldSetResponder` claims the gesture for
+        // this View on native; the web onClick handler stops the synthetic
+        // click from reaching the row's Pressable on RN Web.
+        <View
+          style={styles.inlineSlotWrap}
+          onStartShouldSetResponder={() => true}
+          onResponderRelease={() => {}}
+          // @ts-expect-error — RN Web only; harmless on native.
+          onClick={(e: any) => e?.stopPropagation?.()}
+        >
+          {inlineSlot}
+        </View>
+      ) : null}
       <ChevronRight size={18} color={colors.mutedForeground} style={flipIfRTL()} />
     </TouchableOpacity>
   );
