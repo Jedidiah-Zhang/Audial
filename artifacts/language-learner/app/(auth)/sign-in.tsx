@@ -76,15 +76,22 @@ export default function SignInScreen() {
         password,
       });
       if (error) {
+        // Always surface whatever Clerk gave us — sign-in's UI doesn't
+        // render per-field errors, so swallowing field-level errors
+        // would leave the user staring at nothing.
         const errAny = error as any;
-        const isFieldError =
-          !!errAny?.fields?.identifier ||
-          !!errAny?.fields?.password ||
-          !!errors?.fields?.identifier ||
-          !!errors?.fields?.password;
-        if (!isFieldError) {
-          setSubmitError(error.message ?? t("auth.error.generic"));
+        const msg =
+          errAny?.longMessage ||
+          errAny?.message ||
+          errAny?.errors?.[0]?.longMessage ||
+          errAny?.errors?.[0]?.message ||
+          errors?.fields?.identifier?.message ||
+          errors?.fields?.password?.message ||
+          t("auth.error.generic");
+        if (__DEV__) {
+          console.log("[sign-in] password() error", JSON.stringify(error, null, 2));
         }
+        setSubmitError(msg);
         return;
       }
 
@@ -98,9 +105,13 @@ export default function SignInScreen() {
       }
 
       // Any other status (needs_second_factor / needs_client_trust /
-      // needs_first_factor / needs_identifier / etc.) — surface
-      // something so the button click never feels like it did nothing.
-      setSubmitError(t("auth.error.generic"));
+      // needs_first_factor / needs_identifier / etc.) — surface the
+      // status so the user (and we) can see what Clerk is asking for
+      // instead of a vague "try again later".
+      if (__DEV__) {
+        console.log("[sign-in] non-complete status", signIn.status, signIn);
+      }
+      setSubmitError(`Sign-in status: ${signIn.status ?? "unknown"}`);
     } catch (err: any) {
       // signIn.password() can throw on network errors / malformed state.
       // Without this catch the rejection is swallowed and the user is
