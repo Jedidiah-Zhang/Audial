@@ -48,7 +48,7 @@ import {
 } from "@/utils/sessionLeaveIntercept";
 import { useDictationHintQuota } from "@/hooks/useDictationHintQuota";
 import { buildDictationHintMask } from "@/utils/dictationHint";
-import { splitSentences } from "@/utils/sentences";
+import { buildRecitationHintPlan } from "@/utils/recitationHint";
 
 /**
  * Compute how many seconds the user gets to memorise a passage in
@@ -221,11 +221,14 @@ export default function SessionScreen() {
   const [memorizeCountdown, setMemorizeCountdown] = useState<number>(() =>
     computeMemorizeDuration(text?.text ?? "")
   );
-  // How many recitation hint chunks the user has revealed in the
-  // current attempt. Each chunk is one sentence (per `splitSentences`),
-  // revealed in order from the start of the passage. Reset whenever
-  // the user leaves the recitation flow (retry / continue / change of
-  // stage) so each attempt starts blind.
+  // How many recitation hint *steps* the user has consumed in the
+  // current attempt. Each step reveals one more "chunk" of keywords
+  // (the keyword count per step is decided by `buildRecitationHintPlan`
+  // based on passage length so short texts don't get spoiled in one
+  // tap and long texts still get meaningful help). Revealed keywords
+  // appear in passage order; the rest of the passage renders as
+  // placeholders so the learner can see structure but not the full
+  // text. Reset on retry / continue / leaving the recitation flow.
   const [recitationHintsRevealed, setRecitationHintsRevealed] =
     useState<number>(0);
   // Whether the "watch ad to reveal hint" prompt is currently open
@@ -646,27 +649,29 @@ export default function SessionScreen() {
     router.back();
   };
 
-  // Recitation hint chunks: split the passage into sentences using the
-  // same splitter the rest of the app uses (so chunk boundaries match
-  // what the user practised in stage 0 / 1) and reveal them in order.
-  const recitationHintChunks = React.useMemo(
-    () => (text ? splitSentences(text.text) : []),
-    [text]
+  // Recitation hint plan: derived from the passage text and the
+  // current step count. The plan owns keyword selection, pacing
+  // (how many keywords per tap, total taps available), and the
+  // masked display string. Recomputing on every step change is cheap
+  // and keeps render in sync with state.
+  const recitationHintPlan = React.useMemo(
+    () => buildRecitationHintPlan(text?.text ?? "", recitationHintsRevealed),
+    [text, recitationHintsRevealed]
   );
+  const recitationHasKeywords = recitationHintPlan.totalKeywords > 0;
   const recitationHintsAtCap =
-    recitationHintChunks.length > 0 &&
-    recitationHintsRevealed >= recitationHintChunks.length;
-  const recitationRevealedText = recitationHintChunks
-    .slice(0, recitationHintsRevealed)
-    .join(" ");
+    recitationHasKeywords &&
+    recitationHintsRevealed >= recitationHintPlan.totalSteps;
 
   const recitationHintInFlightRef = useRef(false);
   const handleRevealRecitationHint = async () => {
     if (recitationHintInFlightRef.current) return;
-    if (recitationHintsAtCap || recitationHintChunks.length === 0) return;
+    if (recitationHintsAtCap || !recitationHasKeywords) return;
     if (isPro) {
-      // Pro users skip the ad and reveal one chunk immediately.
-      setRecitationHintsRevealed((n) => n + 1);
+      // Pro users skip the ad and advance one step immediately.
+      setRecitationHintsRevealed((n) =>
+        Math.min(recitationHintPlan.totalSteps, n + 1)
+      );
       return;
     }
     setRecitationHintAdPrompt(true);
@@ -680,11 +685,11 @@ export default function SessionScreen() {
       const outcome = await showRecitationHintAd();
       if (outcome === "rewarded") {
         // Re-check the cap inside the resolve in case the user managed
-        // to reveal the last chunk through some other path while the
-        // ad was on screen.
+        // to advance past it through some other path while the ad
+        // was on screen.
         setRecitationHintsRevealed((n) =>
-          recitationHintChunks.length > 0
-            ? Math.min(recitationHintChunks.length, n + 1)
+          recitationHintPlan.totalSteps > 0
+            ? Math.min(recitationHintPlan.totalSteps, n + 1)
             : n + 1
         );
         setRecitationHintAdPrompt(false);
@@ -1277,11 +1282,11 @@ export default function SessionScreen() {
 
             {(() => {
               // Hint controls live just above the record button so a
-              // user who freezes mid-recitation can reveal the next
-              // sentence without leaving the recording screen.
-              const hasChunks = recitationHintChunks.length > 0;
+              // user who freezes mid-recitation can reveal a few more
+              // keywords without leaving the recording screen.
+              const hasKeywords = recitationHasKeywords;
               const allRevealed = recitationHintsAtCap;
-              const hintBtnDisabled = !hasChunks || allRevealed;
+              const hintBtnDisabled = !hasKeywords || allRevealed;
               const hintBtnLabel = isPro
                 ? t("session.recite.hintProButton")
                 : t("session.recite.hintButton");
@@ -1321,7 +1326,8 @@ export default function SessionScreen() {
                         {allRevealed
                           ? t("session.recite.hintAllRevealed")
                           : t("session.recite.hintRevealedLabel", {
-                              n: recitationHintsRevealed,
+                              n: recitationHintPlan.revealedKeywords,
+                              total: recitationHintPlan.totalKeywords,
                             })}
                       </Text>
                     ) : null}
@@ -1335,7 +1341,7 @@ export default function SessionScreen() {
                       ]}
                       selectable={false}
                     >
-                      {recitationRevealedText}
+                      {recitationHintPlan.display}
                     </Text>
                   ) : null}
                 </View>
