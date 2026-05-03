@@ -37,6 +37,7 @@ import { ScoreCard, type PerSentenceRow } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
 import { ShadowSentenceFlow, type ShadowFlowResult } from "@/components/ShadowSentenceFlow";
 import { RecitePrepFlow } from "@/components/RecitePrepFlow";
+import { VocabularyDictationFlow } from "@/components/VocabularyDictationFlow";
 import { AnnotatedText, AnnotatedLegend, type Annotation } from "@/components/AnnotatedText";
 import { StageCard } from "@/components/StageCard";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
@@ -129,6 +130,7 @@ function parseGeom(p: {
 
 type SessionPhase =
   | "intro"
+  | "vocab-dictation"
   | "study"
   | "recite-prep"
   | "memorize"
@@ -441,6 +443,12 @@ export default function SessionScreen() {
       // component invokes startMemorizeCountdown to enter the existing
       // memorize phase, so the scored take itself is unchanged.
       setPhase("recite-prep");
+    } else if (stageIdx === 1 && (text?.vocabulary?.length ?? 0) > 0) {
+      // Stage 1 (dictation) gets a vocabulary warm-up sub-stage where
+      // each vocab word is played and the user spells it. This runs
+      // before the existing full-passage dictation. Skipped when there
+      // is no vocabulary attached to the article.
+      setPhase("vocab-dictation");
     } else {
       setPhase("study");
     }
@@ -1344,6 +1352,19 @@ export default function SessionScreen() {
               articleId={text.id}
               language={text.targetLanguage}
               onComplete={handleShadowFlowComplete}
+            />
+          </View>
+        )}
+
+        {phase === "vocab-dictation" && stageIdx === 1 && text && (
+          <View style={styles.section}>
+            <VocabularyDictationFlow
+              vocabulary={text.vocabulary}
+              targetLanguage={text.targetLanguage}
+              articleId={text.id}
+              accentColor={stageColor}
+              onComplete={() => setPhase("study")}
+              onSkipAll={() => setPhase("study")}
             />
           </View>
         )}
