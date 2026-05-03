@@ -8,11 +8,13 @@ import { Platform } from "react-native";
  * - `generation`        : "+1 article generation" after the daily quota
  * - `analysis_unlock`   : "unlock per-sentence detailed score analysis"
  * - `dictation_hint`    : "+3 dictation hints" added to today's quota
+ * - `recitation_hint`   : "+1 recitation hint chunk" while reciting
  */
 export type AdPlacement =
   | "generation"
   | "analysis_unlock"
-  | "dictation_hint";
+  | "dictation_hint"
+  | "recitation_hint";
 
 /**
  * Result of a `show()` call.
@@ -137,6 +139,10 @@ function adUnitIdFor(placement: AdPlacement): string {
         return isIOS
           ? "EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_IOS"
           : "EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_ANDROID";
+      case "recitation_hint":
+        return isIOS
+          ? "EXPO_PUBLIC_ADMOB_REWARDED_RECITATION_ID_IOS"
+          : "EXPO_PUBLIC_ADMOB_REWARDED_RECITATION_ID_ANDROID";
     }
   })();
   const v = process.env[envKey];

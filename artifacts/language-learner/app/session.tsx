@@ -48,6 +48,31 @@ import {
 } from "@/utils/sessionLeaveIntercept";
 import { useDictationHintQuota } from "@/hooks/useDictationHintQuota";
 import { buildDictationHintMask } from "@/utils/dictationHint";
+import { splitSentences } from "@/utils/sentences";
+
+/**
+ * Compute how many seconds the user gets to memorise a passage in
+ * stage 2 (recitation). Scales with passage length so short sentences
+ * don't drag and long passages don't feel impossible.
+ *
+ * Strategy: count "tokens" — words for whitespace languages, characters
+ * for CJK / no-space scripts (where word boundaries don't exist) — and
+ * map to seconds with a base + per-token slope, clamped to a sensible
+ * range so the UI countdown never feels broken.
+ */
+function computeMemorizeDuration(rawText: string): number {
+  const trimmed = (rawText ?? "").trim();
+  if (!trimmed) return 30;
+  const words = trimmed.split(/\s+/).filter(Boolean).length;
+  const chars = Array.from(trimmed).length;
+  // For space-separated text, words is reliable. For CJK / scripts
+  // without spaces, the whole passage often collapses to a single
+  // "word", so derive units from char count instead (approx 2 chars
+  // per memorisable unit).
+  const units = words > 1 ? words : Math.max(1, Math.round(chars / 2));
+  const seconds = Math.round(8 + units * 1.2);
+  return Math.min(120, Math.max(15, seconds));
+}
 
 /**
  * Score deduction applied per hint use in the dictation stage. Floored
@@ -133,6 +158,7 @@ export default function SessionScreen() {
   // placement-keyed so each call gets its own load/show lifecycle.
   const { show: showAnalysisAd } = useRewardedAd("analysis_unlock");
   const { show: showHintAd } = useRewardedAd("dictation_hint");
+  const { show: showRecitationHintAd } = useRewardedAd("recitation_hint");
   const hintQuota = useDictationHintQuota({
     freeHintsPerDay: HINT_FREE_PER_DAY,
     bonusHints: HINT_AD_BONUS,
@@ -189,7 +215,26 @@ export default function SessionScreen() {
     // submission, so neither populates this.
     perSentence?: PerSentenceRow[];
   } | null>(null);
-  const [memorizeCountdown, setMemorizeCountdown] = useState(30);
+  // Initialise the countdown from the (possibly missing) text length so
+  // the very first render of the countdown card already shows the
+  // right number — see `computeMemorizeDuration` for the formula.
+  const [memorizeCountdown, setMemorizeCountdown] = useState<number>(() =>
+    computeMemorizeDuration(text?.text ?? "")
+  );
+  // How many recitation hint chunks the user has revealed in the
+  // current attempt. Each chunk is one sentence (per `splitSentences`),
+  // revealed in order from the start of the passage. Reset whenever
+  // the user leaves the recitation flow (retry / continue / change of
+  // stage) so each attempt starts blind.
+  const [recitationHintsRevealed, setRecitationHintsRevealed] =
+    useState<number>(0);
+  // Whether the "watch ad to reveal hint" prompt is currently open
+  // for the recitation stage. Only shown for free-tier users — Pro
+  // users get hints immediately without the prompt.
+  const [recitationHintAdPrompt, setRecitationHintAdPrompt] =
+    useState<boolean>(false);
+  const [recitationHintAdInFlight, setRecitationHintAdInFlight] =
+    useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Stage 0 (shadow) owns its own recorder inside ShadowSentenceFlow, so
   // its recording URI can't be read off the session-level useAudioRecorder.
@@ -335,7 +380,7 @@ export default function SessionScreen() {
   const handleBeginPractice = () => {
     if (stageIdx === 2) {
       setPhase("memorize");
-      setMemorizeCountdown(30);
+      setMemorizeCountdown(computeMemorizeDuration(text?.text ?? ""));
       countdownRef.current = setInterval(() => {
         setMemorizeCountdown((n) => {
           if (n <= 1) {
@@ -592,12 +637,77 @@ export default function SessionScreen() {
     setShadowRecordingUri(null);
     setHintsUsedThisAttempt(0);
     setHintVisible(false);
+    setRecitationHintsRevealed(0);
+    setRecitationHintAdPrompt(false);
     setPhase("intro");
   };
 
   const handleNextStage = () => {
     router.back();
   };
+
+  // Recitation hint chunks: split the passage into sentences using the
+  // same splitter the rest of the app uses (so chunk boundaries match
+  // what the user practised in stage 0 / 1) and reveal them in order.
+  const recitationHintChunks = React.useMemo(
+    () => (text ? splitSentences(text.text) : []),
+    [text]
+  );
+  const recitationHintsAtCap =
+    recitationHintChunks.length > 0 &&
+    recitationHintsRevealed >= recitationHintChunks.length;
+  const recitationRevealedText = recitationHintChunks
+    .slice(0, recitationHintsRevealed)
+    .join(" ");
+
+  const recitationHintInFlightRef = useRef(false);
+  const handleRevealRecitationHint = async () => {
+    if (recitationHintInFlightRef.current) return;
+    if (recitationHintsAtCap || recitationHintChunks.length === 0) return;
+    if (isPro) {
+      // Pro users skip the ad and reveal one chunk immediately.
+      setRecitationHintsRevealed((n) => n + 1);
+      return;
+    }
+    setRecitationHintAdPrompt(true);
+  };
+
+  const handleRecitationHintWatchAd = async () => {
+    if (recitationHintAdInFlight || recitationHintInFlightRef.current) return;
+    recitationHintInFlightRef.current = true;
+    setRecitationHintAdInFlight(true);
+    try {
+      const outcome = await showRecitationHintAd();
+      if (outcome === "rewarded") {
+        // Re-check the cap inside the resolve in case the user managed
+        // to reveal the last chunk through some other path while the
+        // ad was on screen.
+        setRecitationHintsRevealed((n) =>
+          recitationHintChunks.length > 0
+            ? Math.min(recitationHintChunks.length, n + 1)
+            : n + 1
+        );
+        setRecitationHintAdPrompt(false);
+      }
+      // dismissed / unavailable: leave the prompt open so the user can
+      // retry — no hint reveal, no consumption (matches the existing
+      // dictation_hint behavior).
+    } finally {
+      setRecitationHintAdInFlight(false);
+      recitationHintInFlightRef.current = false;
+    }
+  };
+
+  // Reset the revealed-hint state whenever we leave the recitation
+  // study/recording flow so a brand-new attempt starts blind. Mirrors
+  // the existing playback-cleanup effect above.
+  useEffect(() => {
+    if (stageIdx !== 2) return;
+    if (phase !== "study" && phase !== "recording") {
+      setRecitationHintsRevealed(0);
+      setRecitationHintAdPrompt(false);
+    }
+  }, [phase, stageIdx]);
 
   // Hint button handler — three behaviours rolled into one tap:
   //   1. Card is currently shown   → hide it (no quota consumption).
@@ -1165,6 +1275,73 @@ export default function SessionScreen() {
               </Text>
             </View>
 
+            {(() => {
+              // Hint controls live just above the record button so a
+              // user who freezes mid-recitation can reveal the next
+              // sentence without leaving the recording screen.
+              const hasChunks = recitationHintChunks.length > 0;
+              const allRevealed = recitationHintsAtCap;
+              const hintBtnDisabled = !hasChunks || allRevealed;
+              const hintBtnLabel = isPro
+                ? t("session.recite.hintProButton")
+                : t("session.recite.hintButton");
+              return (
+                <View
+                  style={[
+                    styles.hintBlock,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}
+                >
+                  <View style={styles.hintHeaderRow}>
+                    <TouchableOpacity
+                      onPress={handleRevealRecitationHint}
+                      disabled={hintBtnDisabled}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.hintBtn,
+                        {
+                          backgroundColor: stageColor + "1F",
+                          borderColor: stageColor + "55",
+                          opacity: hintBtnDisabled ? 0.45 : 1,
+                        },
+                      ]}
+                    >
+                      <Lightbulb size={16} color={stageColor} />
+                      <Text style={[styles.hintBtnText, { color: stageColor }]}>
+                        {hintBtnLabel}
+                      </Text>
+                    </TouchableOpacity>
+                    {recitationHintsRevealed > 0 ? (
+                      <Text
+                        style={[
+                          styles.hintRemaining,
+                          { color: colors.mutedForeground },
+                        ]}
+                      >
+                        {allRevealed
+                          ? t("session.recite.hintAllRevealed")
+                          : t("session.recite.hintRevealedLabel", {
+                              n: recitationHintsRevealed,
+                            })}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {recitationHintsRevealed > 0 ? (
+                    <Text
+                      style={[
+                        styles.hintMaskText,
+                        { color: colors.foreground },
+                        rtlTextStyle(text.text),
+                      ]}
+                      selectable={false}
+                    >
+                      {recitationRevealedText}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })()}
+
             <View style={styles.recordSection}>
               <TouchableOpacity
                 onPress={handleRecord}
@@ -1514,6 +1691,77 @@ export default function SessionScreen() {
             <TouchableOpacity
               onPress={() => setHintAdPrompt(false)}
               disabled={hintAdInFlight}
+              activeOpacity={0.85}
+              style={styles.adPromptSecondary}
+            >
+              <Text
+                style={[
+                  styles.adPromptSecondaryText,
+                  { color: colors.mutedForeground },
+                ]}
+              >
+                {t("ads.dismiss")}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={recitationHintAdPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          !recitationHintAdInFlight && setRecitationHintAdPrompt(false)
+        }
+      >
+        <View style={styles.adPromptBackdrop}>
+          <View
+            style={[
+              styles.adPromptCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View
+              style={[
+                styles.adPromptIcon,
+                { backgroundColor: stageColor + "1F" },
+              ]}
+            >
+              <Lightbulb size={24} color={stageColor} />
+            </View>
+            <Text style={[styles.adPromptTitle, { color: colors.foreground }]}>
+              {t("session.recite.hintAdTitle")}
+            </Text>
+            <Text
+              style={[styles.adPromptBody, { color: colors.mutedForeground }]}
+            >
+              {t("session.recite.hintAdBody")}
+            </Text>
+            <TouchableOpacity
+              onPress={handleRecitationHintWatchAd}
+              disabled={recitationHintAdInFlight}
+              activeOpacity={0.85}
+              style={[
+                styles.adPromptPrimary,
+                {
+                  backgroundColor: stageColor,
+                  opacity: recitationHintAdInFlight ? 0.6 : 1,
+                },
+              ]}
+            >
+              {recitationHintAdInFlight ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Sparkles size={16} color="#fff" />
+              )}
+              <Text style={styles.adPromptPrimaryText}>
+                {t("session.recite.hintAdCta")}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setRecitationHintAdPrompt(false)}
+              disabled={recitationHintAdInFlight}
               activeOpacity={0.85}
               style={styles.adPromptSecondary}
             >

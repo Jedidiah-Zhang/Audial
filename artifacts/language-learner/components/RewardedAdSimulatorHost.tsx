@@ -79,6 +79,8 @@ export function RewardedAdSimulatorHost() {
         return t("ads.placement.analysis");
       case "dictation_hint":
         return t("ads.placement.dictation");
+      case "recitation_hint":
+        return t("ads.placement.recitation");
       default:
         return "";
     }
