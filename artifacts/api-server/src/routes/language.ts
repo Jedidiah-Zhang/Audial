@@ -801,6 +801,24 @@ Evidence: ${JSON.stringify(evidence)}`,
   }
 );
 
+// ── dictation: punctuation-insensitive helpers ────────────────────────
+// Dictation grading should focus on whether the learner heard the words,
+// not whether they typed every comma and full-stop. We strip punctuation
+// (Unicode \p{P} + \p{S}, covers ASCII, CJK, smart quotes, etc.),
+// collapse whitespace, and lower-case for comparison. The lower-case
+// step is harmless for scripts without case (Chinese/Japanese/Arabic…).
+const PUNCT_RE = /[\p{P}\p{S}]+/gu;
+function stripPunctuation(s: string): string {
+  return s.replace(PUNCT_RE, "");
+}
+function normalizeForCompare(s: string): string {
+  return stripPunctuation(s).replace(/\s+/g, "").toLowerCase();
+}
+function isPurePunctuation(token: string): boolean {
+  if (!token) return false;
+  return stripPunctuation(token).trim() === "";
+}
+
 router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
   try {
     // See score-pronunciation for naming rationale: `language` is the
@@ -825,7 +843,9 @@ router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
 - "wordAccuracy": percentage of words spelled correctly
 - "userAnnotations": array of {"word": string, "status": "ok" | "wrong" | "extra", "correct"?: string} that tokenizes the user's writing in original order. Use "wrong" for misspelled or wrong words (include the suggested correction in "correct"), "extra" for words the user wrote that aren't in the target, "ok" otherwise.
 - "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed"} that tokenizes the target text in original order. Use "missed" for words the user omitted, "wrong" for words the user spelled or replaced incorrectly, "ok" otherwise.
-The concatenation of all words in each array MUST exactly reproduce the original sentence (include punctuation as its own token or attached to the previous word). For non-spaced languages, tokenize at word/character boundaries that preserve readability when concatenated without spaces.`,
+The concatenation of all words in each array MUST exactly reproduce the original sentence (include punctuation as its own token or attached to the previous word). For non-spaced languages, tokenize at word/character boundaries that preserve readability when concatenated without spaces.
+
+CRITICAL: Punctuation differences DO NOT count as errors. Ignore any difference in punctuation marks, including missing or extra commas / periods / question marks / exclamation marks, mismatched or smart vs straight quotes, and Chinese vs ASCII punctuation (，。？！「」“” vs ,.?!""). Tokens that consist only of punctuation MUST always have status "ok". Never list a punctuation-only difference in "corrections", and never reduce "score" or "wordAccuracy" because of punctuation.`,
         },
         {
           role: "user",
@@ -837,6 +857,61 @@ The concatenation of all words in each array MUST exactly reproduce the original
 
     const content = response.choices[0]?.message?.content ?? "{}";
     const data = JSON.parse(content);
+
+    // ── defensive post-processing ────────────────────────────────────
+    // Models occasionally ignore the "no punctuation penalty" rule, so
+    // we backstop it here:
+    //   1) Force any pure-punctuation token's status to "ok".
+    //   2) Drop "corrections" entries whose wrong/correct only differ
+    //      in punctuation/whitespace/case.
+    //   3) If the user's text matches the target after stripping
+    //      punctuation, treat it as a perfect answer (score 100,
+    //      wordAccuracy 100, no corrections, all annotations ok).
+    if (Array.isArray(data.userAnnotations)) {
+      data.userAnnotations = data.userAnnotations.map((a: any) => {
+        if (a && typeof a === "object" && typeof a.word === "string" && isPurePunctuation(a.word)) {
+          return { ...a, status: "ok", correct: undefined };
+        }
+        return a;
+      });
+    }
+    if (Array.isArray(data.targetAnnotations)) {
+      data.targetAnnotations = data.targetAnnotations.map((a: any) => {
+        if (a && typeof a === "object" && typeof a.word === "string" && isPurePunctuation(a.word)) {
+          return { ...a, status: "ok" };
+        }
+        return a;
+      });
+    }
+    if (Array.isArray(data.corrections)) {
+      data.corrections = data.corrections.filter((c: any) => {
+        if (!c || typeof c !== "object") return false;
+        const w = typeof c.wrong === "string" ? c.wrong : "";
+        const r = typeof c.correct === "string" ? c.correct : "";
+        return normalizeForCompare(w) !== normalizeForCompare(r);
+      });
+    }
+
+    if (
+      typeof targetText === "string" &&
+      typeof userText === "string" &&
+      normalizeForCompare(targetText) === normalizeForCompare(userText)
+    ) {
+      data.score = 100;
+      data.wordAccuracy = 100;
+      data.corrections = [];
+      if (Array.isArray(data.userAnnotations)) {
+        data.userAnnotations = data.userAnnotations.map((a: any) =>
+          a && typeof a === "object" ? { ...a, status: "ok", correct: undefined } : a
+        );
+      }
+      if (Array.isArray(data.targetAnnotations)) {
+        data.targetAnnotations = data.targetAnnotations.map((a: any) =>
+          a && typeof a === "object" ? { ...a, status: "ok" } : a
+        );
+      }
+    }
+
     res.json({ success: true, data });
   } catch (err) {
     req.log.error({ err }, "Score dictation failed");
