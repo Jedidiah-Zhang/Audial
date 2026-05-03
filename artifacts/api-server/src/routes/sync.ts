@@ -164,23 +164,30 @@ router.post("/sync/push", async (req, res) => {
     // Delete the text plus everything that references it (results +
     // progress). Without this, results rows would orphan and reappear
     // on the next snapshot pull, "resurrecting" data the user deleted.
-    for (const id of deletedTextIds) {
-      await db
-        .delete(resultsTable)
-        .where(
-          sql`${resultsTable.userId} = ${userId} AND ${resultsTable.textId} = ${id}`,
-        );
-      await db
-        .delete(progressTable)
-        .where(
-          sql`${progressTable.userId} = ${userId} AND ${progressTable.textId} = ${id}`,
-        );
-      await db
-        .delete(textsTable)
-        .where(
-          sql`${textsTable.userId} = ${userId} AND ${textsTable.id} = ${id}`,
-        );
-    }
+    //
+    // Wrapped in a single transaction so that a mid-loop failure can't
+    // leave a text deleted but its results/progress dangling (or vice
+    // versa) — that asymmetric state is what would let "deleted" data
+    // partially resurrect on the next pull.
+    await db.transaction(async (tx) => {
+      for (const id of deletedTextIds) {
+        await tx
+          .delete(resultsTable)
+          .where(
+            sql`${resultsTable.userId} = ${userId} AND ${resultsTable.textId} = ${id}`,
+          );
+        await tx
+          .delete(progressTable)
+          .where(
+            sql`${progressTable.userId} = ${userId} AND ${progressTable.textId} = ${id}`,
+          );
+        await tx
+          .delete(textsTable)
+          .where(
+            sql`${textsTable.userId} = ${userId} AND ${textsTable.id} = ${id}`,
+          );
+      }
+    });
     deletedTexts = deletedTextIds.length;
   }
 

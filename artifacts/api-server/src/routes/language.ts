@@ -132,6 +132,27 @@ async function incrementQuota(
   return rows[0]?.count ?? 1;
 }
 
+/**
+ * Compensating decrement used to roll back an optimistic
+ * `incrementQuota` when the gate ends up rejecting the request (e.g.
+ * the increment pushed the user over the daily limit on a concurrent
+ * burst). Clamped at 0 so we never underflow into negative quotas.
+ */
+async function decrementQuota(userId: string, dateKey: string): Promise<void> {
+  await db
+    .update(generationQuotaTable)
+    .set({
+      count: sql`GREATEST(${generationQuotaTable.count} - 1, 0)`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(generationQuotaTable.userId, userId),
+        eq(generationQuotaTable.date, dateKey),
+      ),
+    );
+}
+
 function consumeRewardTokenIfValid(token: string, userId: string): boolean {
   const entry = rewardTokens.get(token);
   if (!entry) return false;
@@ -179,24 +200,27 @@ const enforceGenerationQuota: RequestHandler = (req, res, next) => {
       }
     }
     const today = todayKey();
-    const used = await getQuotaCount(userId, today);
-    if (used >= FREE_DAILY_GENERATION_LIMIT) {
+    // Atomic reserve-then-check: increment first and use the returned
+    // count to decide. Two concurrent requests that both observe
+    // `used == limit-1` would otherwise both pass the gate and let the
+    // user exceed their quota. With this ordering the increment itself
+    // is the contention point, and the loser gets rolled back below.
+    const newCount = await incrementQuota(userId, today);
+    if (newCount > FREE_DAILY_GENERATION_LIMIT) {
+      await decrementQuota(userId, today);
       res.status(429).json({
         success: false,
         error: "quota_exceeded",
         message: `Free tier limited to ${FREE_DAILY_GENERATION_LIMIT} generations per day. Watch a rewarded ad for one more, or upgrade to Pro.`,
         data: {
           limit: FREE_DAILY_GENERATION_LIMIT,
-          used,
+          used: FREE_DAILY_GENERATION_LIMIT,
           remaining: 0,
           resetDate: today,
         },
       });
       return;
     }
-    // Increment now: a successful enqueue counts against quota even if
-    // the upstream LLM call later errors.
-    await incrementQuota(userId, today);
     next();
   })().catch(next);
 };
