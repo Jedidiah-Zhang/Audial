@@ -279,6 +279,18 @@ interface AppContextValue {
   // unlock persists for ANALYSIS_UNLOCK_TTL_MS.
   isAnalysisUnlocked: (resultId: string) => boolean;
   unlockAnalysis: (resultId: string) => Promise<void>;
+  // Cloud sync status (Clerk-signed-in users only). For guests and
+  // local accounts these stay at their initial values and the UI
+  // indicator is hidden.
+  syncStatus: SyncStatus;
+  syncPendingCount: number;
+  lastSyncedAt: number | null;
+  /**
+   * Trigger a best-effort full sync now. Safe to call repeatedly:
+   * concurrent invocations collapse to a single in-flight run. No-op
+   * for non-cloud-syncable users.
+   */
+  forceSync: () => Promise<void>;
   // Local (no-password, on-device) accounts
   localAccounts: LocalAccount[];
   activeLocalAccountId: string | null;
@@ -288,6 +300,21 @@ interface AppContextValue {
   deleteLocalAccount: (id: string) => Promise<void>;
   renameLocalAccount: (id: string, name: string) => Promise<void>;
 }
+
+/**
+ * Cloud sync state shown by the SyncIndicator UI.
+ *
+ * - `idle`: no sync attempted yet (initial mount, just-switched user, or
+ *   a non-cloud-syncable account where the indicator stays hidden).
+ * - `syncing`: a push or full sync is in flight.
+ * - `synced`: most recent attempt succeeded; `lastSyncedAt` is set.
+ * - `offline`: most recent attempt failed (network/5xx). Local writes
+ *   are queued and will retry on the next mutation or manual tap.
+ * - `error`: an unexpected exception was thrown — kept distinct from
+ *   `offline` so we can surface a different message ("Sync failed") and
+ *   not confuse it with a normal network outage.
+ */
+export type SyncStatus = "idle" | "syncing" | "synced" | "offline" | "error";
 
 export const AppContext = createContext<AppContextValue | null>(null);
 
@@ -337,6 +364,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [unlockedAnalysis, setUnlockedAnalysis] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
 
+  // Cloud sync UI state. `syncStatus` reflects the most recent
+  // push/pull attempt for the *current* signed-in user. We also mirror
+  // the pending-queue size into state so the indicator can show
+  // "X changes pending" without polling AsyncStorage on every render.
+  // `runningSyncRef` collapses concurrent forceSync() calls into a
+  // single in-flight run so a double-tap doesn't fire two parallel
+  // pull/merge cycles (which would race writes to local storage).
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [syncPendingCount, setSyncPendingCount] = useState(0);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const runningSyncRef = useRef<Promise<void> | null>(null);
+
+  function pendingTotal(q: {
+    textIds: string[];
+    deletedTextIds: string[];
+    resultIds: string[];
+    progressTextIds: string[];
+  }): number {
+    return (
+      q.textIds.length +
+      q.deletedTextIds.length +
+      q.resultIds.length +
+      q.progressTextIds.length
+    );
+  }
+
+  // Re-read the persisted pending queue and reflect its size in state.
+  // Called after every enqueue / flush so the indicator stays accurate.
+  async function refreshPendingCount(uid: string) {
+    if (!isCloudSyncableUser(uid)) {
+      if (uid === currentUserRef.current) setSyncPendingCount(0);
+      return;
+    }
+    try {
+      const q = await readPending(uid);
+      if (uid === currentUserRef.current) setSyncPendingCount(pendingTotal(q));
+    } catch {
+      // best effort
+    }
+  }
+
   // Load local accounts list + active id once on mount.
   useEffect(() => {
     (async () => {
@@ -371,6 +439,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSubscription(DEFAULT_SUBSCRIPTION);
     setDailyGenerationCount(defaultGenerationCount());
     setUnlockedAnalysis({});
+    // Reset sync UI state — anything we knew belonged to the previous
+    // user. A fresh full-sync below will repopulate for cloud users.
+    setSyncStatus("idle");
+    setSyncPendingCount(0);
+    setLastSyncedAt(null);
 
     if (userId === GUEST_USER_ID) {
       // Returning to the guest scope means a future sign-in should be
@@ -400,6 +473,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // failure leaves local data intact and queues nothing — the next
       // user write or app open will retry the pull.
       if (isCloudSyncableUser(userId)) {
+        await refreshPendingCount(userId);
         runFullSync(userId).catch(() => {});
       }
     })();
@@ -426,6 +500,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * silently destroy them.
    */
   async function runFullSync(uid: string): Promise<void> {
+    if (uid === currentUserRef.current) setSyncStatus("syncing");
+    try {
+      await runFullSyncInner(uid);
+    } catch {
+      // Anything other than "pushDelta returned false" lands here. Use
+      // the distinct `error` state so the indicator can say "Sync
+      // failed" instead of "Offline".
+      if (uid === currentUserRef.current) setSyncStatus("error");
+    } finally {
+      // Always refresh the pending count — both success (queue cleared)
+      // and failure (queue retained / re-enqueued) need to show the
+      // accurate number.
+      await refreshPendingCount(uid);
+    }
+  }
+
+  async function runFullSyncInner(uid: string): Promise<void> {
     const localBefore = {
       texts: textsRef.current,
       results: resultsRef.current,
@@ -439,6 +530,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!queueOk) {
       // Still offline. Leave the queue intact for the next attempt and
       // do NOT pull/merge — that would overwrite the offline edits.
+      if (uid === currentUserRef.current) setSyncStatus("offline");
       return;
     }
     await writePending(uid, {
@@ -452,7 +544,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Step 2: pull the snapshot (now reflects our pushed offline edits).
     const snap = await pullSnapshot();
     if (uid !== currentUserRef.current) return;
-    if (!snap) return;
+    if (!snap) {
+      // Push worked but pull failed — partial success. Mark offline so
+      // the user knows their device may be out of date even though
+      // their writes did go up.
+      if (uid === currentUserRef.current) setSyncStatus("offline");
+      return;
+    }
 
     // Step 3: merge cloud → local, persist. Tombstones from step 1's
     // deletedTextIds are honored because the cloud no longer has those
@@ -481,8 +579,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     safeWrite(uid, K.PROGRESS, JSON.stringify(merged.progress));
     safeWrite(uid, K.SUBSCRIPTION, JSON.stringify(merged.subscription));
 
-    // Step 4: push local-only items (ids not in cloud).
-    await pushDelta(toPush);
+    // Step 4: push local-only items (ids not in cloud). Treat a failure
+    // here as "offline" too — the queued payload made it (Step 1) but
+    // the local-only catch-up didn't.
+    const localPushOk = await pushDelta(toPush);
+    if (uid !== currentUserRef.current) return;
+    if (!localPushOk) {
+      setSyncStatus("offline");
+      return;
+    }
+    setSyncStatus("synced");
+    setLastSyncedAt(Date.now());
   }
 
   /**
@@ -490,22 +597,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * pull, but still want to surface any offline writes to the server).
    */
   async function flushPending(uid: string): Promise<void> {
-    const queued = await readPending(uid);
-    const payload = buildPushFromQueue(
-      {
-        texts: textsRef.current,
-        results: resultsRef.current,
-        progress: progressRef.current,
-      },
-      queued,
-    );
-    const ok = await pushDelta(payload);
-    if (ok) await writePending(uid, {
-      textIds: [],
-      deletedTextIds: [],
-      resultIds: [],
-      progressTextIds: [],
-    });
+    if (uid === currentUserRef.current) setSyncStatus("syncing");
+    try {
+      const queued = await readPending(uid);
+      const payload = buildPushFromQueue(
+        {
+          texts: textsRef.current,
+          results: resultsRef.current,
+          progress: progressRef.current,
+        },
+        queued,
+      );
+      const ok = await pushDelta(payload);
+      if (ok) {
+        await writePending(uid, {
+          textIds: [],
+          deletedTextIds: [],
+          resultIds: [],
+          progressTextIds: [],
+        });
+        if (uid === currentUserRef.current) {
+          setSyncStatus("synced");
+          setLastSyncedAt(Date.now());
+        }
+      } else if (uid === currentUserRef.current) {
+        setSyncStatus("offline");
+      }
+    } catch {
+      if (uid === currentUserRef.current) setSyncStatus("error");
+    } finally {
+      await refreshPendingCount(uid);
+    }
   }
 
   /**
@@ -527,9 +649,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!isCloudSyncableUser(uid)) return;
     void (async () => {
       await enqueuePending(uid, patch);
+      // Reflect the just-enqueued items immediately so the indicator
+      // shows the new "X pending" before the network call resolves.
+      await refreshPendingCount(uid);
       await flushPending(uid);
     })();
   }
+
+  /**
+   * User-initiated sync (tap on the SyncIndicator). Coalesces with any
+   * already-running attempt so multi-tap doesn't spawn parallel runs.
+   */
+  const forceSync = useCallback(async () => {
+    const uid = currentUserRef.current;
+    if (!isCloudSyncableUser(uid)) return;
+    if (runningSyncRef.current) {
+      await runningSyncRef.current;
+      return;
+    }
+    const p = runFullSync(uid).finally(() => {
+      runningSyncRef.current = null;
+    });
+    runningSyncRef.current = p;
+    await p;
+  }, []);
 
   async function ensureGuestMigrated(targetUserId: string): Promise<void> {
     if (migratedTargetsRef.current.has(targetUserId)) return;
@@ -1039,6 +1182,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         syncGenerationQuota,
         isAnalysisUnlocked,
         unlockAnalysis,
+        syncStatus,
+        syncPendingCount,
+        lastSyncedAt,
+        forceSync,
         localAccounts,
         activeLocalAccountId,
         activeLocalAccount,

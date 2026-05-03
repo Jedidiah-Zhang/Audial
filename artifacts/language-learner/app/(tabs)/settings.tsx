@@ -23,6 +23,7 @@ import type { Difficulty } from "@/types";
 import { Flag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
 import { PaywallModal } from "@/components/PaywallModal";
+import { SyncIndicator } from "@/components/SyncIndicator";
 
 const DIFFICULTIES: Difficulty[] = ["beginner", "elementary", "intermediate", "advanced"];
 
@@ -65,6 +66,9 @@ export default function SettingsScreen() {
         <Text style={[styles.title, { color: colors.foreground }]}>
           {t("settings.title")}
         </Text>
+        <View style={{ marginTop: 8 }}>
+          <SyncIndicator />
+        </View>
       </View>
 
       <ScrollView
