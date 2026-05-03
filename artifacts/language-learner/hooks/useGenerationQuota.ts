@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useApp } from "@/context/AppContext";
+import { useAuth } from "@clerk/expo";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -21,19 +21,26 @@ export interface UseGenerationQuotaResult {
 }
 
 export function useGenerationQuota(): UseGenerationQuotaResult {
-  const { userId, subscriptionTier } = useApp();
+  const { getToken, isSignedIn } = useAuth();
   const [isRequestingToken, setIsRequestingToken] = useState(false);
 
   const requestRewardToken = useCallback(async (): Promise<string | null> => {
     setIsRequestingToken(true);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      // The server now derives identity (and tier) from the verified
+      // Clerk JWT instead of trusting client-supplied `x-user-id` /
+      // `x-tier`. We attach the bearer when the user is signed in;
+      // guests fall through and the server gives them a per-IP bucket.
+      if (isSignedIn) {
+        const token = await getToken().catch(() => null);
+        if (token) headers["authorization"] = `Bearer ${token}`;
+      }
       const res = await fetch(`${BASE_URL}/api/language/ad/grant-reward`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-id": userId,
-          "x-tier": subscriptionTier,
-        },
+        headers,
         body: JSON.stringify({ placement: "generation" }),
       });
       if (!res.ok) return null;
@@ -49,7 +56,7 @@ export function useGenerationQuota(): UseGenerationQuotaResult {
     } finally {
       setIsRequestingToken(false);
     }
-  }, [subscriptionTier, userId]);
+  }, [getToken, isSignedIn]);
 
   return { isRequestingToken, requestRewardToken };
 }

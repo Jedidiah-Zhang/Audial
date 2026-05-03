@@ -6,4 +6,21 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./apiError";
+export * from "./generationQuota";
+export * from "./generationQuotaTier";
 export * from "./healthStatus";
+export * from "./learningText";
+export * from "./sessionResult";
+export * from "./sessionResultDetails";
+export * from "./subscriptionState";
+export * from "./subscriptionStateTier";
+export * from "./subscriptionWrite";
+export * from "./subscriptionWriteTier";
+export * from "./syncPushPayload";
+export * from "./syncPushResponse";
+export * from "./syncPushResponseAccepted";
+export * from "./syncSnapshot";
+export * from "./unauthorizedResponse";
+export * from "./userProgress";
+export * from "./vocabularyItem";

@@ -8,9 +8,156 @@
 import * as zod from "zod";
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
+});
+
+/**
+ * @summary Pull all server-side data for the authed user
+ */
+export const GetSyncSnapshotResponse = zod.object({
+  texts: zod.array(
+    zod.object({
+      id: zod.string(),
+      title: zod.string(),
+      text: zod.string(),
+      translation: zod.string(),
+      vocabulary: zod.array(
+        zod.object({
+          word: zod.string(),
+          pronunciation: zod.string().optional(),
+          partOfSpeech: zod.string().optional(),
+          meaning: zod.string(),
+          example: zod.string().optional(),
+          exampleTranslation: zod.string().optional(),
+        }),
+      ),
+      topic: zod.string(),
+      difficulty: zod.string(),
+      targetLanguage: zod.string(),
+      nativeLanguage: zod.string(),
+      contentType: zod.string().nullish(),
+      createdAt: zod.number(),
+    }),
+  ),
+  results: zod.array(
+    zod.object({
+      id: zod.string(),
+      textId: zod.string(),
+      mode: zod.string(),
+      stage: zod.number(),
+      score: zod.number(),
+      feedback: zod.string(),
+      createdAt: zod.number(),
+      details: zod.record(zod.string(), zod.unknown()).nullish(),
+    }),
+  ),
+  progress: zod.array(
+    zod.object({
+      textId: zod.string(),
+      stageBests: zod.array(zod.number()),
+      stagePassed: zod.array(zod.boolean()),
+      lastStudied: zod.number(),
+      totalSessions: zod.number(),
+      shadowingBest: zod.number(),
+      dictationBest: zod.number(),
+      recitationBest: zod.number(),
+    }),
+  ),
+  subscription: zod.object({
+    tier: zod.enum(["free", "pro"]),
+    upgradedAt: zod.number().nullish(),
+  }),
+  quota: zod.object({
+    date: zod.string(),
+    count: zod.number(),
+    limit: zod.number().nullish(),
+    remaining: zod.number().nullish(),
+    tier: zod.enum(["free", "pro"]),
+  }),
+});
+
+/**
+ * @summary Upsert texts/results/progress and (optionally) subscription for the authed user
+ */
+export const PushSyncBody = zod.object({
+  texts: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        title: zod.string(),
+        text: zod.string(),
+        translation: zod.string(),
+        vocabulary: zod.array(
+          zod.object({
+            word: zod.string(),
+            pronunciation: zod.string().optional(),
+            partOfSpeech: zod.string().optional(),
+            meaning: zod.string(),
+            example: zod.string().optional(),
+            exampleTranslation: zod.string().optional(),
+          }),
+        ),
+        topic: zod.string(),
+        difficulty: zod.string(),
+        targetLanguage: zod.string(),
+        nativeLanguage: zod.string(),
+        contentType: zod.string().nullish(),
+        createdAt: zod.number(),
+      }),
+    )
+    .optional(),
+  deletedTextIds: zod.array(zod.string()).optional(),
+  results: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        textId: zod.string(),
+        mode: zod.string(),
+        stage: zod.number(),
+        score: zod.number(),
+        feedback: zod.string(),
+        createdAt: zod.number(),
+        details: zod.record(zod.string(), zod.unknown()).nullish(),
+      }),
+    )
+    .optional(),
+  progress: zod
+    .array(
+      zod.object({
+        textId: zod.string(),
+        stageBests: zod.array(zod.number()),
+        stagePassed: zod.array(zod.boolean()),
+        lastStudied: zod.number(),
+        totalSessions: zod.number(),
+        shadowingBest: zod.number(),
+        dictationBest: zod.number(),
+        recitationBest: zod.number(),
+      }),
+    )
+    .optional(),
+});
+
+export const PushSyncResponse = zod.object({
+  success: zod.boolean(),
+  accepted: zod.object({
+    texts: zod.number(),
+    results: zod.number(),
+    progress: zod.number(),
+    deletedTexts: zod.number(),
+  }),
+});
+
+/**
+ * @summary Set subscription tier for the authed user
+ */
+export const SetSubscriptionBody = zod.object({
+  tier: zod.enum(["free", "pro"]),
+});
+
+export const SetSubscriptionResponse = zod.object({
+  tier: zod.enum(["free", "pro"]),
+  upgradedAt: zod.number().nullish(),
 });

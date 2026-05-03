@@ -5,18 +5,29 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  HealthStatus,
+  SubscriptionState,
+  SubscriptionWrite,
+  SyncPushPayload,
+  SyncPushResponse,
+  SyncSnapshot,
+  UnauthorizedResponse,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -25,7 +36,6 @@ type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const getHealthCheckUrl = () => {
@@ -99,3 +109,250 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Pull all server-side data for the authed user
+ */
+export const getGetSyncSnapshotUrl = () => {
+  return `/api/sync/snapshot`;
+};
+
+export const getSyncSnapshot = async (
+  options?: RequestInit,
+): Promise<SyncSnapshot> => {
+  return customFetch<SyncSnapshot>(getGetSyncSnapshotUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSyncSnapshotQueryKey = () => {
+  return [`/api/sync/snapshot`] as const;
+};
+
+export const getGetSyncSnapshotQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSyncSnapshot>>,
+  TError = ErrorType<UnauthorizedResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncSnapshot>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSyncSnapshotQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSyncSnapshot>>> = ({
+    signal,
+  }) => getSyncSnapshot({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncSnapshot>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSyncSnapshotQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSyncSnapshot>>
+>;
+export type GetSyncSnapshotQueryError = ErrorType<UnauthorizedResponse>;
+
+/**
+ * @summary Pull all server-side data for the authed user
+ */
+
+export function useGetSyncSnapshot<
+  TData = Awaited<ReturnType<typeof getSyncSnapshot>>,
+  TError = ErrorType<UnauthorizedResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncSnapshot>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSyncSnapshotQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Upsert texts/results/progress and (optionally) subscription for the authed user
+ */
+export const getPushSyncUrl = () => {
+  return `/api/sync/push`;
+};
+
+export const pushSync = async (
+  syncPushPayload: SyncPushPayload,
+  options?: RequestInit,
+): Promise<SyncPushResponse> => {
+  return customFetch<SyncPushResponse>(getPushSyncUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(syncPushPayload),
+  });
+};
+
+export const getPushSyncMutationOptions = <
+  TError = ErrorType<UnauthorizedResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pushSync>>,
+    TError,
+    { data: BodyType<SyncPushPayload> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pushSync>>,
+  TError,
+  { data: BodyType<SyncPushPayload> },
+  TContext
+> => {
+  const mutationKey = ["pushSync"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pushSync>>,
+    { data: BodyType<SyncPushPayload> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return pushSync(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PushSyncMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pushSync>>
+>;
+export type PushSyncMutationBody = BodyType<SyncPushPayload>;
+export type PushSyncMutationError = ErrorType<UnauthorizedResponse>;
+
+/**
+ * @summary Upsert texts/results/progress and (optionally) subscription for the authed user
+ */
+export const usePushSync = <
+  TError = ErrorType<UnauthorizedResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pushSync>>,
+    TError,
+    { data: BodyType<SyncPushPayload> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof pushSync>>,
+  TError,
+  { data: BodyType<SyncPushPayload> },
+  TContext
+> => {
+  return useMutation(getPushSyncMutationOptions(options));
+};
+
+/**
+ * @summary Set subscription tier for the authed user
+ */
+export const getSetSubscriptionUrl = () => {
+  return `/api/sync/subscription`;
+};
+
+export const setSubscription = async (
+  subscriptionWrite: SubscriptionWrite,
+  options?: RequestInit,
+): Promise<SubscriptionState> => {
+  return customFetch<SubscriptionState>(getSetSubscriptionUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(subscriptionWrite),
+  });
+};
+
+export const getSetSubscriptionMutationOptions = <
+  TError = ErrorType<UnauthorizedResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setSubscription>>,
+    TError,
+    { data: BodyType<SubscriptionWrite> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setSubscription>>,
+  TError,
+  { data: BodyType<SubscriptionWrite> },
+  TContext
+> => {
+  const mutationKey = ["setSubscription"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setSubscription>>,
+    { data: BodyType<SubscriptionWrite> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setSubscription(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetSubscriptionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setSubscription>>
+>;
+export type SetSubscriptionMutationBody = BodyType<SubscriptionWrite>;
+export type SetSubscriptionMutationError = ErrorType<UnauthorizedResponse>;
+
+/**
+ * @summary Set subscription tier for the authed user
+ */
+export const useSetSubscription = <
+  TError = ErrorType<UnauthorizedResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setSubscription>>,
+    TError,
+    { data: BodyType<SubscriptionWrite> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setSubscription>>,
+  TError,
+  { data: BodyType<SubscriptionWrite> },
+  TContext
+> => {
+  return useMutation(getSetSubscriptionMutationOptions(options));
+};

@@ -359,6 +359,10 @@ export default function SessionScreen() {
         setPhase("study");
         return;
       }
+      if (!text) {
+        setPhase("study");
+        return;
+      }
       try {
         const transcript = await transcribeAudio(blob, undefined, text.targetLanguage);
         await scoreAnswer(transcript);

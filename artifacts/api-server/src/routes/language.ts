@@ -1,5 +1,7 @@
 import { Router, type RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
+import { eq, and, sql } from "drizzle-orm";
+import { db, generationQuotaTable } from "@workspace/db";
 import {
   deepseek,
   DEEPSEEK_MODEL,
@@ -19,6 +21,7 @@ import {
   scoreFromSignals,
   SCORE_WEIGHTS,
 } from "../lib/pronunciation";
+import { optionalClerkAuth } from "../middlewares/clerkAuth";
 
 const router = Router();
 
@@ -26,6 +29,11 @@ router.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   next();
 });
+
+// Optional Clerk auth on every language route. Authed users get their
+// identity (and tier) from the verified JWT; guests fall through with
+// no `req.auth` and use a synthetic per-IP id for in-memory quota.
+router.use(optionalClerkAuth);
 
 // =====================================================================
 // Free-tier generation quota + rewarded-ad token store (in-memory).
@@ -47,7 +55,6 @@ interface QuotaEntry {
   count: number;
 }
 
-const generationQuota = new Map<string, QuotaEntry>();
 const rewardTokens = new Map<string, { userId: string; expiresAt: number }>();
 
 /**
@@ -71,25 +78,58 @@ function todayKey(): string {
   return shifted.toISOString().slice(0, 10);
 }
 
-function readUserId(req: { headers: Record<string, unknown> }): string {
-  const raw = req.headers["x-user-id"];
-  if (typeof raw === "string" && raw.trim()) return raw.trim();
-  return "anonymous";
+// Identity now comes from the verified Clerk JWT (see optionalClerkAuth
+// middleware). For unauthenticated callers we fall back to a synthetic
+// per-IP id; that bucket is shared across all guests on the same IP but
+// we no longer trust the client to claim an arbitrary identity.
+function readUserId(req: {
+  auth?: { userId: string };
+  ip?: string;
+  headers: Record<string, unknown>;
+}): string {
+  if (req.auth?.userId) return req.auth.userId;
+  const ip =
+    typeof req.ip === "string" && req.ip
+      ? req.ip
+      : (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0] ||
+        "anonymous";
+  return `guest:${ip}`;
 }
 
-function readTier(req: { headers: Record<string, unknown> }): "free" | "pro" {
-  const raw = req.headers["x-tier"];
-  return typeof raw === "string" && raw.toLowerCase() === "pro" ? "pro" : "free";
+function readTier(req: { auth?: { tier: "free" | "pro" } }): "free" | "pro" {
+  return req.auth?.tier === "pro" ? "pro" : "free";
 }
 
-function getQuota(userId: string, dateKey: string): QuotaEntry {
-  const existing = generationQuota.get(userId);
-  if (!existing || existing.date !== dateKey) {
-    const fresh = { date: dateKey, count: 0 };
-    generationQuota.set(userId, fresh);
-    return fresh;
-  }
-  return existing;
+async function getQuotaCount(userId: string, dateKey: string): Promise<number> {
+  const rows = await db
+    .select({ count: generationQuotaTable.count })
+    .from(generationQuotaTable)
+    .where(
+      and(
+        eq(generationQuotaTable.userId, userId),
+        eq(generationQuotaTable.date, dateKey),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.count ?? 0;
+}
+
+async function incrementQuota(
+  userId: string,
+  dateKey: string,
+): Promise<number> {
+  const rows = await db
+    .insert(generationQuotaTable)
+    .values({ userId, date: dateKey, count: 1 })
+    .onConflictDoUpdate({
+      target: [generationQuotaTable.userId, generationQuotaTable.date],
+      set: {
+        count: sql`${generationQuotaTable.count} + 1`,
+        updatedAt: sql`now()`,
+      },
+    })
+    .returning({ count: generationQuotaTable.count });
+  return rows[0]?.count ?? 1;
 }
 
 function consumeRewardTokenIfValid(token: string, userId: string): boolean {
@@ -109,61 +149,56 @@ function pruneExpiredRewardTokens() {
 }
 
 const enforceGenerationQuota: RequestHandler = (req, res, next) => {
-  const tier = readTier(req as never);
-  if (tier === "pro") {
-    next();
-    return;
-  }
-  // Regenerate is a free retry of an already-paid creation. The client
-  // sets `regenerate: true` (with the previous draft attached) only when
-  // refining an existing in-flight draft; the original creation already
-  // cost a quota slot. We skip both the cap check and the increment so
-  // the user can iterate on a draft without burning their daily limit.
-  // Without this, every "Regenerate" tap silently bumped the server count
-  // while the client mirror stayed flat, then the user got a surprise
-  // 429 on their next from-scratch creation. Trust level on the flag
-  // matches the rest of the quota signals (x-tier / x-user-id) — see
-  // follow-up #63 for hardening the whole identity layer.
-  const body = (req.body ?? {}) as {
-    regenerate?: unknown;
-    previousText?: unknown;
-  };
-  if (
-    body.regenerate === true &&
-    typeof body.previousText === "string" &&
-    body.previousText.length > 0
-  ) {
-    next();
-    return;
-  }
-  const userId = readUserId(req as never);
-  const rewardToken = req.headers["x-reward-token"];
-  if (typeof rewardToken === "string" && rewardToken.trim()) {
-    if (consumeRewardTokenIfValid(rewardToken.trim(), userId)) {
+  void (async () => {
+    const tier = readTier(req as never);
+    if (tier === "pro") {
       next();
       return;
     }
-  }
-  const entry = getQuota(userId, todayKey());
-  if (entry.count >= FREE_DAILY_GENERATION_LIMIT) {
-    res.status(429).json({
-      success: false,
-      error: "quota_exceeded",
-      message: `Free tier limited to ${FREE_DAILY_GENERATION_LIMIT} generations per day. Watch a rewarded ad for one more, or upgrade to Pro.`,
-      data: {
-        limit: FREE_DAILY_GENERATION_LIMIT,
-        used: entry.count,
-        remaining: 0,
-        resetDate: entry.date,
-      },
-    });
-    return;
-  }
-  // Increment now: a successful enqueue counts against quota even if the
-  // upstream LLM call later errors. This avoids a "free retry" path where
-  // an aborted call lets the user retry endlessly past the limit.
-  entry.count += 1;
-  next();
+    const body = (req.body ?? {}) as {
+      regenerate?: unknown;
+      previousText?: unknown;
+    };
+    // Regenerate is a free retry of an already-paid creation; same
+    // semantics as before, just with the identity layer hardened (we
+    // now trust req.auth from the verified Clerk JWT).
+    if (
+      body.regenerate === true &&
+      typeof body.previousText === "string" &&
+      body.previousText.length > 0
+    ) {
+      next();
+      return;
+    }
+    const userId = readUserId(req as never);
+    const rewardToken = req.headers["x-reward-token"];
+    if (typeof rewardToken === "string" && rewardToken.trim()) {
+      if (consumeRewardTokenIfValid(rewardToken.trim(), userId)) {
+        next();
+        return;
+      }
+    }
+    const today = todayKey();
+    const used = await getQuotaCount(userId, today);
+    if (used >= FREE_DAILY_GENERATION_LIMIT) {
+      res.status(429).json({
+        success: false,
+        error: "quota_exceeded",
+        message: `Free tier limited to ${FREE_DAILY_GENERATION_LIMIT} generations per day. Watch a rewarded ad for one more, or upgrade to Pro.`,
+        data: {
+          limit: FREE_DAILY_GENERATION_LIMIT,
+          used,
+          remaining: 0,
+          resetDate: today,
+        },
+      });
+      return;
+    }
+    // Increment now: a successful enqueue counts against quota even if
+    // the upstream LLM call later errors.
+    await incrementQuota(userId, today);
+    next();
+  })().catch(next);
 };
 
 /**
@@ -182,32 +217,36 @@ const validateManualPayload: RequestHandler = (req, res, next) => {
 };
 
 router.get("/language/quota", (req, res) => {
-  const tier = readTier(req as never);
-  const userId = readUserId(req as never);
-  const today = todayKey();
-  if (tier === "pro") {
+  void (async () => {
+    const tier = readTier(req as never);
+    const userId = readUserId(req as never);
+    const today = todayKey();
+    if (tier === "pro") {
+      res.json({
+        success: true,
+        data: {
+          tier: "pro",
+          limit: null,
+          used: 0,
+          remaining: null,
+          resetDate: today,
+        },
+      });
+      return;
+    }
+    const used = await getQuotaCount(userId, today);
     res.json({
       success: true,
       data: {
-        tier: "pro",
-        limit: null,
-        used: 0,
-        remaining: null,
+        tier: "free",
+        limit: FREE_DAILY_GENERATION_LIMIT,
+        used,
+        remaining: Math.max(0, FREE_DAILY_GENERATION_LIMIT - used),
         resetDate: today,
       },
     });
-    return;
-  }
-  const entry = getQuota(userId, today);
-  res.json({
-    success: true,
-    data: {
-      tier: "free",
-      limit: FREE_DAILY_GENERATION_LIMIT,
-      used: entry.count,
-      remaining: Math.max(0, FREE_DAILY_GENERATION_LIMIT - entry.count),
-      resetDate: entry.date,
-    },
+  })().catch(() => {
+    res.status(500).json({ success: false, error: "quota_lookup_failed" });
   });
 });
 

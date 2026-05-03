@@ -27,6 +27,7 @@ import { Icon } from "@/components/Icon";
 import { useRewardedAd } from "@/hooks/useRewardedAd";
 import { useGenerationQuota } from "@/hooks/useGenerationQuota";
 import { PaywallModal } from "@/components/PaywallModal";
+import { useAuth } from "@clerk/expo";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -46,14 +47,25 @@ export default function GenerateScreen() {
     addText,
     settings,
     isPro,
-    userId,
-    subscriptionTier,
     generationLimit,
     generationsRemaining,
     canCreateArticle,
     incrementGenerationCount,
     syncGenerationQuota,
   } = useApp();
+  const { getToken, isSignedIn } = useAuth();
+  // The api-server now reads identity (and tier) from the verified
+  // Clerk JWT instead of trusting client headers. This helper attaches
+  // the bearer when the user is signed in; guests skip it and the
+  // server treats them as a per-IP guest bucket.
+  const buildAuthHeaders = async (): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (isSignedIn) {
+      const token = await getToken().catch(() => null);
+      if (token) headers["authorization"] = `Bearer ${token}`;
+    }
+    return headers;
+  };
   const { show: showRewardedAd } = useRewardedAd("generation");
   const { requestRewardToken } = useGenerationQuota();
   const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
@@ -254,11 +266,7 @@ export default function GenerateScreen() {
     rewardToken?: string,
   ): Promise<GenerateAttempt> => {
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "x-user-id": userId,
-        "x-tier": subscriptionTier,
-      };
+      const headers = await buildAuthHeaders();
       if (rewardToken) headers["x-reward-token"] = rewardToken;
       // When the user taps "Regenerate" on the draft preview, we already
       // have a previous draft. Tell the server this is a retry and pass
@@ -342,11 +350,7 @@ export default function GenerateScreen() {
     rewardToken?: string,
   ): Promise<ManualAttempt> => {
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "x-user-id": userId,
-        "x-tier": subscriptionTier,
-      };
+      const headers = await buildAuthHeaders();
       if (rewardToken) headers["x-reward-token"] = rewardToken;
       const response = await fetch(`${BASE_URL}/api/language/process-manual`, {
         method: "POST",

@@ -10,13 +10,14 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: sync
+    description: Cross-device data sync (requires Clerk bearer token)
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +25,212 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /sync/snapshot:
+    get:
+      operationId: getSyncSnapshot
+      tags: [sync]
+      summary: Pull all server-side data for the authed user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /sync/push:
+    post:
+      operationId: pushSync
+      tags: [sync]
+      summary: Upsert texts/results/progress and (optionally) subscription for the authed user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncPushPayload"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncPushResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /sync/subscription:
+    post:
+      operationId: setSubscription
+      tags: [sync]
+      summary: Set subscription tier for the authed user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionWrite"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Unauthenticated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
   schemas:
     HealthStatus:
       type: object
       properties:
-        status:
-          type: string
+        status: { type: string }
+      required: [status]
+    ApiError:
+      type: object
+      properties:
+        success: { type: boolean }
+        error: { type: string }
+      required: [success, error]
+    VocabularyItem:
+      type: object
+      additionalProperties: true
+      properties:
+        word: { type: string }
+        pronunciation: { type: string }
+        partOfSpeech: { type: string }
+        meaning: { type: string }
+        example: { type: string }
+        exampleTranslation: { type: string }
+      required: [word, meaning]
+    LearningText:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        text: { type: string }
+        translation: { type: string }
+        vocabulary:
+          type: array
+          items: { $ref: "#/components/schemas/VocabularyItem" }
+        topic: { type: string }
+        difficulty: { type: string }
+        targetLanguage: { type: string }
+        nativeLanguage: { type: string }
+        contentType: { type: string, nullable: true }
+        createdAt: { type: integer, format: int64 }
       required:
-        - status
-
+        [id, title, text, translation, vocabulary, topic, difficulty, targetLanguage, nativeLanguage, createdAt]
+    SessionResult:
+      type: object
+      properties:
+        id: { type: string }
+        textId: { type: string }
+        mode: { type: string }
+        stage: { type: integer }
+        score: { type: integer }
+        feedback: { type: string }
+        createdAt: { type: integer, format: int64 }
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+      required: [id, textId, mode, stage, score, feedback, createdAt]
+    UserProgress:
+      type: object
+      properties:
+        textId: { type: string }
+        stageBests:
+          type: array
+          items: { type: number }
+        stagePassed:
+          type: array
+          items: { type: boolean }
+        lastStudied: { type: integer, format: int64 }
+        totalSessions: { type: integer }
+        shadowingBest: { type: number }
+        dictationBest: { type: number }
+        recitationBest: { type: number }
+      required:
+        [textId, stageBests, stagePassed, lastStudied, totalSessions, shadowingBest, dictationBest, recitationBest]
+    SubscriptionState:
+      type: object
+      properties:
+        tier: { type: string, enum: [free, pro] }
+        upgradedAt: { type: integer, format: int64, nullable: true }
+      required: [tier]
+    SubscriptionWrite:
+      type: object
+      properties:
+        tier: { type: string, enum: [free, pro] }
+      required: [tier]
+    GenerationQuota:
+      type: object
+      properties:
+        date: { type: string }
+        count: { type: integer }
+        limit: { type: integer, nullable: true }
+        remaining: { type: integer, nullable: true }
+        tier: { type: string, enum: [free, pro] }
+      required: [date, count, tier]
+    SyncSnapshot:
+      type: object
+      properties:
+        texts:
+          type: array
+          items: { $ref: "#/components/schemas/LearningText" }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/SessionResult" }
+        progress:
+          type: array
+          items: { $ref: "#/components/schemas/UserProgress" }
+        subscription: { $ref: "#/components/schemas/SubscriptionState" }
+        quota: { $ref: "#/components/schemas/GenerationQuota" }
+      required: [texts, results, progress, subscription, quota]
+    SyncPushPayload:
+      type: object
+      properties:
+        texts:
+          type: array
+          items: { $ref: "#/components/schemas/LearningText" }
+        deletedTextIds:
+          type: array
+          items: { type: string }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/SessionResult" }
+        progress:
+          type: array
+          items: { $ref: "#/components/schemas/UserProgress" }
+    SyncPushResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        accepted:
+          type: object
+          properties:
+            texts: { type: integer }
+            results: { type: integer }
+            progress: { type: integer }
+            deletedTexts: { type: integer }
+          required: [texts, results, progress, deletedTexts]
+      required: [success, accepted]

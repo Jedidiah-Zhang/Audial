@@ -13,6 +13,17 @@ import { DEFAULT_SUBSCRIPTION, STAGE_PASS_SCORE, STAGES } from "@/types";
 import { detectContentType } from "@/utils/contentType";
 import { clearArticleAudio } from "@/utils/ttsCache";
 import { migrateGuestData } from "@/utils/migrateGuestData";
+import {
+  buildPushFromQueue,
+  enqueuePending,
+  isCloudSyncableUser,
+  mergeSnapshot,
+  pullSnapshot,
+  pushDelta,
+  pushSubscriptionTier,
+  readPending,
+  writePending,
+} from "@/utils/cloudSync";
 
 const GUEST_USER_ID = "guest";
 
@@ -381,9 +392,144 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // If the active user changed while migration was in flight, abort the
       // load — the next effect run will handle the new user.
       if (currentUserRef.current !== userId) return;
-      loadAll(userId).catch(() => {});
+      await loadAll(userId).catch(() => {});
+      if (currentUserRef.current !== userId) return;
+      // Cloud sync runs only for Clerk-signed-in users. Local-only and
+      // guest profiles intentionally stay device-only (the task scopes
+      // sync to "登录用户的核心数据"). The full sync is fire-and-forget;
+      // failure leaves local data intact and queues nothing — the next
+      // user write or app open will retry the pull.
+      if (isCloudSyncableUser(userId)) {
+        runFullSync(userId).catch(() => {});
+      }
     })();
   }, [authLoaded, localLoaded, userId]);
+
+  /**
+   * One-shot cloud reconciliation for `uid`. Order is critical to avoid
+   * losing offline edits:
+   *
+   *   1. Push the pending queue using the *current* local state — these
+   *      are edits made while we were offline (or while the previous
+   *      sync attempt failed). They include records that may also exist
+   *      in cloud with a stale value; we want our newer value to land
+   *      on the server before we merge the cloud back.
+   *   2. Pull the cloud snapshot. Because step 1 already updated those
+   *      records server-side, the snapshot will reflect our offline
+   *      edits and the cloud-wins merge below preserves them.
+   *   3. Merge cloud → local (cloud-wins on id), persist locally.
+   *   4. Push any items present locally but absent from cloud (e.g.
+   *      legacy items from before sync existed and never queued).
+   *
+   * If step 1 fails (offline, 5xx) we abort: applying step 3 first
+   * would overwrite our offline edits with the older cloud values and
+   * silently destroy them.
+   */
+  async function runFullSync(uid: string): Promise<void> {
+    const localBefore = {
+      texts: textsRef.current,
+      results: resultsRef.current,
+      progress: progressRef.current,
+    };
+
+    // Step 1: push pending offline writes (with current local values).
+    const queued = await readPending(uid);
+    const queuedPayload = buildPushFromQueue(localBefore, queued);
+    const queueOk = await pushDelta(queuedPayload);
+    if (!queueOk) {
+      // Still offline. Leave the queue intact for the next attempt and
+      // do NOT pull/merge — that would overwrite the offline edits.
+      return;
+    }
+    await writePending(uid, {
+      textIds: [],
+      deletedTextIds: [],
+      resultIds: [],
+      progressTextIds: [],
+    });
+    if (uid !== currentUserRef.current) return;
+
+    // Step 2: pull the snapshot (now reflects our pushed offline edits).
+    const snap = await pullSnapshot();
+    if (uid !== currentUserRef.current) return;
+    if (!snap) return;
+
+    // Step 3: merge cloud → local, persist. Tombstones from step 1's
+    // deletedTextIds are honored because the cloud no longer has those
+    // ids; we also strip them from local in case they lingered.
+    const deletedSet = new Set(queued.deletedTextIds);
+    const localAfterDelete = {
+      texts: localBefore.texts.filter((t) => !deletedSet.has(t.id)),
+      results: localBefore.results.filter(
+        (r) => !deletedSet.has(r.textId),
+      ),
+      progress: Object.fromEntries(
+        Object.entries(localBefore.progress).filter(
+          ([textId]) => !deletedSet.has(textId),
+        ),
+      ),
+    };
+    const { merged, toPush } = mergeSnapshot(localAfterDelete, snap);
+    if (uid !== currentUserRef.current) return;
+    const K = keysFor(uid);
+    setTexts(merged.texts);
+    setResults(merged.results);
+    setProgress(merged.progress);
+    setSubscription(merged.subscription);
+    safeWrite(uid, K.TEXTS, JSON.stringify(merged.texts));
+    safeWrite(uid, K.RESULTS, JSON.stringify(merged.results));
+    safeWrite(uid, K.PROGRESS, JSON.stringify(merged.progress));
+    safeWrite(uid, K.SUBSCRIPTION, JSON.stringify(merged.subscription));
+
+    // Step 4: push local-only items (ids not in cloud).
+    await pushDelta(toPush);
+  }
+
+  /**
+   * Push only the pending queue (used when we've already failed to
+   * pull, but still want to surface any offline writes to the server).
+   */
+  async function flushPending(uid: string): Promise<void> {
+    const queued = await readPending(uid);
+    const payload = buildPushFromQueue(
+      {
+        texts: textsRef.current,
+        results: resultsRef.current,
+        progress: progressRef.current,
+      },
+      queued,
+    );
+    const ok = await pushDelta(payload);
+    if (ok) await writePending(uid, {
+      textIds: [],
+      deletedTextIds: [],
+      resultIds: [],
+      progressTextIds: [],
+    });
+  }
+
+  /**
+   * Schedule a cloud push for the given record id(s). Always enqueues
+   * (so an offline failure is durable across restarts) and then fires
+   * a best-effort flush. The flush reads the *current* local snapshot
+   * for those ids, so multiple rapid edits to the same record collapse
+   * into a single network push of the latest value.
+   */
+  function scheduleCloudPush(
+    uid: string,
+    patch: {
+      textIds?: string[];
+      deletedTextIds?: string[];
+      resultIds?: string[];
+      progressTextIds?: string[];
+    },
+  ) {
+    if (!isCloudSyncableUser(uid)) return;
+    void (async () => {
+      await enqueuePending(uid, patch);
+      await flushPending(uid);
+    })();
+  }
 
   async function ensureGuestMigrated(targetUserId: string): Promise<void> {
     if (migratedTargetsRef.current.has(targetUserId)) return;
@@ -599,6 +745,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const next = [text, ...textsRef.current.filter((t) => t.id !== text.id)];
     setTexts(next);
     safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
+    scheduleCloudPush(uidAtCall, { textIds: [text.id] });
   }, []);
 
   const updateText = useCallback(async (id: string, partial: Partial<LearningText>) => {
@@ -607,6 +754,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const next = textsRef.current.map((t) => (t.id === id ? { ...t, ...partial } : t));
     setTexts(next);
     safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
+    scheduleCloudPush(uidAtCall, { textIds: [id] });
   }, []);
 
   const removeText = useCallback(async (id: string) => {
@@ -616,6 +764,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const next = textsRef.current.filter((t) => t.id !== id);
     setTexts(next);
     safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
+    scheduleCloudPush(uidAtCall, { deletedTextIds: [id] });
   }, []);
 
   const addResult = useCallback(async (result: SessionResult) => {
@@ -658,6 +807,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const nextProgress = { ...progressRef.current, [result.textId]: updated };
     setProgress(nextProgress);
     safeWrite(uidAtCall, K.PROGRESS, JSON.stringify(nextProgress));
+    scheduleCloudPush(uidAtCall, {
+      resultIds: [result.id],
+      progressTextIds: [result.textId],
+    });
   }, []);
 
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
@@ -683,6 +836,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setSubscription(next);
     safeWrite(uidAtCall, K.SUBSCRIPTION, JSON.stringify(next));
+    if (isCloudSyncableUser(uidAtCall)) {
+      void pushSubscriptionTier("pro");
+    }
   }, []);
 
   const downgradeToFree = useCallback(async () => {
@@ -691,6 +847,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const next: SubscriptionState = { tier: "free" };
     setSubscription(next);
     safeWrite(uidAtCall, K.SUBSCRIPTION, JSON.stringify(next));
+    if (isCloudSyncableUser(uidAtCall)) {
+      void pushSubscriptionTier("free");
+    }
   }, []);
 
   // Pure read of the current quota state; safe to call from render and
