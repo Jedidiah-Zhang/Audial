@@ -19,6 +19,7 @@ import { UserPlus, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 import { GoogleIcon } from "@/components/GoogleIcon";
+import { PasswordInput } from "@/components/PasswordInput";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -302,16 +303,11 @@ export default function SignUpScreen() {
             <Text style={[styles.label, { color: colors.foreground, marginTop: 14 }]}>
               {t("auth.password")}
             </Text>
-            <TextInput
-              style={[
-                styles.input,
-                { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
-              ]}
+            <PasswordInput
               value={password}
               onChangeText={setPassword}
               placeholder={t("auth.password.placeholderNew")}
               placeholderTextColor={colors.mutedForeground}
-              secureTextEntry
             />
             {errors.fields.password && (
               <Text style={[styles.fieldError, { color: colors.destructive }]}>

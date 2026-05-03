@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyRound, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
+import { PasswordInput } from "@/components/PasswordInput";
 
 type Step = "email" | "reset";
 
@@ -192,20 +193,11 @@ export default function ForgotPasswordScreen() {
               <Text style={[styles.label, { color: colors.foreground, marginTop: 14 }]}>
                 {t("auth.password.new")}
               </Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                    color: colors.foreground,
-                  },
-                ]}
+              <PasswordInput
                 value={password}
                 onChangeText={setPassword}
                 placeholder={t("auth.password.placeholderNew")}
                 placeholderTextColor={colors.mutedForeground}
-                secureTextEntry
               />
 
               {submitError ? (
