@@ -9,7 +9,11 @@ import {
   generationQuotaTable,
 } from "@workspace/db";
 import { requireClerkAuth, invalidateUserCache } from "../middlewares/clerkAuth";
-import { PushSyncBody, SetSubscriptionBody } from "@workspace/api-zod";
+import {
+  PushSyncBody,
+  SetSubscriptionBody,
+  SetUserSettingsBody,
+} from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -97,7 +101,34 @@ router.get("/sync/snapshot", async (req, res) => {
     })),
     subscription,
     quota,
+    settings: {
+      nativeLanguage: u?.nativeLanguage ?? null,
+    },
   });
+});
+
+router.post("/sync/settings", async (req, res) => {
+  const userId = req.auth!.userId;
+  const parsed = SetUserSettingsBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "invalid_request",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+  const nativeLanguage = parsed.data.nativeLanguage;
+  await db
+    .insert(usersTable)
+    .values({ id: userId, nativeLanguage })
+    .onConflictDoUpdate({
+      target: usersTable.id,
+      set: {
+        nativeLanguage,
+        updatedAt: sql`now()`,
+      },
+    });
+  res.json({ nativeLanguage });
 });
 
 router.post("/sync/push", async (req, res) => {

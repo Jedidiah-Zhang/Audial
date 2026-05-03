@@ -10,6 +10,7 @@ import type { LearningText } from "./learningText";
 import type { SessionResult } from "./sessionResult";
 import type { SubscriptionState } from "./subscriptionState";
 import type { UserProgress } from "./userProgress";
+import type { UserSettings } from "./userSettings";
 
 export interface SyncSnapshot {
   texts: LearningText[];
@@ -17,4 +18,5 @@ export interface SyncSnapshot {
   progress: UserProgress[];
   subscription: SubscriptionState;
   quota: GenerationQuota;
+  settings: UserSettings;
 }

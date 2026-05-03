@@ -29,6 +29,7 @@ export default function LocalAccountsScreen() {
     switchLocalAccount,
     deleteLocalAccount,
     renameLocalAccount,
+    updateSettings,
   } = useApp();
 
   const [name, setName] = useState("");
@@ -38,14 +39,21 @@ export default function LocalAccountsScreen() {
   const onCreate = async () => {
     const v = name.trim();
     if (!v) return;
+    // Mark first-launch as complete before flipping to the new local
+    // profile. createLocalAccount pre-seeds the new scope with the
+    // current language + onboarded:true, but the previous (guest)
+    // scope still needs the flag set so a sign-out back to it doesn't
+    // bounce the user back to the auth gate.
+    await updateSettings({ onboarded: true });
     await createLocalAccount(v);
     setName("");
-    router.back();
+    router.replace("/(tabs)");
   };
 
   const onSwitch = async (id: string) => {
+    await updateSettings({ onboarded: true });
     await switchLocalAccount(id);
-    router.back();
+    router.replace("/(tabs)");
   };
 
   const onDelete = (acc: LocalAccount) => {

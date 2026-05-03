@@ -21,6 +21,7 @@ import {
   pullSnapshot,
   pushDelta,
   pushSubscriptionTier,
+  pushUserNativeLanguage,
   readPending,
   writePending,
 } from "@/utils/cloudSync";
@@ -430,6 +431,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authLoaded || !localLoaded) return;
+    // Capture the previous user's language *before* we wipe state. New
+    // accounts (sign-up, first OAuth, brand-new local profile) start with
+    // no persisted settings under their own scope; in that case loadAll
+    // would otherwise reset the UI to en-US, undoing whatever language
+    // the user just selected on the auth screen. We re-apply this on the
+    // new scope only when no settings exist there yet — returning users
+    // with persisted settings (or a cloud-stored language) still win.
+    const inheritedLanguage = settingsRef.current.nativeLanguage;
     currentUserRef.current = userId;
     setIsLoading(true);
     setTexts([]);
@@ -465,7 +474,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // If the active user changed while migration was in flight, abort the
       // load — the next effect run will handle the new user.
       if (currentUserRef.current !== userId) return;
-      await loadAll(userId).catch(() => {});
+      await loadAll(userId, inheritedLanguage).catch(() => {});
       if (currentUserRef.current !== userId) return;
       // Cloud sync runs only for Clerk-signed-in users. Local-only and
       // guest profiles intentionally stay device-only (the task scopes
@@ -578,6 +587,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     safeWrite(uid, K.RESULTS, JSON.stringify(merged.results));
     safeWrite(uid, K.PROGRESS, JSON.stringify(merged.progress));
     safeWrite(uid, K.SUBSCRIPTION, JSON.stringify(merged.subscription));
+
+    // Cloud-wins for the user's interface language: if the server has a
+    // saved language for this account, adopt it and persist locally so
+    // returning users on a new device land in their preferred language
+    // without re-prompting. If the server has nothing yet (first sync
+    // after sign-up), push the local value up so the next device can
+    // adopt it.
+    const cloudLang = snap.settings?.nativeLanguage;
+    if (typeof cloudLang === "string" && cloudLang.length > 0) {
+      const mergedSettings: AppSettings = {
+        ...settingsRef.current,
+        nativeLanguage: cloudLang,
+        onboarded: true,
+      };
+      setSettings(mergedSettings);
+      safeWrite(uid, K.SETTINGS, JSON.stringify(mergedSettings));
+    } else if (
+      settingsRef.current.nativeLanguage &&
+      settingsRef.current.nativeLanguage.length > 0
+    ) {
+      void pushUserNativeLanguage(settingsRef.current.nativeLanguage);
+    }
 
     // Step 4: push local-only items (ids not in cloud). Treat a failure
     // here as "offline" too — the queued payload made it (Step 1) but
@@ -723,7 +754,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function loadAll(uid: string) {
+  async function loadAll(uid: string, inheritedLanguage?: string) {
     const K = keysFor(uid);
     try {
       await migrateLegacyEnglishCodeIfNeeded();
@@ -799,6 +830,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { autoPlayAudio: _legacyAutoPlayAudio, ...rest } = parsedSettings;
         void _legacyAutoPlayAudio;
         setSettings({ ...DEFAULT_SETTINGS, ...(rest as Partial<AppSettings>) });
+      } else if (uid !== GUEST_USER_ID) {
+        // Brand-new account scope (no settings file yet). Reaching this
+        // branch means the user came through the auth flow — Clerk
+        // sign-in/sign-up or local-profile creation — so first-launch
+        // onboarding is complete regardless of which language they
+        // picked. We also carry over the language they were viewing the
+        // app in (the auth screens have a globe switcher) so we don't
+        // snap the UI back to en-US on the first frame after auth.
+        // Critically, we mark onboarded:true even when the language is
+        // unchanged, otherwise the (tabs) gate would redirect back to
+        // /(auth)/sign-in while sign-in's isSignedIn effect redirects
+        // forward to /(tabs), causing a loop.
+        const seeded: AppSettings = {
+          ...DEFAULT_SETTINGS,
+          nativeLanguage: inheritedLanguage ?? DEFAULT_SETTINGS.nativeLanguage,
+          onboarded: true,
+        };
+        setSettings(seeded);
+        safeWrite(uid, K.SETTINGS, JSON.stringify(seeded));
       }
       if (subscriptionRaw) {
         try {
@@ -959,9 +1009,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateSettings = useCallback(async (partial: Partial<AppSettings>) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
-    const next = { ...settingsRef.current, ...partial };
+    const prev = settingsRef.current;
+    const next = { ...prev, ...partial };
     setSettings(next);
     safeWrite(uidAtCall, K.SETTINGS, JSON.stringify(next));
+    // Mirror the user's interface language to the server so other
+    // devices the same Clerk user signs in on can pre-fill the UI in
+    // their preferred language without re-prompting. Fire-and-forget;
+    // if the network call fails the local write still stands and the
+    // next /sync/snapshot pass will resurface it.
+    if (
+      isCloudSyncableUser(uidAtCall) &&
+      typeof partial.nativeLanguage === "string" &&
+      partial.nativeLanguage.length > 0 &&
+      partial.nativeLanguage !== prev.nativeLanguage
+    ) {
+      void pushUserNativeLanguage(partial.nativeLanguage);
+    }
   }, []);
 
   const upgradeToPro = useCallback(async () => {
@@ -1076,6 +1140,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const account: LocalAccount = { id: genId(), name, createdAt: Date.now() };
       const next = [...localAccounts, account];
       await persistLocalAccounts(next);
+      // Pre-seed the new profile's settings scope with the language the
+      // user is currently viewing the app in (and mark onboarded so the
+      // language picker doesn't reappear). We have to write directly via
+      // AsyncStorage because the active user is still about to flip —
+      // updateSettings() would persist under the previous scope. Once
+      // we flip activeLocalAccountId, the loadAll effect picks this file
+      // up under the new userId. See the matching inheritedLanguage path
+      // in the auth-change effect for cloud accounts.
+      try {
+        const newKeys = keysFor(`local:${account.id}`);
+        const seededSettings: AppSettings = {
+          ...DEFAULT_SETTINGS,
+          nativeLanguage: settingsRef.current.nativeLanguage,
+          onboarded: true,
+        };
+        await AsyncStorage.setItem(
+          newKeys.SETTINGS,
+          JSON.stringify(seededSettings),
+        );
+      } catch {
+        // best-effort; loadAll's inheritedLanguage fallback covers us
+      }
       // Auto-switch to the new local account (only effective when not signed
       // into Clerk; if signed in, Clerk userId still wins, but the active id
       // will be remembered for after sign-out).

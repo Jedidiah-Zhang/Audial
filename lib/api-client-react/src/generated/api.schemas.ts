@@ -75,6 +75,14 @@ export interface SubscriptionState {
   upgradedAt?: number | null;
 }
 
+export interface UserSettings {
+  nativeLanguage: string | null;
+}
+
+export interface UserSettingsWrite {
+  nativeLanguage: string;
+}
+
 export type SubscriptionWriteTier =
   (typeof SubscriptionWriteTier)[keyof typeof SubscriptionWriteTier];
 
@@ -109,6 +117,7 @@ export interface SyncSnapshot {
   progress: UserProgress[];
   subscription: SubscriptionState;
   quota: GenerationQuota;
+  settings: UserSettings;
 }
 
 export interface SyncPushPayload {

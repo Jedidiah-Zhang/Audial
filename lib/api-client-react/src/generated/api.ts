@@ -24,6 +24,8 @@ import type {
   SyncPushResponse,
   SyncSnapshot,
   UnauthorizedResponse,
+  UserSettings,
+  UserSettingsWrite,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -269,6 +271,92 @@ export const usePushSync = <
   TContext
 > => {
   return useMutation(getPushSyncMutationOptions(options));
+};
+
+/**
+ * @summary Update server-stored user settings (currently only nativeLanguage)
+ */
+export const getSetUserSettingsUrl = () => {
+  return `/api/sync/settings`;
+};
+
+export const setUserSettings = async (
+  userSettingsWrite: UserSettingsWrite,
+  options?: RequestInit,
+): Promise<UserSettings> => {
+  return customFetch<UserSettings>(getSetUserSettingsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(userSettingsWrite),
+  });
+};
+
+export const getSetUserSettingsMutationOptions = <
+  TError = ErrorType<UnauthorizedResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setUserSettings>>,
+    TError,
+    { data: BodyType<UserSettingsWrite> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setUserSettings>>,
+  TError,
+  { data: BodyType<UserSettingsWrite> },
+  TContext
+> => {
+  const mutationKey = ["setUserSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setUserSettings>>,
+    { data: BodyType<UserSettingsWrite> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setUserSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetUserSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setUserSettings>>
+>;
+export type SetUserSettingsMutationBody = BodyType<UserSettingsWrite>;
+export type SetUserSettingsMutationError = ErrorType<UnauthorizedResponse>;
+
+/**
+ * @summary Update server-stored user settings (currently only nativeLanguage)
+ */
+export const useSetUserSettings = <
+  TError = ErrorType<UnauthorizedResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setUserSettings>>,
+    TError,
+    { data: BodyType<UserSettingsWrite> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setUserSettings>>,
+  TError,
+  { data: BodyType<UserSettingsWrite> },
+  TContext
+> => {
+  return useMutation(getSetUserSettingsMutationOptions(options));
 };
 
 /**

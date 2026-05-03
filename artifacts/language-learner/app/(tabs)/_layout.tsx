@@ -1,6 +1,6 @@
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { BookOpen, Settings } from "lucide-react-native";
@@ -8,6 +8,7 @@ import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { useColors, useResolvedColorScheme } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
+import { useApp } from "@/context/AppContext";
 
 function NativeTabLayout() {
   const t = useT();
@@ -90,6 +91,15 @@ function ClassicTabLayout() {
 }
 
 export default function TabLayout() {
+  const { settings, isLoading } = useApp();
+  // First-launch gate: redirect into the auth screen until the user has
+  // either signed in, created a local profile, or explicitly tapped
+  // "continue without an account" (which sets `onboarded: true`). We
+  // wait for hydration so we don't bounce a returning user out of
+  // their tabs on cold start before settings are read.
+  if (!isLoading && !settings.onboarded) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
   if (isLiquidGlassAvailable()) {
     return <NativeTabLayout />;
   }

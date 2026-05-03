@@ -23,4 +23,6 @@ export * from "./syncPushResponseAccepted";
 export * from "./syncSnapshot";
 export * from "./unauthorizedResponse";
 export * from "./userProgress";
+export * from "./userSettings";
+export * from "./userSettingsWrite";
 export * from "./vocabularyItem";

@@ -77,6 +77,9 @@ export const GetSyncSnapshotResponse = zod.object({
     remaining: zod.number().nullish(),
     tier: zod.enum(["free", "pro"]),
   }),
+  settings: zod.object({
+    nativeLanguage: zod.string().nullable(),
+  }),
 });
 
 /**
@@ -148,6 +151,17 @@ export const PushSyncResponse = zod.object({
     progress: zod.number(),
     deletedTexts: zod.number(),
   }),
+});
+
+/**
+ * @summary Update server-stored user settings (currently only nativeLanguage)
+ */
+export const SetUserSettingsBody = zod.object({
+  nativeLanguage: zod.string(),
+});
+
+export const SetUserSettingsResponse = zod.object({
+  nativeLanguage: zod.string().nullable(),
 });
 
 /**

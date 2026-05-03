@@ -15,11 +15,14 @@ import * as AuthSession from "expo-auth-session";
 import { useSignIn, useSSO, useAuth } from "@clerk/expo";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { User, X } from "lucide-react-native";
+import { Globe, User, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 import { GoogleIcon } from "@/components/GoogleIcon";
 import { PasswordInput } from "@/components/PasswordInput";
+import { LanguagePickerSheet } from "@/components/LanguagePickerSheet";
+import { useApp } from "@/context/AppContext";
+import { LANGUAGES } from "@/types";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -41,14 +44,28 @@ export default function SignInScreen() {
   const { signIn, errors, fetchStatus } = useSignIn();
   const { isSignedIn } = useAuth();
   const { startSSOFlow } = useSSO();
+  const { settings, updateSettings } = useApp();
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [langPickerOpen, setLangPickerOpen] = useState(false);
 
   useEffect(() => {
     if (isSignedIn) router.replace("/(tabs)");
   }, [isSignedIn]);
+
+  const currentLang = LANGUAGES.find((l) => l.code === settings.nativeLanguage);
+  const currentLangLabel =
+    currentLang?.name ?? currentLang?.english ?? settings.nativeLanguage;
+
+  const handleSkip = async () => {
+    // "Continue without an account" — mark the device as past first-launch
+    // onboarding so the (tabs) gate stops redirecting back here, then drop
+    // straight into the guest experience.
+    await updateSettings({ onboarded: true });
+    router.replace("/(tabs)");
+  };
 
   const handleSubmit = async () => {
     setSubmitError(null);
@@ -221,9 +238,22 @@ export default function SignInScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
-          <X size={22} color={colors.foreground} />
-        </TouchableOpacity>
+        <View style={styles.topRow}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
+            <X size={22} color={colors.foreground} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setLangPickerOpen(true)}
+            style={[styles.langChip, { borderColor: colors.border, backgroundColor: colors.card }]}
+            hitSlop={6}
+            activeOpacity={0.7}
+          >
+            <Globe size={14} color={colors.mutedForeground} />
+            <Text style={[styles.langChipText, { color: colors.foreground }]} numberOfLines={1}>
+              {currentLangLabel}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.heroBox}>
           <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
@@ -331,8 +361,21 @@ export default function SignInScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity onPress={handleSkip} style={styles.skipBtn} activeOpacity={0.7}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_500Medium" }}>
+              {t("auth.skip")}
+            </Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <LanguagePickerSheet
+        visible={langPickerOpen}
+        selected={settings.nativeLanguage}
+        onSelect={(code) => updateSettings({ nativeLanguage: code })}
+        onClose={() => setLangPickerOpen(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -351,7 +394,25 @@ function MicrosoftIcon({ size = 18 }: { size?: number }) {
 
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, gap: 8 },
-  backBtn: { alignSelf: "flex-start", padding: 6, marginBottom: 4 },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  backBtn: { padding: 6 },
+  langChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: 180,
+  },
+  langChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  skipBtn: { alignSelf: "center", marginTop: 18, padding: 8 },
   heroBox: { alignItems: "center", marginTop: 8, marginBottom: 24, gap: 8 },
   logo: {
     width: 64,

@@ -3,6 +3,7 @@ import {
   getSyncSnapshot,
   pushSync,
   setSubscription as apiSetSubscription,
+  setUserSettings as apiSetUserSettings,
   type SyncSnapshot,
   type SyncPushPayload,
   type SubscriptionState as ApiSubscriptionState,
@@ -307,6 +308,25 @@ export async function pushSubscriptionTier(
     return await apiSetSubscription({ tier });
   } catch {
     return null;
+  }
+}
+
+/**
+ * Push the user's interface language ("nativeLanguage" in client-speak,
+ * stored as `users.native_language` server-side) so a different device
+ * the same Clerk user signs in on later can pre-fill the UI in their
+ * preferred language without re-prompting. Best-effort: returns false
+ * when offline so callers can keep their local state and silently retry
+ * on the next sync.
+ */
+export async function pushUserNativeLanguage(
+  nativeLanguage: string,
+): Promise<boolean> {
+  try {
+    await apiSetUserSettings({ nativeLanguage });
+    return true;
+  } catch {
+    return false;
   }
 }
 

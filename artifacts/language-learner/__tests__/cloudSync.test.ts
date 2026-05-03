@@ -94,6 +94,7 @@ function emptyCloud() {
       remaining: 3,
       tier: "free" as const,
     },
+    settings: { nativeLanguage: null },
   };
 }
 

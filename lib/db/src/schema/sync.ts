@@ -21,6 +21,13 @@ export const usersTable = pgTable("users", {
   id: text("id").primaryKey(), // Clerk userId
   tier: text("tier").notNull().default("free"), // "free" | "pro"
   upgradedAt: timestamp("upgraded_at", { withTimezone: true }),
+  // Interface language code (e.g. "en-US", "zh"). Captured at sign-up
+  // time so the language a brand-new user picked on the auth screen is
+  // remembered server-side and re-applied when they sign in on another
+  // device. NULL means no language has been recorded for this account
+  // yet (in which case the device's local nativeLanguage stays in
+  // effect). Only the user's own routes ever read or write this.
+  nativeLanguage: text("native_language"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

@@ -22,7 +22,6 @@ import { useColors } from "@/hooks/useColors";
 import { StatusBar } from "expo-status-bar";
 
 import { AppProvider, useApp } from "@/context/AppContext";
-import { LanguageOnboarding } from "@/components/LanguageOnboarding";
 import { RewardedAdSimulatorHost } from "@/components/RewardedAdSimulatorHost";
 import { isRealAdMobActive } from "@/hooks/useRewardedAd";
 import { useResolvedColorScheme } from "@/hooks/useColors";
@@ -238,7 +237,6 @@ export default function RootLayout() {
                   <RTLController>
                     <ThemedStatusBar />
                     <RootLayoutNav />
-                    <LanguageOnboarding />
                     {!isRealAdMobActive() && <RewardedAdSimulatorHost />}
                   </RTLController>
                 </KeyboardProvider>
