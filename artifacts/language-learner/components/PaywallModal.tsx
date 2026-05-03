@@ -10,7 +10,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, Sparkles, X } from "lucide-react-native";
+import { Ban, Infinity as InfinityIcon, Lightbulb, Sparkles, X } from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
@@ -28,12 +29,36 @@ interface Props {
 //   - `noAds`: a side-effect of `isPro` short-circuiting every rewarded-ad
 //     path (generation quota wall, dictation listen quota,
 //     per-result analysis unlock).
+//   - `hints`: gated by the daily dictation-hint counter — Pro users get
+//     unlimited hints with no rewarded-video prompt.
 // Aspirational selling points (high-quality scoring, early access, "support
 // indie") were removed in Task #38 to keep marketing copy honest. Add them
 // back here only after the corresponding gate ships.
-const FEATURE_KEYS = [
-  "paywall.feature.unlimited",
-  "paywall.feature.noAds",
+interface PaywallFeature {
+  key: string;
+  icon: LucideIcon;
+  titleKey: string;
+  descKey: string;
+}
+const FEATURES: readonly PaywallFeature[] = [
+  {
+    key: "unlimited",
+    icon: InfinityIcon,
+    titleKey: "paywall.feature.unlimited.title",
+    descKey: "paywall.feature.unlimited.desc",
+  },
+  {
+    key: "noAds",
+    icon: Ban,
+    titleKey: "paywall.feature.noAds.title",
+    descKey: "paywall.feature.noAds.desc",
+  },
+  {
+    key: "hints",
+    icon: Lightbulb,
+    titleKey: "paywall.feature.hints.title",
+    descKey: "paywall.feature.hints.desc",
+  },
 ] as const;
 
 export function PaywallModal({ visible, onClose }: Props) {
@@ -136,18 +161,46 @@ export function PaywallModal({ visible, onClose }: Props) {
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            {FEATURE_KEYS.map((key) => (
-              <View key={key} style={styles.featureRow}>
+            {FEATURES.map((feature, idx) => {
+              const Icon = feature.icon;
+              const isLast = idx === FEATURES.length - 1;
+              return (
                 <View
-                  style={[styles.checkWrap, { backgroundColor: colors.primary + "18" }]}
+                  key={feature.key}
+                  style={[
+                    styles.featureRow,
+                    !isLast && {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: colors.border,
+                    },
+                  ]}
                 >
-                  <Check size={14} color={colors.primary} />
+                  <View
+                    style={[
+                      styles.featureIconWrap,
+                      { backgroundColor: colors.primary + "1A" },
+                    ]}
+                  >
+                    <Icon size={20} color={colors.primary} />
+                  </View>
+                  <View style={styles.featureTextWrap}>
+                    <Text
+                      style={[styles.featureTitle, { color: colors.foreground }]}
+                    >
+                      {t(feature.titleKey)}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.featureDesc,
+                        { color: colors.mutedForeground },
+                      ]}
+                    >
+                      {t(feature.descKey)}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={[styles.featureText, { color: colors.foreground }]}>
-                  {t(key)}
-                </Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
 
           {!isPro ? (
@@ -314,29 +367,37 @@ const styles = StyleSheet.create({
   featuresCard: {
     width: "100%",
     borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 6,
+    borderRadius: 18,
+    paddingVertical: 4,
     marginTop: 8,
   },
   featureRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    alignItems: "flex-start",
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
   },
-  checkWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
+  featureIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  featureText: {
+  featureTextWrap: {
     flex: 1,
+    gap: 3,
+  },
+  featureTitle: {
     fontSize: 15,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 20,
+  },
+  featureDesc: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 18,
   },
   priceBlock: {
     alignItems: "center",
