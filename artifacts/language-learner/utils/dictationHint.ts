@@ -58,36 +58,55 @@ function maskFor(token: string): string {
 }
 
 function buildLatinMask(text: string, revealCount: number): HintMaskResult {
-  // Split keeping whitespace as separate tokens so we can re-join
-  // verbatim. Tokens that contain at least one letter / digit are
-  // candidate "words"; everything else (punct, whitespace) renders as-is.
-  const tokens = text.split(/(\s+)/);
-  const wordTokenIndices: { idx: number; len: number }[] = [];
+  // Tokenise into three flavours:
+  //   - word runs (letters / digits / common intra-word punctuation)
+  //   - whitespace runs
+  //   - everything else (punctuation, symbols)
+  // Splitting words OUT of attached punctuation matters for the hint
+  // mask: "word," should mask only the letters and keep the comma
+  // visible so the structure of the sentence is preserved.
+  const tokens = text.match(/[\p{L}\p{N}'’\-]+|\s+|[^\p{L}\p{N}\s]+/gu) ?? [];
+  const isWord = (tok: string) => /[\p{L}\p{N}]/u.test(tok);
+
+  // Long-word candidates first; if a sentence is composed entirely of
+  // short words (≤ 2 chars), fall back to ALL word tokens so the spec's
+  // "at least 1" reveal guarantee still holds.
+  const longWords: { idx: number; len: number }[] = [];
+  const allWords: { idx: number; len: number }[] = [];
   tokens.forEach((tok, idx) => {
-    if (/[\p{L}\p{N}]/u.test(tok) && tok.length > ALWAYS_REVEAL_MAX_LEN) {
-      wordTokenIndices.push({ idx, len: tok.length });
+    if (!isWord(tok)) return;
+    allWords.push({ idx, len: tok.length });
+    if (tok.length > ALWAYS_REVEAL_MAX_LEN) {
+      longWords.push({ idx, len: tok.length });
     }
   });
+  const candidates = longWords.length > 0 ? longWords : allWords;
+  const shortFallback = longWords.length === 0;
 
   // Sort by length desc, then by original position asc so longest
   // words are revealed first and ties resolve left-to-right.
-  const ordered = [...wordTokenIndices].sort((a, b) =>
+  const ordered = [...candidates].sort((a, b) =>
     b.len !== a.len ? b.len - a.len : a.idx - b.idx,
   );
-  const cap = capHintable(wordTokenIndices.length);
+  const cap = capHintable(candidates.length);
   // Only the top-`cap` longest words are eligible to be revealed via
   // hints; further hints reveal nothing new (and the UI will disable
   // the button before letting the user spend quota on them).
   const eligible = ordered.slice(0, cap);
+  const eligibleSet = new Set(eligible.map((x) => x.idx));
   const revealSet = new Set(
     eligible.slice(0, Math.max(0, revealCount)).map((x) => x.idx),
   );
 
   const display = tokens
     .map((tok, idx) => {
-      if (!/[\p{L}\p{N}]/u.test(tok)) return tok; // whitespace / punct
-      if (tok.length <= ALWAYS_REVEAL_MAX_LEN) return tok; // trivial words
+      if (!isWord(tok)) return tok; // whitespace / punct stays visible
       if (revealSet.has(idx)) return tok;
+      // Trivial short words are normally always shown — but in the
+      // short-only fallback branch they ARE the candidates, so respect
+      // the eligible set: anything not eligible still renders as-is.
+      if (!shortFallback && tok.length <= ALWAYS_REVEAL_MAX_LEN) return tok;
+      if (shortFallback && !eligibleSet.has(idx)) return tok;
       return maskFor(tok);
     })
     .join("");
