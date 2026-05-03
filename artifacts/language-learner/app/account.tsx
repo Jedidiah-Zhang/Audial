@@ -35,18 +35,14 @@ export default function AccountScreen() {
   const { signOut } = clerk;
   const [accountModal, setAccountModal] = useState<AccountModalKind>(null);
 
-  type ClerkEnvSnapshot = {
-    __unstable__environment?: {
-      userSettings?: {
-        attributes?: {
-          username?: { enabled?: boolean };
-        };
-      };
-    };
-  };
-  const usernameAttr = (clerk as unknown as ClerkEnvSnapshot)
-    .__unstable__environment?.userSettings?.attributes?.username;
-  const usernameEditable = !!usernameAttr?.enabled;
+  // We previously gated the "change username" row on a Clerk
+  // `__unstable__environment.userSettings.attributes.username.enabled`
+  // probe, but that internal snapshot is often empty after hydration
+  // which made the row silently disappear even when the project does
+  // allow usernames. Always show the row; if Clerk's API rejects the
+  // update (e.g. usernames disabled at the project level) the modal
+  // already surfaces a friendly "this account doesn't support changing
+  // username" message via the looksLikeUnsupported branch.
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -128,15 +124,13 @@ export default function AccountScreen() {
                   ) : null}
                 </View>
               </View>
-              {usernameEditable && (
-                <Row
-                  colors={colors}
-                  icon="edit-3"
-                  label={t("auth.username.change")}
-                  value={user.username || ""}
-                  onPress={() => setAccountModal("username")}
-                />
-              )}
+              <Row
+                colors={colors}
+                icon="edit-3"
+                label={t("auth.username.change")}
+                value={user.username || ""}
+                onPress={() => setAccountModal("username")}
+              />
               {hasPasswordCredential && (
                 <Row
                   colors={colors}
