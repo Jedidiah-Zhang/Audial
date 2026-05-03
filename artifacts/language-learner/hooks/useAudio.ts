@@ -268,13 +268,41 @@ export function useAudioPlayer(opts?: {
                 file.create();
                 file.write(new Uint8Array(buffer));
                 uri = file.uri;
-              } catch {
+              } catch (e) {
+                console.warn("[TTS] ephemeral cache write failed, falling back to data URI", e);
                 const base64 = _arrayBufferToBase64(buffer);
                 uri = `data:audio/mpeg;base64,${base64}`;
               }
             }
           }
-          const player = createAudioPlayer({ uri: uri! });
+          // Defensive audio-session reset before TTS playback. iOS keeps the
+          // route on the receiver/earpiece (and at near-silent volume) when
+          // the session is left in `PlayAndRecord` after a recording cycle,
+          // and the app-mount default in `_layout.tsx` is async and racy on
+          // a cold start. Re-asserting the playback-friendly mode right
+          // before `play()` covers both cases — it's idempotent on Android
+          // and harmless on the happy path.
+          try {
+            await setAudioModeAsync({
+              playsInSilentMode: true,
+              shouldPlayInBackground: false,
+              interruptionMode: "duckOthers",
+              shouldRouteThroughEarpiece: false,
+              allowsRecording: false,
+            });
+          } catch (e) {
+            console.warn("[TTS] setAudioModeAsync before play failed", e);
+            /* Best-effort — playback may be quiet on iOS but proceed. */
+          }
+          let player: any;
+          try {
+            player = createAudioPlayer({ uri: uri! });
+          } catch (e) {
+            console.warn("[TTS] createAudioPlayer THREW", e, "uri=", uri);
+            setIsLoading(false);
+            setIsPlaying(false);
+            return;
+          }
           expoPlayerRef.current = player;
           try {
             if (typeof player.setPlaybackRate === "function") {
@@ -283,7 +311,9 @@ export function useAudioPlayer(opts?: {
               player.playbackRate = playbackRate;
             }
             player.shouldCorrectPitch = true;
-          } catch {}
+          } catch (e) {
+            console.warn("[TTS] setPlaybackRate / shouldCorrectPitch failed (continuing)", e);
+          }
           setIsLoading(false);
           setIsPlaying(true);
           let didEnd = false;
@@ -300,9 +330,15 @@ export function useAudioPlayer(opts?: {
             }
           });
           expoSubRef.current = sub;
-          player.play();
+          try {
+            player.play();
+          } catch (e) {
+            console.warn("[TTS] player.play() THREW", e);
+            setIsPlaying(false);
+          }
         }
-      } catch {
+      } catch (e) {
+        console.warn("[TTS] playTTS outer catch", e);
         setIsPlaying(false);
         setIsLoading(false);
       }
