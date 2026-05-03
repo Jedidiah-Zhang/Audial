@@ -59,9 +59,15 @@ interface SentenceArticleProps {
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
+  { label: "0.5x", value: 0.5 },
   { label: "0.75x", value: 0.75 },
   { label: "1x", value: 1.0 },
 ];
+// Dictation drops 0.5x — that speed is too slow to be useful for
+// transcription practice. Other consumers (recitation memorize phase,
+// general practice page) keep the full set.
+const DICTATION_SPEED_OPTIONS: { label: string; value: number }[] =
+  SPEED_OPTIONS.filter((o) => o.value !== 0.5);
 
 export function SentenceArticle({
   text,
@@ -484,7 +490,7 @@ export function SentenceArticle({
 
           <View style={[styles.speedRow, { backgroundColor: colors.muted }]}>
             <Text style={[styles.speedLabel, { color: colors.mutedForeground }]}>{t("sentence.speed")}</Text>
-            {SPEED_OPTIONS.map((opt) => {
+            {(dictationMode ? DICTATION_SPEED_OPTIONS : SPEED_OPTIONS).map((opt) => {
               const active = rate === opt.value;
               return (
                 <TouchableOpacity
