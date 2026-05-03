@@ -10,7 +10,8 @@ import {
 } from "react-native";
 import { Check, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
-import { useT } from "@/utils/i18n";
+import { useT, getLanguageDisplayName } from "@/utils/i18n";
+import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import { rtlTextStyle } from "@/utils/rtl";
 
@@ -36,6 +37,8 @@ export function LanguagePickerSheet({
 }: Props) {
   const colors = useColors();
   const t = useT();
+  const { settings } = useApp();
+  const uiLocale = settings.nativeLanguage;
 
   return (
     <Modal
@@ -105,7 +108,7 @@ export function LanguagePickerSheet({
                         marginTop: 1,
                       }}
                     >
-                      {lang.english}
+                      {getLanguageDisplayName(lang.code, uiLocale)}
                     </Text>
                   </View>
                   {isSelected && <Check size={18} color={colors.primary} />}

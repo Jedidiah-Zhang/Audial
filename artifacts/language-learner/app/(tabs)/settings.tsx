@@ -17,7 +17,7 @@ import { router } from "expo-router";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { useT, getDifficultyLabel } from "@/utils/i18n";
+import { useT, getDifficultyLabel, getLanguageDisplayName } from "@/utils/i18n";
 import { LANGUAGES, VOICE_OPTIONS } from "@/types";
 import type { Difficulty } from "@/types";
 import { Flag } from "@/utils/flags";
@@ -188,7 +188,7 @@ export default function SettingsScreen() {
                           {item.name}
                         </Text>
                         <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
-                          {item.english}
+                          {getLanguageDisplayName(item.code, settings.nativeLanguage)}
                         </Text>
                       </View>
                       {selected && <Check size={18} color={colors.primary} />}
@@ -221,7 +221,7 @@ export default function SettingsScreen() {
                           {item.name}
                         </Text>
                         <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
-                          {item.english}
+                          {getLanguageDisplayName(item.code, settings.nativeLanguage)}
                         </Text>
                       </View>
                       {selected && <Check size={18} color={colors.primary} />}
