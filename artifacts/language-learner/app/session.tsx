@@ -146,6 +146,13 @@ export default function SessionScreen() {
   // Reset on retry so retries get a clean slate, but each individual
   // use still draws from the daily quota.
   const [hintsUsedThisAttempt, setHintsUsedThisAttempt] = useState(0);
+  // Whether the masked-text card is currently shown. Tapping the
+  // button while shown hides the card (no quota consumption); tapping
+  // while hidden either reveals the existing hints (no consumption,
+  // when the user has already paid for at least one) or consumes a
+  // fresh hint and reveals more (when not at the per-sentence cap).
+  // Auto-collapses on submit and on retry.
+  const [hintVisible, setHintVisible] = useState(false);
   const {
     startRecording,
     stopRecording,
@@ -569,6 +576,9 @@ export default function SessionScreen() {
       Alert.alert(t("common.tip"), t("session.alert.dictationEmpty"));
       return;
     }
+    // Spec: "提交后收起" — collapse the hint card on submit so the
+    // result UI isn't dominated by the masked sentence.
+    setHintVisible(false);
     await scoreAnswer(dictationInput.trim(), hintsUsedThisAttempt);
   };
 
@@ -577,6 +587,7 @@ export default function SessionScreen() {
     setDictationInput("");
     setShadowRecordingUri(null);
     setHintsUsedThisAttempt(0);
+    setHintVisible(false);
     setPhase("intro");
   };
 
@@ -584,10 +595,13 @@ export default function SessionScreen() {
     router.back();
   };
 
-  // Use a hint. Consumes one from today's quota and increments the
-  // per-attempt counter so the score deduction can be applied at submit
-  // time. If the daily quota is exhausted we surface the ad-prompt
-  // modal instead of consuming.
+  // Hint button handler — three behaviours rolled into one tap:
+  //   1. Card is currently shown   → hide it (no quota consumption).
+  //   2. Card is hidden but the user already has at least one hint
+  //      revealed AND we're at the per-sentence reveal cap → just show
+  //      the existing reveal (no quota consumption).
+  //   3. Otherwise → consume one hint (or surface the ad prompt if the
+  //      daily quota is exhausted) and reveal one more word.
   //
   // Guarded by a ref against double-tap races: the on-screen disabled
   // state is computed from React state which lags by one frame, so
@@ -598,10 +612,23 @@ export default function SessionScreen() {
     if (hintInFlightRef.current) return;
     if (!hintQuota.isReady) return;
     if (!text) return;
-    // Re-check the per-sentence reveal cap inside the handler so even
-    // a stale-state tap can't push past it.
+    // (1) Toggle-hide path — never consumes.
+    if (hintVisible) {
+      setHintVisible(false);
+      return;
+    }
     const { totalHintable } = buildDictationHintMask(text.text, hintsUsedThisAttempt);
-    if (totalHintable > 0 && hintsUsedThisAttempt >= totalHintable) return;
+    // (2) Reveal-existing path — already paid for hints and at cap.
+    // Reshow without spending another hint.
+    if (
+      hintsUsedThisAttempt > 0 &&
+      totalHintable > 0 &&
+      hintsUsedThisAttempt >= totalHintable
+    ) {
+      setHintVisible(true);
+      return;
+    }
+    // (3) Consume + reveal one more.
     hintInFlightRef.current = true;
     try {
       if (!hintQuota.tryConsume()) {
@@ -609,6 +636,7 @@ export default function SessionScreen() {
         return;
       }
       setHintsUsedThisAttempt((n) => n + 1);
+      setHintVisible(true);
     } finally {
       // Release on the next tick so a second synchronous tap (same
       // event loop) can't slip through, but normal subsequent taps
@@ -1022,12 +1050,23 @@ export default function SessionScreen() {
               const totalHintable = mask.totalHintable;
               const reachedReveals =
                 totalHintable === 0 || hintsUsedThisAttempt >= totalHintable;
-              // Disable the hint button when the user has revealed
-              // everything that's hintable in this sentence (further
-              // taps would consume quota for nothing) or while the
-              // persisted quota state is still loading. Out-of-quota
-              // taps are NOT disabled — they open the ad prompt.
-              const hintBtnDisabled = reachedReveals || !hintQuota.isReady;
+              // The button has three legal states (see handleUseHint):
+              //   - "Hide" when the card is shown (always enabled).
+              //   - "Hint" when more reveals are available.
+              //   - "Hint" when at cap but the user has at least one
+              //     reveal — tapping just re-shows the card without
+              //     consumption.
+              // It's only truly disabled when the sentence has no
+              // hintable tokens (so there's nothing to ever show) OR
+              // while the persisted quota state is still loading.
+              const canShowExisting = hintsUsedThisAttempt > 0;
+              const hintBtnDisabled =
+                !hintQuota.isReady ||
+                (totalHintable === 0 && !canShowExisting) ||
+                (reachedReveals && !canShowExisting && !hintVisible);
+              const hintBtnLabel = hintVisible
+                ? t("dictation.hint.hideButton")
+                : t("dictation.hint.button");
               return (
                 <View style={[styles.hintBlock, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <View style={styles.hintHeaderRow}>
@@ -1046,14 +1085,14 @@ export default function SessionScreen() {
                     >
                       <Lightbulb size={16} color={stageColor} />
                       <Text style={[styles.hintBtnText, { color: stageColor }]}>
-                        {t("dictation.hint.button")}
+                        {hintBtnLabel}
                       </Text>
                     </TouchableOpacity>
                     <Text style={[styles.hintRemaining, { color: colors.mutedForeground }]}>
                       {remainingLabel}
                     </Text>
                   </View>
-                  {hintsUsedThisAttempt > 0 ? (
+                  {hintVisible && hintsUsedThisAttempt > 0 ? (
                     <>
                       <Text style={[styles.hintCardLabel, { color: colors.mutedForeground }]}>
                         {t("dictation.hint.cardLabel", {

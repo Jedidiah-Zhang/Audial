@@ -22,6 +22,23 @@ const MASK_CHAR = "▁";
 const MAX_MASK_LEN = 6;
 const ALWAYS_REVEAL_MAX_LEN = 2;
 
+// Per-sentence cap on hintable tokens. Spec: "按比例、至少 1 个、至多 3 个"
+// — roughly 20% of the candidate tokens, floored to 1 and ceilinged to 3.
+// This keeps short sentences from leaking the entire answer once a Pro
+// user starts requesting hints.
+const HINT_PROPORTION = 0.2;
+const HINT_MIN_PER_SENTENCE = 1;
+const HINT_MAX_PER_SENTENCE = 3;
+
+function capHintable(candidateCount: number): number {
+  if (candidateCount <= 0) return 0;
+  const proportional = Math.ceil(candidateCount * HINT_PROPORTION);
+  return Math.max(
+    HINT_MIN_PER_SENTENCE,
+    Math.min(HINT_MAX_PER_SENTENCE, proportional),
+  );
+}
+
 const CJK_RE = /[\u3400-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/;
 
 export interface HintMaskResult {
@@ -57,8 +74,13 @@ function buildLatinMask(text: string, revealCount: number): HintMaskResult {
   const ordered = [...wordTokenIndices].sort((a, b) =>
     b.len !== a.len ? b.len - a.len : a.idx - b.idx,
   );
+  const cap = capHintable(wordTokenIndices.length);
+  // Only the top-`cap` longest words are eligible to be revealed via
+  // hints; further hints reveal nothing new (and the UI will disable
+  // the button before letting the user spend quota on them).
+  const eligible = ordered.slice(0, cap);
   const revealSet = new Set(
-    ordered.slice(0, Math.max(0, revealCount)).map((x) => x.idx),
+    eligible.slice(0, Math.max(0, revealCount)).map((x) => x.idx),
   );
 
   const display = tokens
@@ -70,7 +92,7 @@ function buildLatinMask(text: string, revealCount: number): HintMaskResult {
     })
     .join("");
 
-  return { display, totalHintable: wordTokenIndices.length };
+  return { display, totalHintable: cap };
 }
 
 function buildCjkMask(text: string, revealCount: number): HintMaskResult {
@@ -80,12 +102,12 @@ function buildCjkMask(text: string, revealCount: number): HintMaskResult {
     if (CJK_RE.test(c)) hintableIndices.push(i);
   });
 
+  const cap = capHintable(hintableIndices.length);
   // For CJK we reveal left-to-right (sequential reading order) so the
   // user gets a coherent prefix of the sentence rather than scattered
-  // characters across the line.
-  const revealSet = new Set(
-    hintableIndices.slice(0, Math.max(0, revealCount)),
-  );
+  // characters across the line, capped at the per-sentence proportion.
+  const eligible = hintableIndices.slice(0, cap);
+  const revealSet = new Set(eligible.slice(0, Math.max(0, revealCount)));
 
   const display = chars
     .map((c, i) => {
@@ -95,7 +117,7 @@ function buildCjkMask(text: string, revealCount: number): HintMaskResult {
     })
     .join("");
 
-  return { display, totalHintable: hintableIndices.length };
+  return { display, totalHintable: cap };
 }
 
 export function buildDictationHintMask(
