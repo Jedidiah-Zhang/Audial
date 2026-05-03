@@ -29,6 +29,38 @@ import { SavedAccountsList } from "@/components/SavedAccountsList";
 
 WebBrowser.maybeCompleteAuthSession();
 
+// Narrow shape of the SignIn resource for the MFA paths we touch.
+// Clerk's public types omit the `mfa` namespace and a couple of helpers
+// we need; this gives us typed access without scattering `as any` casts.
+type ClerkSignInMfa = {
+  sendPhoneCode: () => Promise<unknown>;
+  sendEmailCode: () => Promise<unknown>;
+  verifyTotp: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
+  verifyPhoneCode: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
+  verifyEmailCode: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
+  verifyBackupCode: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
+};
+
+type ClerkSignInExtras = {
+  mfa: ClerkSignInMfa;
+  supportedSecondFactors?: Array<{ strategy: string }>;
+  reset?: () => void;
+};
+
+type ClerkErrorShape = { message?: string; longMessage?: string };
+
+function asSignInExtras<T>(signIn: T): T & ClerkSignInExtras {
+  return signIn as unknown as T & ClerkSignInExtras;
+}
+
+function getErrorMessage(err: unknown): string | undefined {
+  if (typeof err === "object" && err !== null) {
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === "string") return m;
+  }
+  return undefined;
+}
+
 function useWarmUpBrowser() {
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -87,7 +119,7 @@ export default function SignInScreen() {
   // flip into a second screen that collects the MFA code. `mfaStrategy`
   // remembers which verify* method to call when the user submits the
   // code.
-  type MfaStrategy = "totp" | "phone_code" | "backup_code";
+  type MfaStrategy = "totp" | "phone_code" | "email_code" | "backup_code";
   const [mfaStrategy, setMfaStrategy] = useState<MfaStrategy | null>(null);
   const [mfaAvailable, setMfaAvailable] = useState<MfaStrategy[]>([]);
   const [mfaCode, setMfaCode] = useState("");
@@ -217,30 +249,36 @@ export default function SignInScreen() {
       }
 
       if (signIn.status === "needs_second_factor") {
-        const factors = ((signIn as any).supportedSecondFactors ?? []) as Array<{
-          strategy: string;
-        }>;
+        const ext = asSignInExtras(signIn);
+        const factors = ext.supportedSecondFactors ?? [];
         const strategies = factors
           .map((f) => f.strategy)
           .filter((s): s is MfaStrategy =>
-            s === "totp" || s === "phone_code" || s === "backup_code"
+            s === "totp" || s === "phone_code" || s === "email_code" || s === "backup_code"
           );
-        // Prefer TOTP > phone_code > backup_code by default.
+        // Prefer TOTP > email_code > phone_code > backup_code by default.
         const preferred: MfaStrategy =
           (strategies.includes("totp") && "totp") ||
+          (strategies.includes("email_code") && "email_code") ||
           (strategies.includes("phone_code") && "phone_code") ||
           (strategies.includes("backup_code") && "backup_code") ||
           "totp";
         setMfaAvailable(strategies.length ? strategies : [preferred]);
         setMfaStrategy(preferred);
         setMfaCode("");
-        // For SMS we have to ask Clerk to send the code before the user
-        // can type it in. TOTP / backup codes are entered directly.
+        // For SMS / email we have to ask Clerk to send the code before
+        // the user can type it in. TOTP / backup codes are entered directly.
         if (preferred === "phone_code") {
           try {
-            await (signIn as any).mfa.sendPhoneCode();
-          } catch (e: any) {
-            setSubmitError(e?.message ?? t("auth.error.generic"));
+            await ext.mfa.sendPhoneCode();
+          } catch (e) {
+            setSubmitError(getErrorMessage(e) ?? t("auth.error.generic"));
+          }
+        } else if (preferred === "email_code") {
+          try {
+            await ext.mfa.sendEmailCode();
+          } catch (e) {
+            setSubmitError(getErrorMessage(e) ?? t("auth.error.generic"));
           }
         }
         return;
@@ -268,12 +306,14 @@ export default function SignInScreen() {
     const code = mfaCode.trim();
     if (!code) return;
     try {
-      const mfa = (signIn as any).mfa;
-      let res: any;
+      const mfa = asSignInExtras(signIn).mfa;
+      let res: { error?: ClerkErrorShape | null };
       if (mfaStrategy === "totp") {
         res = await mfa.verifyTotp({ code });
       } else if (mfaStrategy === "phone_code") {
         res = await mfa.verifyPhoneCode({ code });
+      } else if (mfaStrategy === "email_code") {
+        res = await mfa.verifyEmailCode({ code });
       } else {
         res = await mfa.verifyBackupCode({ code });
       }
@@ -294,8 +334,8 @@ export default function SignInScreen() {
         return;
       }
       setSubmitError(`Sign-in status: ${signIn.status ?? "unknown"}`);
-    } catch (err: any) {
-      setSubmitError(err?.message ?? t("auth.error.generic"));
+    } catch (err) {
+      setSubmitError(getErrorMessage(err) ?? t("auth.error.generic"));
     }
   };
 
@@ -305,7 +345,7 @@ export default function SignInScreen() {
     setMfaCode("");
     setSubmitError(null);
     try {
-      (signIn as any)?.reset?.();
+      asSignInExtras(signIn).reset?.();
     } catch {
       /* best-effort */
     }
@@ -314,9 +354,18 @@ export default function SignInScreen() {
   const handleResendPhoneCode = async () => {
     setSubmitError(null);
     try {
-      await (signIn as any).mfa.sendPhoneCode();
-    } catch (err: any) {
-      setSubmitError(err?.message ?? t("auth.error.generic"));
+      await asSignInExtras(signIn).mfa.sendPhoneCode();
+    } catch (err) {
+      setSubmitError(getErrorMessage(err) ?? t("auth.error.generic"));
+    }
+  };
+
+  const handleResendEmailCode = async () => {
+    setSubmitError(null);
+    try {
+      await asSignInExtras(signIn).mfa.sendEmailCode();
+    } catch (err) {
+      setSubmitError(getErrorMessage(err) ?? t("auth.error.generic"));
     }
   };
 
@@ -455,9 +504,11 @@ export default function SignInScreen() {
               ? t(
                   mfaStrategy === "phone_code"
                     ? "auth.mfa.subtitle.phone"
-                    : mfaStrategy === "backup_code"
-                      ? "auth.mfa.subtitle.backup"
-                      : "auth.mfa.subtitle.totp",
+                    : mfaStrategy === "email_code"
+                      ? "auth.mfa.subtitle.email"
+                      : mfaStrategy === "backup_code"
+                        ? "auth.mfa.subtitle.backup"
+                        : "auth.mfa.subtitle.totp",
                 )
               : t("auth.signIn.subtitle")}
           </Text>
@@ -485,7 +536,13 @@ export default function SignInScreen() {
               ]}
               value={mfaCode}
               onChangeText={setMfaCode}
-              placeholder={mfaStrategy === "backup_code" ? "xxxx-xxxx" : "123 456"}
+              placeholder={
+                mfaStrategy === "backup_code"
+                  ? "xxxx-xxxx"
+                  : mfaStrategy === "email_code"
+                    ? "123456"
+                    : "123 456"
+              }
               placeholderTextColor={colors.mutedForeground}
               autoCapitalize="none"
               keyboardType={
@@ -507,10 +564,18 @@ export default function SignInScreen() {
                         setSubmitError(null);
                         if (alt === "phone_code") {
                           try {
-                            await (signIn as any).mfa.sendPhoneCode();
-                          } catch (e: any) {
+                            await asSignInExtras(signIn).mfa.sendPhoneCode();
+                          } catch (e) {
                             setSubmitError(
-                              e?.message ?? t("auth.error.generic"),
+                              getErrorMessage(e) ?? t("auth.error.generic"),
+                            );
+                          }
+                        } else if (alt === "email_code") {
+                          try {
+                            await asSignInExtras(signIn).mfa.sendEmailCode();
+                          } catch (e) {
+                            setSubmitError(
+                              getErrorMessage(e) ?? t("auth.error.generic"),
                             );
                           }
                         }
@@ -523,7 +588,9 @@ export default function SignInScreen() {
                             ? "auth.mfa.useTotp"
                             : alt === "phone_code"
                               ? "auth.mfa.usePhone"
-                              : "auth.mfa.useBackup",
+                              : alt === "email_code"
+                                ? "auth.mfa.useEmail"
+                                : "auth.mfa.useBackup",
                         )}
                       </Text>
                     </TouchableOpacity>
@@ -531,9 +598,13 @@ export default function SignInScreen() {
               </View>
             ) : null}
 
-            {mfaStrategy === "phone_code" ? (
+            {mfaStrategy === "phone_code" || mfaStrategy === "email_code" ? (
               <TouchableOpacity
-                onPress={handleResendPhoneCode}
+                onPress={
+                  mfaStrategy === "email_code"
+                    ? handleResendEmailCode
+                    : handleResendPhoneCode
+                }
                 style={styles.forgotRow}
                 hitSlop={8}
               >
