@@ -1005,46 +1005,372 @@ CRITICAL: Punctuation differences DO NOT count as errors. Ignore any difference 
   }
 });
 
+// =====================================================================
+// Recitation scoring.
+//
+// Two wire shapes are accepted on the SAME endpoint:
+//   1. Preferred: raw audio bytes in the body + x-target-text /
+//      x-language / x-target-language headers, mirroring
+//      /language/score-shadowing. The server runs Whisper detailed STT,
+//      prosody, and per-word confidence and blends them with a
+//      LLM-derived "memory accuracy" sub-score using SCORE_WEIGHTS.
+//      This makes recitation grading sensitive to mumbled / monotone /
+//      too-fast reads, not just to whether the words were remembered.
+//   2. Fallback: legacy JSON body { targetText, transcribedText,
+//      language }. Used only when the client cannot upload audio (e.g.
+//      web browsers without recording, or audio buffer dropped). The
+//      LLM-derived score is significantly downweighted because we have
+//      no way to measure pronunciation, prosody, or pace.
+//
+// LLM output shape is shared between both paths so client rendering is
+// the same: { accuracy, completeness, feedback, mistakes,
+// targetAnnotations, userAnnotations }. The blended `score` is
+// computed server-side; `fluency` is preserved as a coarse legacy
+// label for older clients (mapped from confidence sub-score).
+// =====================================================================
+
+interface RecitationLlmResult {
+  accuracy: number;
+  completeness: number;
+  feedback: string;
+  mistakes: unknown[];
+  praise: string;
+  targetAnnotations: unknown[];
+  userAnnotations: unknown[];
+}
+
+function fluencyLabel(score: number): "excellent" | "good" | "fair" | "needs_work" {
+  if (score >= 85) return "excellent";
+  if (score >= 70) return "good";
+  if (score >= 50) return "fair";
+  return "needs_work";
+}
+
+async function gradeRecitationContent(args: {
+  targetText: string;
+  transcript: string;
+  nativeLanguage: string;
+  evidence?: object | null;
+}): Promise<RecitationLlmResult> {
+  const evidenceLine = args.evidence
+    ? `\nEvidence: ${JSON.stringify(args.evidence)}`
+    : "";
+  const response = await deepseek.chat.completions.create({
+    model: DEEPSEEK_MODEL,
+    max_completion_tokens: 2048,
+    messages: [
+      {
+        role: "system",
+        content: `You are a language recitation judge. The user was supposed to recite a target text from memory. You grade *memory accuracy* only — pronunciation clarity, intonation, and pace are scored separately by the server from acoustic signals, so do NOT factor them into "accuracy" or "completeness".
+
+Return JSON with:
+- "accuracy": 0-100 numeric sub-score for how faithfully the user recited the target text from memory (correct words, correct order). A perfect, complete recitation scores 100.
+- "completeness": 0-100 percentage of the target text the user actually covered (independent of whether they got it right). A user who recited only the first half of the passage scores ≤ 50 here.
+- "feedback": 1-2 sentences of warm, encouraging feedback in ${args.nativeLanguage}. Open with a brief, sincere acknowledgement of what they remembered well, then give ONE specific, actionable suggestion. Avoid blunt criticism — frame any issue as a clear next step, not a verdict.
+- "mistakes": array of words/phrases the user got wrong or skipped (max 3). Do NOT list words that only appear in the evidence's "lowConfidenceWords" list — those are STT-uncertain, not necessarily forgotten.
+- "praise": one specific thing they did well.
+- "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed" | "unsure"} that tokenizes the target text in original order. Use "missed" for parts the user did NOT recite (forgot), "wrong" for parts they recited incorrectly, "unsure" when the target word also appears in the evidence's lowConfidenceWords AND the transcript is ambiguous, "ok" otherwise. The concatenation of all words MUST exactly reproduce the target text (include punctuation as its own token or attached to the previous word).
+- "userAnnotations": array of {"word": string, "status": "ok" | "wrong" | "extra" | "unsure"} that tokenizes the transcript in original order. Use "wrong" for words that don't match the target, "extra" for filler/inserted words not in the target, "unsure" for words flagged in lowConfidenceWords, "ok" otherwise.
+For non-spaced languages (Chinese / Japanese / Korean), tokenize at word/character boundaries that preserve readability when concatenated without spaces.`,
+      },
+      {
+        role: "user",
+        content: `Target: "${args.targetText}"
+Transcript: "${args.transcript}"${evidenceLine}`,
+      },
+    ],
+    response_format: { type: "json_object" },
+  });
+
+  const raw = JSON.parse(
+    response.choices[0]?.message?.content ?? "{}"
+  ) as Partial<RecitationLlmResult> & { score?: number };
+  // Older prompt returned `score`; keep accepting it as a synonym for
+  // `accuracy` so a stray model regression doesn't blank the field.
+  const accuracy =
+    typeof raw.accuracy === "number"
+      ? raw.accuracy
+      : typeof raw.score === "number"
+      ? raw.score
+      : 0;
+  return {
+    accuracy,
+    completeness:
+      typeof raw.completeness === "number" ? raw.completeness : 0,
+    feedback: typeof raw.feedback === "string" ? raw.feedback : "",
+    mistakes: Array.isArray(raw.mistakes) ? raw.mistakes : [],
+    praise: typeof raw.praise === "string" ? raw.praise : "",
+    targetAnnotations: Array.isArray(raw.targetAnnotations)
+      ? raw.targetAnnotations
+      : [],
+    userAnnotations: Array.isArray(raw.userAnnotations)
+      ? raw.userAnnotations
+      : [],
+  };
+}
+
 router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
+  const headers = req.headers as Record<string, string | undefined>;
+  const targetTextHeader = headers["x-target-text"];
+  const contentType = (headers["content-type"] ?? "").toLowerCase();
+  const isAudioRequest =
+    !!targetTextHeader && !contentType.startsWith("application/json");
+
+  if (isAudioRequest) {
+    if (!isOpenaiConfigured()) {
+      res.status(503).json({
+        success: false,
+        error:
+          "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后将其添加为 Replit Secret OPENAI_API_KEY 后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
+      });
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", async () => {
+      try {
+        const audioBuffer = Buffer.concat(chunks);
+        const targetText = (() => {
+          try {
+            return Buffer.from(targetTextHeader ?? "", "base64").toString(
+              "utf8"
+            );
+          } catch {
+            return "";
+          }
+        })().trim();
+        if (!targetText) {
+          res.status(400).json({
+            success: false,
+            error: "Missing x-target-text header",
+          });
+          return;
+        }
+        const nativeLanguage = (headers["x-language"] ?? "en").toString();
+        const targetLanguage = (
+          headers["x-target-language"] ?? nativeLanguage
+        ).toString();
+
+        // Empty audio is treated like an STT failure rather than a
+        // hard 400 — the client may have sent a zero-byte body because
+        // the recording was lost mid-flight, and we'd rather give the
+        // user a downweighted content-only grade than a dead-end
+        // error. The LLM will see an empty transcript and respond
+        // accordingly.
+        if (audioBuffer.length === 0) {
+          req.log.warn(
+            "Recitation got empty audio body, returning content-only grade"
+          );
+          const llm = await gradeRecitationContent({
+            targetText,
+            transcript: "",
+            nativeLanguage,
+          });
+          res.json({
+            success: true,
+            data: {
+              score: Math.round(llm.accuracy * 0.5),
+              accuracy: Math.round(llm.accuracy),
+              completeness: Math.round(llm.completeness),
+              pace: null,
+              confidence: null,
+              prosody: null,
+              prosodyAvailable: false,
+              audioAnalyzed: false,
+              fluency: fluencyLabel(llm.accuracy),
+              feedback: llm.feedback,
+              mistakes: llm.mistakes,
+              praise: llm.praise,
+              targetAnnotations: llm.targetAnnotations,
+              userAnnotations: llm.userAnnotations,
+              userTranscript: "",
+              lowConfidenceWords: [],
+              weights: SCORE_WEIGHTS,
+            },
+          });
+          return;
+        }
+
+        // Decode once into a Whisper-friendly container so prosody and
+        // STT see the same canonical buffer (raw .webm headers can
+        // silently break pitch detection).
+        const { buffer: compatBuffer, format } = await ensureCompatibleFormat(
+          audioBuffer
+        );
+        const sttLangHint = toIso639_1(targetLanguage);
+
+        // Fail soft: if STT or prosody throws, we still want to return
+        // *something*. Track each leg independently so a Whisper outage
+        // collapses gracefully to a content-only score instead of a 500.
+        const sttPromise = speechToTextDetailed(
+          compatBuffer,
+          format,
+          sttLangHint
+        )
+          .then((d) => ({ ok: true as const, value: d }))
+          .catch((err: unknown) => ({ ok: false as const, err }));
+        const prosodyPromise = computeProsodyMetrics(compatBuffer).catch(
+          () => null
+        );
+        const [sttResult, prosody] = await Promise.all([
+          sttPromise,
+          prosodyPromise,
+        ]);
+
+        if (!sttResult.ok) {
+          // STT itself failed — fall back to a content-only grade with
+          // an empty transcript so the user still sees feedback. The
+          // LLM will mostly say "we couldn't hear you", but the
+          // request doesn't 5xx and the client can still render the
+          // result page.
+          req.log.warn(
+            { err: sttResult.err },
+            "Recitation STT failed, falling back to content-only grade"
+          );
+          const llm = await gradeRecitationContent({
+            targetText,
+            transcript: "",
+            nativeLanguage,
+          });
+          res.json({
+            success: true,
+            data: {
+              score: Math.round(llm.accuracy * 0.5),
+              accuracy: Math.round(llm.accuracy),
+              completeness: Math.round(llm.completeness),
+              pace: null,
+              confidence: null,
+              prosody: null,
+              prosodyAvailable: false,
+              audioAnalyzed: false,
+              fluency: fluencyLabel(llm.accuracy),
+              feedback: llm.feedback,
+              mistakes: llm.mistakes,
+              praise: llm.praise,
+              targetAnnotations: llm.targetAnnotations,
+              userAnnotations: llm.userAnnotations,
+              userTranscript: "",
+              lowConfidenceWords: [],
+              weights: SCORE_WEIGHTS,
+            },
+          });
+          return;
+        }
+
+        const detailed = sttResult.value;
+        const stt = computeSttMetrics(detailed);
+        const evidence = {
+          transcript: detailed.text,
+          wordsPerSec: Number(stt.wordsPerSec.toFixed(2)),
+          pauseCount: stt.pauseCount,
+          longestPauseSec: Number(stt.longestPauseSec.toFixed(2)),
+          meanConfidence: Number(stt.meanConfidence.toFixed(2)),
+          lowConfidenceWords: stt.lowConfidenceWords.slice(0, 12),
+          prosody: prosody
+            ? {
+                f0StdHz: Number(prosody.f0StdHz.toFixed(1)),
+                voicedRatio: Number(prosody.voicedRatio.toFixed(2)),
+              }
+            : null,
+        };
+
+        const llm = await gradeRecitationContent({
+          targetText,
+          transcript: detailed.text,
+          nativeLanguage,
+          evidence,
+        });
+
+        const blended = scoreFromSignals({
+          llmAccuracy: llm.accuracy,
+          stt,
+          prosody,
+          language: targetLanguage,
+        });
+
+        res.json({
+          success: true,
+          data: {
+            score: blended.overall,
+            accuracy: Math.round(llm.accuracy),
+            completeness: Math.round(llm.completeness),
+            pace: blended.pace,
+            confidence: blended.confidence,
+            prosody: blended.prosody,
+            prosodyAvailable: prosody !== null,
+            audioAnalyzed: true,
+            // Legacy coarse "fluency" label for older clients that
+            // still render it as a string. We map it from confidence
+            // because that's the closest semantic match (smoothness of
+            // delivery), not from the overall blended score.
+            fluency: fluencyLabel(blended.confidence),
+            feedback: llm.feedback,
+            mistakes: llm.mistakes,
+            praise: llm.praise,
+            targetAnnotations: llm.targetAnnotations,
+            userAnnotations: llm.userAnnotations,
+            userTranscript: detailed.text,
+            lowConfidenceWords: stt.lowConfidenceWords,
+            weights: SCORE_WEIGHTS,
+          },
+        });
+      } catch (err) {
+        if (err instanceof OpenAINotConfiguredError) {
+          res.status(503).json({ success: false, error: err.message });
+          return;
+        }
+        req.log.error({ err }, "Score recitation (audio) failed");
+        res.status(500).json({ success: false, error: "Scoring failed" });
+      }
+    });
+    return;
+  }
+
+  // Text-only fallback. We have no way to evaluate pronunciation, pace,
+  // or prosody, so the blended score is significantly downweighted
+  // (multiply by 0.7) to discourage relying on this path. Sub-scores
+  // come back as null so the client can render a "—" instead of
+  // pretending to have measured them.
   try {
-    // See score-pronunciation for naming rationale: `language` is the
-    // user's native / UI language for written feedback, not the
-    // language being practiced.
-    const { targetText, transcribedText, language: nativeLanguage } = req.body as {
+    const {
+      targetText,
+      transcribedText,
+      language: nativeLanguage,
+    } = req.body as {
       targetText: string;
       transcribedText: string;
       language: string;
     };
-
-    const response = await deepseek.chat.completions.create({
-      model: DEEPSEEK_MODEL,
-      max_completion_tokens: 2048,
-      messages: [
-        {
-          role: "system",
-          content: `You are a language recitation judge. The user was supposed to recite a text from memory. Compare what they said vs the target. Return JSON with:
-- "score": 0-100 memory accuracy score
-- "feedback": 1-2 sentences of warm, encouraging feedback in ${nativeLanguage}. Open with a brief, sincere acknowledgement of what they remembered well, then give ONE specific, actionable suggestion. Avoid blunt criticism — frame any issue as a clear next step, not a verdict.
-- "completeness": percentage of the text they covered
-- "fluency": "excellent" | "good" | "fair" | "needs_work"
-- "encouragement": a motivating closing sentence
-- "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed"} that tokenizes the target text in original order. Use "missed" for parts the user did NOT recite (forgot), "wrong" for parts they recited incorrectly, "ok" otherwise.
-- "userAnnotations": array of {"word": string, "status": "ok" | "wrong"} that tokenizes the transcript in original order. Use "wrong" for clearly off-topic or invented words that don't belong in the target, "ok" otherwise.
-The concatenation of all words MUST exactly reproduce the original sentence (include punctuation as its own token or attached to the previous word). For non-spaced languages, tokenize at word/character boundaries that preserve readability when concatenated without spaces.`,
-        },
-        {
-          role: "user",
-          content: `Target: "${targetText}"\nUser said: "${transcribedText}"`,
-        },
-      ],
-      response_format: { type: "json_object" },
+    const llm = await gradeRecitationContent({
+      targetText: targetText ?? "",
+      transcript: transcribedText ?? "",
+      nativeLanguage: nativeLanguage ?? "en",
     });
-
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
-    res.json({ success: true, data });
+    const downweighted = Math.round(llm.accuracy * 0.7);
+    res.json({
+      success: true,
+      data: {
+        score: downweighted,
+        accuracy: Math.round(llm.accuracy),
+        completeness: Math.round(llm.completeness),
+        pace: null,
+        confidence: null,
+        prosody: null,
+        prosodyAvailable: false,
+        audioAnalyzed: false,
+        fluency: fluencyLabel(llm.accuracy),
+        feedback: llm.feedback,
+        mistakes: llm.mistakes,
+        praise: llm.praise,
+        targetAnnotations: llm.targetAnnotations,
+        userAnnotations: llm.userAnnotations,
+        userTranscript: transcribedText ?? "",
+        lowConfidenceWords: [],
+        weights: SCORE_WEIGHTS,
+      },
+    });
   } catch (err) {
-    req.log.error({ err }, "Score recitation failed");
+    req.log.error({ err }, "Score recitation (text fallback) failed");
     res.status(500).json({ success: false, error: "Scoring failed" });
   }
 });

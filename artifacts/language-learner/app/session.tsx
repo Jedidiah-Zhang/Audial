@@ -475,8 +475,33 @@ export default function SessionScreen() {
         return;
       }
       try {
-        const transcript = await transcribeAudio(blob, undefined, text.targetLanguage);
-        await scoreAnswer(transcript);
+        if (stageIdx === 2) {
+          // Recitation: upload the raw audio blob directly so the
+          // server can score pronunciation / pace / prosody alongside
+          // memory accuracy. If the audio upload itself fails, fall
+          // back to the legacy text-only scoring path so the user
+          // still gets a (downweighted) grade rather than a dead end.
+          const audioOk = await scoreRecitationAudio(blob);
+          if (!audioOk) {
+            try {
+              const transcript = await transcribeAudio(
+                blob,
+                undefined,
+                text.targetLanguage,
+              );
+              await scoreRecitationText(transcript);
+            } catch {
+              Alert.alert(
+                t("common.error"),
+                t("session.alert.transcribeFailed"),
+              );
+              setPhase("study");
+            }
+          }
+        } else {
+          const transcript = await transcribeAudio(blob, undefined, text.targetLanguage);
+          await scoreAnswer(transcript);
+        }
       } catch {
         Alert.alert(t("common.error"), t("session.alert.transcribeFailed"));
         setPhase("study");
@@ -504,6 +529,200 @@ export default function SessionScreen() {
             });
         }
       });
+    }
+  };
+
+  // Render the recitation result payload (audio or text path) in the
+  // same way: pull the new pronunciation / pace / prosody sub-scores
+  // out and surface them in the result strip alongside the existing
+  // coverage / fluency rows. Persisted to history too so the past
+  // sessions screen can show the same breakdown.
+  const presentRecitationResult = async (d: any, mode: LearningMode) => {
+    if (!text) return;
+    const details: Record<string, string | number> = {};
+    if (typeof d.completeness === "number") {
+      details[t("session.detail.coverage")] = `${d.completeness}%`;
+    }
+    if (typeof d.accuracy === "number") {
+      details[t("session.detail.accuracy")] = `${d.accuracy}%`;
+    }
+    if (typeof d.confidence === "number") {
+      details[t("session.detail.confidence")] = `${d.confidence}%`;
+    }
+    if (typeof d.pace === "number") {
+      details[t("session.detail.pace")] = `${d.pace}%`;
+    }
+    if (typeof d.prosody === "number") {
+      details[t("session.detail.prosody")] = `${d.prosody}%`;
+    } else if (d.prosodyAvailable === false && d.audioAnalyzed !== false) {
+      // Acoustic pass ran but couldn't extract prosody (e.g. ffmpeg
+      // decode failed). Show "—" so users don't wonder why the row
+      // dropped out — better than silently hiding it.
+      details[t("session.detail.prosody")] = t("session.detail.unavailable");
+    }
+    // Legacy coarse fluency label (string), only when no numeric
+    // confidence is available so we don't double-render the same
+    // signal.
+    if (typeof d.confidence !== "number" && typeof d.fluency === "string") {
+      const fluencyKey = `fluency.${d.fluency}`;
+      details[t("session.detail.fluency")] = t(fluencyKey);
+    }
+
+    const score = typeof d.score === "number" ? d.score : 0;
+    const passed = score >= STAGE_PASS_SCORE;
+    const userTranscript =
+      typeof d.userTranscript === "string" ? d.userTranscript : "";
+    const targetAnnotations = sanitizeAnnotations(
+      d.targetAnnotations,
+      text.text,
+    );
+    const userAnnotations = sanitizeAnnotations(
+      d.userAnnotations,
+      userTranscript,
+    );
+
+    const persistedDetails: Record<string, unknown> = { ...details };
+    if (targetAnnotations) persistedDetails.targetAnnotations = targetAnnotations;
+    if (userAnnotations) persistedDetails.userAnnotations = userAnnotations;
+    if (userTranscript) persistedDetails.userTranscript = userTranscript;
+    if (typeof d.accuracy === "number") persistedDetails.accuracy = d.accuracy;
+    if (typeof d.pace === "number") persistedDetails.pace = d.pace;
+    if (typeof d.confidence === "number") persistedDetails.confidence = d.confidence;
+    if (typeof d.prosody === "number" || d.prosody === null) {
+      persistedDetails.prosody = d.prosody;
+    }
+    if (typeof d.prosodyAvailable === "boolean") {
+      persistedDetails.prosodyAvailable = d.prosodyAvailable;
+    }
+    if (typeof d.audioAnalyzed === "boolean") {
+      persistedDetails.audioAnalyzed = d.audioAnalyzed;
+    }
+    if (Array.isArray(d.lowConfidenceWords) && d.lowConfidenceWords.length > 0) {
+      persistedDetails.lowConfidenceWords = d.lowConfidenceWords;
+    }
+
+    try {
+      await addResult({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
+        textId: text.id,
+        mode,
+        stage: 2,
+        score,
+        feedback: d.feedback ?? "",
+        createdAt: Date.now(),
+        details: persistedDetails,
+      });
+    } catch (err) {
+      console.warn("[session] failed to persist recitation result", err);
+    }
+
+    const tipMetrics: ScoreTipsInput["metrics"] = {};
+    if (typeof d.completeness === "number") tipMetrics.coverage = d.completeness;
+    if (typeof d.accuracy === "number") tipMetrics.accuracy = d.accuracy;
+    if (typeof d.pace === "number") tipMetrics.pace = d.pace;
+    if (typeof d.confidence === "number") tipMetrics.confidence = d.confidence;
+    if (typeof d.prosody === "number") tipMetrics.prosody = d.prosody;
+    if (typeof d.prosodyAvailable === "boolean") {
+      tipMetrics.prosodyAvailable = d.prosodyAvailable;
+    }
+
+    setResult({
+      score,
+      feedback: d.feedback ?? "",
+      details,
+      passed,
+      targetAnnotations: targetAnnotations ?? undefined,
+      userAnnotations: userAnnotations ?? undefined,
+      userTranscript: userTranscript || undefined,
+      metrics: tipMetrics,
+    });
+    Haptics.notificationAsync(
+      passed
+        ? Haptics.NotificationFeedbackType.Success
+        : Haptics.NotificationFeedbackType.Warning,
+    );
+    setPhase("result");
+  };
+
+  // Recitation: upload the raw audio blob so the server can score
+  // pronunciation / pace / prosody from acoustic signals alongside the
+  // LLM's memory-accuracy judgement. Mirrors the ShadowSentenceFlow
+  // upload path: target text + native + target language travel as
+  // headers so the body can be the raw audio bytes (RN fetch refuses
+  // ArrayBuffers but accepts file-backed Blobs).
+  //
+  // Returns true on success and false on transport / scoring failure
+  // so the caller can decide whether to fall back to a text-only
+  // grade. We intentionally don't surface the error inside this helper
+  // — leaving that decision to the caller keeps the fallback flow in
+  // one place.
+  const scoreRecitationAudio = async (audioBlob: Blob): Promise<boolean> => {
+    if (!text) return false;
+    setPhase("scoring");
+    try {
+      const targetTextB64 =
+        typeof btoa !== "undefined"
+          ? btoa(unescape(encodeURIComponent(text.text)))
+          : Buffer.from(text.text, "utf8").toString("base64");
+      const response = await fetch(
+        `${BASE_URL}/api/language/score-recitation`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": audioBlob.type || "audio/webm",
+            "x-target-text": targetTextB64,
+            "x-language": settings.nativeLanguage || "en",
+            "x-target-language": text.targetLanguage,
+          },
+          body: audioBlob,
+        },
+      );
+      if (!response.ok) throw new Error(`Scoring HTTP ${response.status}`);
+      const json = (await response.json()) as { success: boolean; data: any };
+      if (!json.success) throw new Error("Scoring failed");
+      await presentRecitationResult(json.data, stage.mode as LearningMode);
+      return true;
+    } catch (err) {
+      console.warn(
+        "[session] recitation audio scoring failed, will try text fallback",
+        err,
+      );
+      return false;
+    }
+  };
+
+  // Text-only recitation grade. Used when the audio upload path fails
+  // (no network, unsupported codec, server's STT outage, etc.) so the
+  // user still gets a result rather than a dead-end alert. Goes
+  // through the same /score-recitation endpoint but with a JSON body —
+  // the server downweights the score because pronunciation / pace /
+  // prosody can't be measured. Result rendering reuses
+  // presentRecitationResult so the UI is consistent with the audio
+  // path (the missing acoustic rows simply don't render).
+  const scoreRecitationText = async (transcript: string) => {
+    if (!text) return;
+    setPhase("scoring");
+    try {
+      const response = await fetch(
+        `${BASE_URL}/api/language/score-recitation`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetText: text.text,
+            transcribedText: transcript,
+            language: settings.nativeLanguage,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(`Scoring HTTP ${response.status}`);
+      const json = (await response.json()) as { success: boolean; data: any };
+      if (!json.success) throw new Error("Scoring failed");
+      await presentRecitationResult(json.data, stage.mode as LearningMode);
+    } catch (err) {
+      console.warn("[session] recitation text scoring failed", err);
+      Alert.alert(t("common.error"), t("session.alert.scoreFailed"));
+      setPhase("study");
     }
   };
 
