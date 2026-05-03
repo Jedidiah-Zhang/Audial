@@ -51,6 +51,7 @@ import {
 import { useDictationHintQuota } from "@/hooks/useDictationHintQuota";
 import { buildDictationHintMask } from "@/utils/dictationHint";
 import { buildRecitationHintPlan } from "@/utils/recitationHint";
+import { buildScoreTips, type ScoreTipsInput } from "@/utils/scoreTips";
 
 /**
  * Compute how many seconds the user gets to memorise a passage in
@@ -234,6 +235,11 @@ export default function SessionScreen() {
     // is now a single passage-level score, dictation (stage 1) is one
     // submission, so neither populates this.
     perSentence?: PerSentenceRow[];
+    // Typed numeric metrics fed to `buildScoreTips` for the result-page
+    // improvement-tips block. Kept separate from `details` (which is
+    // pre-stringified for direct rendering) so the tips utility can
+    // reason about thresholds without having to parse "85%" back out.
+    metrics?: ScoreTipsInput["metrics"];
   } | null>(null);
   // Initialise the countdown from the (possibly missing) text length so
   // the very first render of the countdown card already shows the
@@ -580,6 +586,18 @@ export default function SessionScreen() {
         details: persistedDetails,
       });
 
+      // Capture typed numeric metrics for the improvement-tips block.
+      // Stage 1 (dictation) only carries hint info; stage 2 (recitation)
+      // surfaces the model's `completeness` percentage as coverage.
+      const tipMetrics: ScoreTipsInput["metrics"] = {};
+      if (stageIdx === 1 && hintsUsed > 0) {
+        tipMetrics.hintsUsed = hintsUsed;
+        tipMetrics.hintScoreDeduction = hintDelta;
+      }
+      if (stageIdx === 2 && typeof d.completeness === "number") {
+        tipMetrics.coverage = d.completeness;
+      }
+
       setResult({
         score,
         feedback: d.feedback ?? "",
@@ -588,6 +606,7 @@ export default function SessionScreen() {
         targetAnnotations: targetAnnotations ?? undefined,
         userAnnotations: userAnnotations ?? undefined,
         userTranscript,
+        metrics: tipMetrics,
       });
       Haptics.notificationAsync(
         passed ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
@@ -677,6 +696,14 @@ export default function SessionScreen() {
       passed,
       userTranscript: flow.userTranscript || undefined,
       targetAnnotations: flow.targetAnnotations,
+      metrics: {
+        accuracy: typeof flow.accuracy === "number" ? flow.accuracy : undefined,
+        confidence:
+          typeof flow.confidence === "number" ? flow.confidence : undefined,
+        pace: typeof flow.pace === "number" ? flow.pace : undefined,
+        prosody: typeof flow.prosody === "number" ? flow.prosody : undefined,
+        prosodyAvailable: flow.prosodyAvailable,
+      },
     });
     Haptics.notificationAsync(
       passed ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
@@ -1731,6 +1758,10 @@ export default function SessionScreen() {
                   analysisLocked={analysisLocked}
                   onUnlockAnalysis={handleAnalysisUnlock}
                   isUnlocking={analysisUnlocking}
+                  tips={buildScoreTips({
+                    mode: stage.mode as LearningMode,
+                    metrics: result.metrics ?? {},
+                  })}
                 />
                 {/* Recitation (stage 2) and the new shadow flow (stage 0)
                     both produce a single full-passage recording the user

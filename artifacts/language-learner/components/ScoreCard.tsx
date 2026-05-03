@@ -5,6 +5,8 @@ import { Check, X, Volume2, Lock, Sparkles } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT, getModeLabel } from "@/utils/i18n";
 import { useApp } from "@/context/AppContext";
+import { ScoreTips } from "@/components/ScoreTips";
+import type { ScoreTipsResult } from "@/utils/scoreTips";
 
 export interface PerSentenceRow {
   index: number;
@@ -33,6 +35,12 @@ interface ScoreCardProps {
   onUnlockAnalysis?: () => void;
   /** True while a rewarded ad is being shown / token granted. */
   isUnlocking?: boolean;
+  /**
+   * Optional improvement-tips block rendered below the per-sentence
+   * breakdown. Hidden entirely when `analysisLocked` is true so locked
+   * users don't see partial coaching they can't act on.
+   */
+  tips?: ScoreTipsResult;
 }
 
 export function ScoreCard({
@@ -46,6 +54,7 @@ export function ScoreCard({
   analysisLocked = false,
   onUnlockAnalysis,
   isUnlocking = false,
+  tips,
 }: ScoreCardProps) {
   const colors = useColors();
   const t = useT();
@@ -259,6 +268,10 @@ export function ScoreCard({
           ) : null}
         </View>
       )}
+
+      {tips && !analysisLocked ? (
+        <ScoreTips tips={tips.tips} encouragement={tips.encouragement} />
+      ) : null}
     </View>
   );
 }
