@@ -209,24 +209,6 @@ export default function SignInScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.oauthBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
-            onPress={() => onOAuth("oauth_microsoft")}
-            disabled={oauthBusy !== null}
-            activeOpacity={0.85}
-          >
-            {oauthBusy === "oauth_microsoft" ? (
-              <ActivityIndicator size="small" color={colors.foreground} />
-            ) : (
-              <>
-                <MicrosoftIcon size={18} />
-                <Text style={[styles.oauthText, { color: colors.foreground }]}>
-                  {t("auth.continueWith", { provider: "Microsoft" })}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
           <View style={styles.footerRow}>
             <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
               {t("auth.signIn.noAccount")}{" "}
