@@ -15,7 +15,7 @@ import * as AuthSession from "expo-auth-session";
 import { useSignIn, useSSO, useAuth, useSessionList } from "@clerk/expo";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Globe, ShieldCheck, User, X } from "lucide-react-native";
+import { Globe, User, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 import { GoogleIcon } from "@/components/GoogleIcon";
@@ -28,38 +28,6 @@ import { useSavedAccounts } from "@/hooks/useSavedAccounts";
 import { SavedAccountsList } from "@/components/SavedAccountsList";
 
 WebBrowser.maybeCompleteAuthSession();
-
-// Narrow shape of the SignIn resource for the MFA paths we touch.
-// Clerk's public types omit the `mfa` namespace and a couple of helpers
-// we need; this gives us typed access without scattering `as any` casts.
-type ClerkSignInMfa = {
-  sendPhoneCode: () => Promise<unknown>;
-  sendEmailCode: () => Promise<unknown>;
-  verifyTotp: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
-  verifyPhoneCode: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
-  verifyEmailCode: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
-  verifyBackupCode: (args: { code: string }) => Promise<{ error?: ClerkErrorShape | null }>;
-};
-
-type ClerkSignInExtras = {
-  mfa: ClerkSignInMfa;
-  supportedSecondFactors?: Array<{ strategy: string }>;
-  reset?: () => void;
-};
-
-type ClerkErrorShape = { message?: string; longMessage?: string };
-
-function asSignInExtras<T>(signIn: T): T & ClerkSignInExtras {
-  return signIn as unknown as T & ClerkSignInExtras;
-}
-
-function getErrorMessage(err: unknown): string | undefined {
-  if (typeof err === "object" && err !== null) {
-    const m = (err as { message?: unknown }).message;
-    if (typeof m === "string") return m;
-  }
-  return undefined;
-}
 
 function useWarmUpBrowser() {
   useEffect(() => {
@@ -114,15 +82,6 @@ export default function SignInScreen() {
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [langPickerOpen, setLangPickerOpen] = useState(false);
-  // ---- Second-factor (MFA) state -------------------------------------
-  // When Clerk returns `needs_second_factor` after the password step we
-  // flip into a second screen that collects the MFA code. `mfaStrategy`
-  // remembers which verify* method to call when the user submits the
-  // code.
-  type MfaStrategy = "totp" | "phone_code" | "email_code" | "backup_code";
-  const [mfaStrategy, setMfaStrategy] = useState<MfaStrategy | null>(null);
-  const [mfaAvailable, setMfaAvailable] = useState<MfaStrategy[]>([]);
-  const [mfaCode, setMfaCode] = useState("");
 
   useEffect(() => {
     if (isSignedIn) router.replace("/(tabs)");
@@ -248,42 +207,6 @@ export default function SignInScreen() {
         return;
       }
 
-      if (signIn.status === "needs_second_factor") {
-        const ext = asSignInExtras(signIn);
-        const factors = ext.supportedSecondFactors ?? [];
-        const strategies = factors
-          .map((f) => f.strategy)
-          .filter((s): s is MfaStrategy =>
-            s === "totp" || s === "phone_code" || s === "email_code" || s === "backup_code"
-          );
-        // Prefer TOTP > email_code > phone_code > backup_code by default.
-        const preferred: MfaStrategy =
-          (strategies.includes("totp") && "totp") ||
-          (strategies.includes("email_code") && "email_code") ||
-          (strategies.includes("phone_code") && "phone_code") ||
-          (strategies.includes("backup_code") && "backup_code") ||
-          "totp";
-        setMfaAvailable(strategies.length ? strategies : [preferred]);
-        setMfaStrategy(preferred);
-        setMfaCode("");
-        // For SMS / email we have to ask Clerk to send the code before
-        // the user can type it in. TOTP / backup codes are entered directly.
-        if (preferred === "phone_code") {
-          try {
-            await ext.mfa.sendPhoneCode();
-          } catch (e) {
-            setSubmitError(getErrorMessage(e) ?? t("auth.error.generic"));
-          }
-        } else if (preferred === "email_code") {
-          try {
-            await ext.mfa.sendEmailCode();
-          } catch (e) {
-            setSubmitError(getErrorMessage(e) ?? t("auth.error.generic"));
-          }
-        }
-        return;
-      }
-
       // Any other status (needs_client_trust / needs_first_factor /
       // needs_identifier / etc.) — surface the status so the user
       // (and we) can see what Clerk is asking for instead of a vague
@@ -297,75 +220,6 @@ export default function SignInScreen() {
       // Without this catch the rejection is swallowed and the user is
       // left staring at a button that "did nothing".
       setSubmitError(err?.message ?? t("auth.error.generic"));
-    }
-  };
-
-  const handleVerifyMfa = async () => {
-    if (!mfaStrategy) return;
-    setSubmitError(null);
-    const code = mfaCode.trim();
-    if (!code) return;
-    try {
-      const mfa = asSignInExtras(signIn).mfa;
-      let res: { error?: ClerkErrorShape | null };
-      if (mfaStrategy === "totp") {
-        res = await mfa.verifyTotp({ code });
-      } else if (mfaStrategy === "phone_code") {
-        res = await mfa.verifyPhoneCode({ code });
-      } else if (mfaStrategy === "email_code") {
-        res = await mfa.verifyEmailCode({ code });
-      } else {
-        res = await mfa.verifyBackupCode({ code });
-      }
-      if (res?.error) {
-        setSubmitError(
-          res.error.longMessage ||
-            res.error.message ||
-            t("auth.error.generic"),
-        );
-        return;
-      }
-      if (signIn.status === "complete") {
-        await signIn.finalize({
-          navigate: () => {
-            router.replace("/(tabs)");
-          },
-        });
-        return;
-      }
-      setSubmitError(`Sign-in status: ${signIn.status ?? "unknown"}`);
-    } catch (err) {
-      setSubmitError(getErrorMessage(err) ?? t("auth.error.generic"));
-    }
-  };
-
-  const handleMfaCancel = () => {
-    setMfaStrategy(null);
-    setMfaAvailable([]);
-    setMfaCode("");
-    setSubmitError(null);
-    try {
-      asSignInExtras(signIn).reset?.();
-    } catch {
-      /* best-effort */
-    }
-  };
-
-  const handleResendPhoneCode = async () => {
-    setSubmitError(null);
-    try {
-      await asSignInExtras(signIn).mfa.sendPhoneCode();
-    } catch (err) {
-      setSubmitError(getErrorMessage(err) ?? t("auth.error.generic"));
-    }
-  };
-
-  const handleResendEmailCode = async () => {
-    setSubmitError(null);
-    try {
-      await asSignInExtras(signIn).mfa.sendEmailCode();
-    } catch (err) {
-      setSubmitError(getErrorMessage(err) ?? t("auth.error.generic"));
     }
   };
 
@@ -490,162 +344,16 @@ export default function SignInScreen() {
 
         <View style={styles.heroBox}>
           <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
-            {mfaStrategy ? (
-              <ShieldCheck size={28} color={colors.primary} />
-            ) : (
-              <User size={28} color={colors.primary} />
-            )}
+            <User size={28} color={colors.primary} />
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>
-            {mfaStrategy ? t("auth.mfa.title") : t("auth.signIn.title")}
+            {t("auth.signIn.title")}
           </Text>
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-            {mfaStrategy
-              ? t(
-                  mfaStrategy === "phone_code"
-                    ? "auth.mfa.subtitle.phone"
-                    : mfaStrategy === "email_code"
-                      ? "auth.mfa.subtitle.email"
-                      : mfaStrategy === "backup_code"
-                        ? "auth.mfa.subtitle.backup"
-                        : "auth.mfa.subtitle.totp",
-                )
-              : t("auth.signIn.subtitle")}
+            {t("auth.signIn.subtitle")}
           </Text>
         </View>
 
-        {mfaStrategy ? (
-          <View style={styles.form}>
-            <Text style={[styles.label, { color: colors.foreground }]}>
-              {t(
-                mfaStrategy === "backup_code"
-                  ? "auth.mfa.backupLabel"
-                  : "auth.mfa.codeLabel",
-              )}
-            </Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: colors.border,
-                  color: colors.foreground,
-                  letterSpacing: 4,
-                  textAlign: "center",
-                },
-              ]}
-              value={mfaCode}
-              onChangeText={setMfaCode}
-              placeholder={
-                mfaStrategy === "backup_code"
-                  ? "xxxx-xxxx"
-                  : mfaStrategy === "email_code"
-                    ? "123456"
-                    : "123 456"
-              }
-              placeholderTextColor={colors.mutedForeground}
-              autoCapitalize="none"
-              keyboardType={
-                mfaStrategy === "backup_code" ? "default" : "number-pad"
-              }
-              autoFocus
-            />
-
-            {mfaAvailable.length > 1 ? (
-              <View style={styles.mfaSwitchRow}>
-                {mfaAvailable
-                  .filter((s) => s !== mfaStrategy)
-                  .map((alt) => (
-                    <TouchableOpacity
-                      key={alt}
-                      onPress={async () => {
-                        setMfaStrategy(alt);
-                        setMfaCode("");
-                        setSubmitError(null);
-                        if (alt === "phone_code") {
-                          try {
-                            await asSignInExtras(signIn).mfa.sendPhoneCode();
-                          } catch (e) {
-                            setSubmitError(
-                              getErrorMessage(e) ?? t("auth.error.generic"),
-                            );
-                          }
-                        } else if (alt === "email_code") {
-                          try {
-                            await asSignInExtras(signIn).mfa.sendEmailCode();
-                          } catch (e) {
-                            setSubmitError(
-                              getErrorMessage(e) ?? t("auth.error.generic"),
-                            );
-                          }
-                        }
-                      }}
-                      hitSlop={8}
-                    >
-                      <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_500Medium" }}>
-                        {t(
-                          alt === "totp"
-                            ? "auth.mfa.useTotp"
-                            : alt === "phone_code"
-                              ? "auth.mfa.usePhone"
-                              : alt === "email_code"
-                                ? "auth.mfa.useEmail"
-                                : "auth.mfa.useBackup",
-                        )}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-              </View>
-            ) : null}
-
-            {mfaStrategy === "phone_code" || mfaStrategy === "email_code" ? (
-              <TouchableOpacity
-                onPress={
-                  mfaStrategy === "email_code"
-                    ? handleResendEmailCode
-                    : handleResendPhoneCode
-                }
-                style={styles.forgotRow}
-                hitSlop={8}
-              >
-                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_500Medium" }}>
-                  {t("auth.mfa.resend")}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-
-            {submitError ? (
-              <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
-                {submitError}
-              </Text>
-            ) : null}
-
-            <TouchableOpacity
-              style={[
-                styles.primaryBtn,
-                { backgroundColor: colors.primary },
-                (!mfaCode.trim() || fetchStatus === "fetching") && { opacity: 0.5 },
-              ]}
-              onPress={handleVerifyMfa}
-              disabled={!mfaCode.trim() || fetchStatus === "fetching"}
-              activeOpacity={0.85}
-            >
-              {fetchStatus === "fetching" ? (
-                <ActivityIndicator color={colors.primaryForeground} />
-              ) : (
-                <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
-                  {t("auth.mfa.verify")}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleMfaCancel} style={styles.skipBtn} activeOpacity={0.7}>
-              <Text style={{ color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_500Medium" }}>
-                {t("auth.mfa.cancel")}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
         <View style={styles.form}>
           <SavedAccountsList accounts={savedAccounts} onSelect={handleSavedAccountTap} />
           <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.identifier")}</Text>
@@ -784,7 +492,6 @@ export default function SignInScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-        )}
       </ScrollView>
 
       <LanguagePickerSheet
@@ -885,12 +592,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 24,
-  },
-  mfaSwitchRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 16,
-    marginTop: 12,
-    justifyContent: "center",
   },
 });
