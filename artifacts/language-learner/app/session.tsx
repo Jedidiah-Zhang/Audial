@@ -924,19 +924,83 @@ export default function SessionScreen() {
         e.preventDefault();
         return;
       }
-      e.preventDefault();
-      runCloseAnimation(() => {
-        // Wait one extra frame before handing control to the navigator;
-        // see the same comment in app/practice.tsx for why.
-        requestAnimationFrame(() => {
-          // Inline POP action (equivalent to StackActions.pop(1) from
-          // @react-navigation/native, which expo-router does not re-export).
-          navigation.dispatch({ type: "POP", payload: { count: 1 } });
+
+      const dispatchClose = () => {
+        runCloseAnimation(() => {
+          // Wait one extra frame before handing control to the navigator;
+          // see the same comment in app/practice.tsx for why.
+          requestAnimationFrame(() => {
+            // Inline POP action (equivalent to StackActions.pop(1) from
+            // @react-navigation/native, which expo-router does not re-export).
+            navigation.dispatch({ type: "POP", payload: { count: 1 } });
+          });
         });
-      });
+      };
+
+      // Dictation guard: prompt before discarding typed-but-unsubmitted
+      // input. Only relevant during the study phase of stage 1 — once
+      // submission moves the phase to scoring/result, the input is
+      // already captured and there's nothing left to lose.
+      const dictationDirty =
+        stageIdx === 1 &&
+        phase === "study" &&
+        dictationInput.trim().length > 0;
+      // Recitation guard: prompt while the mic is actively recording.
+      // Recordings auto-submit when the user stops them (handleRecord),
+      // so "in-progress recording" is the only state that can leak work
+      // for stage 2.
+      const recitationDirty = stageIdx === 2 && isRecording;
+
+      if (dictationDirty || recitationDirty) {
+        e.preventDefault();
+        const isRecitation = recitationDirty;
+        const titleKey = isRecitation
+          ? "session.recitation.leaveTitle"
+          : "session.dictation.leaveTitle";
+        const bodyKey = isRecitation
+          ? "session.recitation.leaveBody"
+          : "session.dictation.leaveBody";
+        const stayKey = isRecitation
+          ? "session.recitation.leaveStay"
+          : "session.dictation.leaveStay";
+        const discardKey = isRecitation
+          ? "session.recitation.leaveDiscard"
+          : "session.dictation.leaveDiscard";
+        Alert.alert(t(titleKey), t(bodyKey), [
+          { text: t(stayKey), style: "cancel" },
+          {
+            text: t(discardKey),
+            style: "destructive",
+            onPress: () => {
+              // For recitation, tear the active recording down cleanly so
+              // we don't leak the mic handle after the screen unmounts.
+              // stopRecording resolves with the captured blob which we
+              // intentionally discard here.
+              if (isRecitation) {
+                void stopRecording().catch(() => {});
+              }
+              dispatchClose();
+            },
+          },
+        ]);
+        return;
+      }
+
+      e.preventDefault();
+      dispatchClose();
     });
     return sub;
-  }, [navigation, runCloseAnimation, hasGeom]);
+  }, [
+    navigation,
+    runCloseAnimation,
+    hasGeom,
+    stageIdx,
+    phase,
+    dictationInput,
+    isRecording,
+    stopRecording,
+    t,
+  ]);
 
   // Expose the close-animation runner so child flows can play it after
   // their own confirmation dialog resolves. We always register/unregister
