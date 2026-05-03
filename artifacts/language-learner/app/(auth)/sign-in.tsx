@@ -221,7 +221,17 @@ export default function SignInScreen() {
             </Text>
           )}
 
-          {submitError ? (
+          <TouchableOpacity
+            style={styles.forgotRow}
+            onPress={() => router.push("/(auth)/forgot-password")}
+            hitSlop={8}
+          >
+            <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_500Medium" }}>
+              {t("auth.forgotPassword")}
+            </Text>
+          </TouchableOpacity>
+
+          {submitError && !errors.fields.password && !errors.fields.identifier ? (
             <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
               {submitError}
             </Text>
@@ -325,6 +335,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
   },
   fieldError: { fontSize: 12, marginTop: 4, fontFamily: "Inter_400Regular" },
+  forgotRow: { alignSelf: "flex-end", marginTop: 8, paddingVertical: 4 },
   primaryBtn: {
     marginTop: 18,
     height: 48,
