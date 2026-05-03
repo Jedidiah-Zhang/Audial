@@ -382,6 +382,7 @@ const en: Dict = {
   "auth.username.placeholder": "Enter a username",
   "auth.username.change": "Change username",
   "auth.username.changed": "Username updated",
+  "auth.username.unavailable": "Changing username isn't available for this account.",
   "auth.password.change": "Change password",
   "auth.password.current": "Current password",
   "auth.password.new": "New password",

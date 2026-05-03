@@ -31,8 +31,22 @@ export default function AccountScreen() {
   const { activeLocalAccount, switchLocalAccount } = useApp();
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
   const { user } = useUser();
-  const { signOut } = useClerk();
+  const clerk = useClerk();
+  const { signOut } = clerk;
   const [accountModal, setAccountModal] = useState<AccountModalKind>(null);
+
+  type ClerkEnvSnapshot = {
+    __unstable__environment?: {
+      userSettings?: {
+        attributes?: {
+          username?: { enabled?: boolean };
+        };
+      };
+    };
+  };
+  const usernameAttr = (clerk as unknown as ClerkEnvSnapshot)
+    .__unstable__environment?.userSettings?.attributes?.username;
+  const usernameEditable = !!usernameAttr?.enabled;
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
@@ -114,13 +128,15 @@ export default function AccountScreen() {
                   ) : null}
                 </View>
               </View>
-              <Row
-                colors={colors}
-                icon="edit-3"
-                label={t("auth.username.change")}
-                value={user.username || ""}
-                onPress={() => setAccountModal("username")}
-              />
+              {usernameEditable && (
+                <Row
+                  colors={colors}
+                  icon="edit-3"
+                  label={t("auth.username.change")}
+                  value={user.username || ""}
+                  onPress={() => setAccountModal("username")}
+                />
+              )}
               {hasPasswordCredential && (
                 <Row
                   colors={colors}
@@ -371,7 +387,19 @@ function AccountEditModal({
       setOkMsg(t("auth.username.changed"));
       setTimeout(() => onClose(), 600);
     } catch (e: any) {
-      setError(e?.errors?.[0]?.longMessage || e?.errors?.[0]?.message || e?.message || t("auth.error.generic"));
+      const firstErr = e?.errors?.[0];
+      const code = firstErr?.code;
+      const rawMessage: string =
+        firstErr?.longMessage || firstErr?.message || e?.message || "";
+      const looksLikeUnsupported =
+        code === "form_param_unknown" ||
+        code === "form_identifier_not_allowed" ||
+        /username is not a valid parameter/i.test(rawMessage);
+      if (looksLikeUnsupported) {
+        setError(t("auth.username.unavailable"));
+      } else {
+        setError(rawMessage || t("auth.error.generic"));
+      }
     } finally {
       setBusy(false);
     }
