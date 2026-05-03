@@ -70,10 +70,18 @@ export default function SignInScreen() {
       try {
         setSubmitError(null);
         setOauthBusy(strategy);
-        const { createdSessionId, setActive } = await startSSOFlow({
+        const {
+          createdSessionId,
+          setActive,
+          signIn: ssoSignIn,
+          signUp: ssoSignUp,
+          authSessionResult,
+        } = await startSSOFlow({
           strategy,
           redirectUrl: AuthSession.makeRedirectUri(),
         });
+
+        // Happy path: Clerk minted a session for an existing user.
         if (createdSessionId && setActive) {
           await setActive({
             session: createdSessionId,
@@ -81,7 +89,62 @@ export default function SignInScreen() {
               router.replace("/(tabs)");
             },
           });
+          return;
         }
+
+        // The user closed the in-app browser before completing the
+        // provider flow. Stay silent — they'll see the sign-in screen
+        // again and can retry. Surfacing an error here would scold them
+        // for cancelling intentionally.
+        if (
+          authSessionResult &&
+          authSessionResult.type !== "success"
+        ) {
+          return;
+        }
+
+        // OAuth verification succeeded but no session yet. This happens
+        // on first-ever Google sign-in: Clerk needs us to convert the
+        // verified external account into a new user via the sign-up
+        // transfer flow before a session can be activated.
+        if (
+          ssoSignUp &&
+          ssoSignIn?.firstFactorVerification?.status === "transferable"
+        ) {
+          await ssoSignUp.create({ transfer: true });
+          if (ssoSignUp.createdSessionId && setActive) {
+            await setActive({
+              session: ssoSignUp.createdSessionId,
+              navigate: () => {
+                router.replace("/(tabs)");
+              },
+            });
+            return;
+          }
+        }
+
+        // Conversely: a Clerk account with this email exists but the
+        // OAuth identity isn't linked yet — transfer to sign-in.
+        if (
+          ssoSignIn &&
+          ssoSignUp?.verifications?.externalAccount?.status === "transferable"
+        ) {
+          await ssoSignIn.create({ transfer: true });
+          if (ssoSignIn.createdSessionId && setActive) {
+            await setActive({
+              session: ssoSignIn.createdSessionId,
+              navigate: () => {
+                router.replace("/(tabs)");
+              },
+            });
+            return;
+          }
+        }
+
+        // Reached the end of every known happy path without a session.
+        // Surface something so the user isn't left staring at a silently
+        // unchanged screen.
+        setSubmitError(t("auth.error.generic"));
       } catch (err: any) {
         setSubmitError(err?.message ?? t("auth.error.generic"));
       } finally {

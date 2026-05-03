@@ -115,10 +115,17 @@ export default function SignUpScreen() {
       try {
         setSubmitError(null);
         setOauthBusy(strategy);
-        const { createdSessionId, setActive } = await startSSOFlow({
+        const {
+          createdSessionId,
+          setActive,
+          signIn: ssoSignIn,
+          signUp: ssoSignUp,
+          authSessionResult,
+        } = await startSSOFlow({
           strategy,
           redirectUrl: AuthSession.makeRedirectUri(),
         });
+
         if (createdSessionId && setActive) {
           await setActive({
             session: createdSessionId,
@@ -126,7 +133,55 @@ export default function SignUpScreen() {
               router.replace("/(tabs)");
             },
           });
+          return;
         }
+
+        // User dismissed the in-app browser — leave them on this screen
+        // silently so they can retry without an error toast.
+        if (
+          authSessionResult &&
+          authSessionResult.type !== "success"
+        ) {
+          return;
+        }
+
+        // First-ever Google sign-up: convert the verified external
+        // account into a real Clerk user via the sign-up transfer flow.
+        if (
+          ssoSignUp &&
+          ssoSignIn?.firstFactorVerification?.status === "transferable"
+        ) {
+          await ssoSignUp.create({ transfer: true });
+          if (ssoSignUp.createdSessionId && setActive) {
+            await setActive({
+              session: ssoSignUp.createdSessionId,
+              navigate: () => {
+                router.replace("/(tabs)");
+              },
+            });
+            return;
+          }
+        }
+
+        // Email already belongs to a Clerk account — transfer over to
+        // sign-in so the OAuth identity gets linked.
+        if (
+          ssoSignIn &&
+          ssoSignUp?.verifications?.externalAccount?.status === "transferable"
+        ) {
+          await ssoSignIn.create({ transfer: true });
+          if (ssoSignIn.createdSessionId && setActive) {
+            await setActive({
+              session: ssoSignIn.createdSessionId,
+              navigate: () => {
+                router.replace("/(tabs)");
+              },
+            });
+            return;
+          }
+        }
+
+        setSubmitError(t("auth.error.generic"));
       } catch (err: any) {
         setSubmitError(err?.message ?? t("auth.error.generic"));
       } finally {
