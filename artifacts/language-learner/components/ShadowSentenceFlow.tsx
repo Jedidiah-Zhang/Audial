@@ -36,6 +36,10 @@ import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
 import { getContentTypeLabel } from "@/utils/i18n";
 import { sanitizeAnnotations } from "@/utils/annotations";
+import {
+  getSessionCloseRunner,
+  setShadowLeaveIntercept,
+} from "@/utils/sessionLeaveIntercept";
 import type { Annotation } from "@/components/AnnotatedText";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
@@ -325,6 +329,7 @@ export function ShadowSentenceFlow({
       // doesn't get stuck in a bad state.
       if (!completedRef.current) {
         completedRef.current = true;
+        setShadowLeaveIntercept(false);
         onComplete({ score: 0, feedback: "" });
       }
       return;
@@ -351,6 +356,21 @@ export function ShadowSentenceFlow({
   // is set (the parent has switched to the result view) the listener
   // becomes a no-op so navigating back from the result page is friction-
   // less.
+  //
+  // We also flip a shared flag so the parent /session screen knows to
+  // hold off on its reverse card-collapse animation: without it the card
+  // would visually collapse while the confirmation alert is still on
+  // screen, leaving the user looking at the page underneath even after
+  // they tap "Stay". When the user confirms "Discard", we play the
+  // session's close animation first, *then* dispatch the pop so the
+  // collapse and the navigation stay in sync.
+  useEffect(() => {
+    setShadowLeaveIntercept(true);
+    return () => {
+      setShadowLeaveIntercept(false);
+    };
+  }, []);
+
   useEffect(() => {
     const sub = navigation.addListener("beforeRemove", (e: unknown) => {
       if (completedRef.current) return;
@@ -375,9 +395,31 @@ export function ShadowSentenceFlow({
             style: "destructive",
             onPress: () => {
               completedRef.current = true;
-              (navigation as unknown as {
-                dispatch: (action: unknown) => void;
-              }).dispatch(event.data.action);
+              // Release the intercept so the session screen's
+              // beforeRemove listener takes the normal path on the
+              // next pop dispatch (defensive — the runner below also
+              // dispatches POP directly, but if anything re-routes
+              // through the navigator we don't want to re-trap it).
+              setShadowLeaveIntercept(false);
+              const dispatchPop = () => {
+                const nav = navigation as unknown as {
+                  dispatch: (action: unknown) => void;
+                };
+                // Match the session screen's own back handler: an
+                // explicit single-step POP avoids cascading through
+                // the nested transparent modals (see comment in
+                // app/session.tsx on why we don't re-dispatch
+                // event.data.action here).
+                nav.dispatch({ type: "POP", payload: { count: 1 } });
+              };
+              const runner = getSessionCloseRunner();
+              if (runner) {
+                runner(() => {
+                  requestAnimationFrame(dispatchPop);
+                });
+              } else {
+                dispatchPop();
+              }
             },
           },
         ]
@@ -682,6 +724,7 @@ export function ShadowSentenceFlow({
           typeof d.userTranscript === "string" ? d.userTranscript : "";
         setLastFullTranscript(transcript);
         completedRef.current = true;
+        setShadowLeaveIntercept(false);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         onComplete({
           score,

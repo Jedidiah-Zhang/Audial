@@ -42,6 +42,10 @@ import { useT, getStageName, getStageDesc } from "@/utils/i18n";
 import { Icon } from "@/components/Icon";
 import { sanitizeAnnotations } from "@/utils/annotations";
 import { useRewardedAd } from "@/hooks/useRewardedAd";
+import {
+  isShadowLeaveIntercepted,
+  setSessionCloseRunner,
+} from "@/utils/sessionLeaveIntercept";
 import { useDictationListenQuota } from "@/hooks/useDictationListenQuota";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
@@ -707,6 +711,15 @@ export default function SessionScreen() {
     if (!hasGeom) return;
     const sub = navigation.addListener("beforeRemove", (e) => {
       if (closingRef.current) return;
+      // A child flow (e.g. ShadowSentenceFlow) may want to show its own
+      // confirmation dialog before we play the collapse animation. When
+      // it has registered itself as the leave interceptor, we only block
+      // the navigation here — the child decides whether to invoke the
+      // close runner (after the user confirms) or to abort.
+      if (isShadowLeaveIntercepted()) {
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       runCloseAnimation(() => {
         // Wait one extra frame before handing control to the navigator;
@@ -720,6 +733,22 @@ export default function SessionScreen() {
     });
     return sub;
   }, [navigation, runCloseAnimation, hasGeom]);
+
+  // Expose the close-animation runner so child flows can play it after
+  // their own confirmation dialog resolves. We always register/unregister
+  // together so a stale runner from a previous mount can never fire.
+  useEffect(() => {
+    setSessionCloseRunner((onDone) => {
+      if (!hasGeom) {
+        onDone();
+        return;
+      }
+      runCloseAnimation(onDone);
+    });
+    return () => {
+      setSessionCloseRunner(null);
+    };
+  }, [runCloseAnimation, hasGeom]);
 
   useEffect(() => {
     if (Platform.OS !== "android" || !hasGeom) return;
