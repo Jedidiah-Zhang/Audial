@@ -59,7 +59,6 @@ interface SentenceArticleProps {
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
-  { label: "0.5x", value: 0.5 },
   { label: "0.75x", value: 0.75 },
   { label: "1x", value: 1.0 },
 ];
