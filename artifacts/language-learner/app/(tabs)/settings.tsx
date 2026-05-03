@@ -24,6 +24,7 @@ import { Flag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
 import { PaywallModal } from "@/components/PaywallModal";
 import { SyncIndicator } from "@/components/SyncIndicator";
+import { isCloudSyncableUser } from "@/utils/cloudSync";
 
 const DIFFICULTIES: Difficulty[] = ["beginner", "elementary", "intermediate", "advanced"];
 
@@ -36,7 +37,7 @@ export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { settings, updateSettings, activeLocalAccount, isPro } = useApp();
+  const { settings, updateSettings, activeLocalAccount, isPro, userId } = useApp();
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
   const { user } = useUser();
   const [picker, setPicker] = useState<PickerKind>(null);
@@ -80,7 +81,11 @@ export default function SettingsScreen() {
             label={t("settings.section.account")}
             value={accountSummary}
             onPress={() => router.push("/account")}
-            inlineSlot={<SyncIndicator />}
+            // Only inject the pill for accounts that actually sync to
+            // the cloud. Guest / local-only accounts get the standard
+            // row layout with no extra slot, no empty wrapper, and no
+            // forced shrink on the value text.
+            inlineSlot={isCloudSyncableUser(userId) ? <SyncIndicator /> : undefined}
           />
         </Section>
 
