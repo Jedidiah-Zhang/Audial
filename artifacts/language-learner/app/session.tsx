@@ -23,7 +23,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, RefreshCw, Sparkles, Square, Target, Volume2 } from "lucide-react-native";
+import { ArrowLeft, ArrowRight, BookOpen, Check, EyeOff, Headphones, Lightbulb, RefreshCw, Sparkles, Square, Target, Volume2 } from "lucide-react-native";
 import { flipIfRTL, rtlTextStyle } from "@/utils/rtl";
 import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
@@ -46,7 +46,17 @@ import {
   isShadowLeaveIntercepted,
   setSessionCloseRunner,
 } from "@/utils/sessionLeaveIntercept";
-import { useDictationListenQuota } from "@/hooks/useDictationListenQuota";
+import { useDictationHintQuota } from "@/hooks/useDictationHintQuota";
+import { buildDictationHintMask } from "@/utils/dictationHint";
+
+/**
+ * Score deduction applied per hint use in the dictation stage. Floored
+ * at 0; persisted into the result `details` so the user can see the
+ * impact on their final score.
+ */
+const HINT_SCORE_DEDUCTION_PER_USE = 10;
+const HINT_FREE_PER_DAY = 3;
+const HINT_AD_BONUS = 3;
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -119,19 +129,23 @@ export default function SessionScreen() {
     getProgressForText,
   } = useApp();
   // Rewarded-ad hooks for the two in-session placements: per-result
-  // analysis unlock and dictation listen-again. `useRewardedAd` is
+  // analysis unlock and dictation hints. `useRewardedAd` is
   // placement-keyed so each call gets its own load/show lifecycle.
   const { show: showAnalysisAd } = useRewardedAd("analysis_unlock");
-  const { show: showDictationAd } = useRewardedAd("dictation_replay");
-  const dictationQuota = useDictationListenQuota();
+  const { show: showHintAd } = useRewardedAd("dictation_hint");
+  const hintQuota = useDictationHintQuota({
+    freeHintsPerDay: HINT_FREE_PER_DAY,
+    bonusHints: HINT_AD_BONUS,
+  });
   const [analysisUnlocking, setAnalysisUnlocking] = useState(false);
-  // Active "out of plays" prompt for dictation. We track which sentence
-  // triggered it so the bonus grant goes to the right index when the
-  // user accepts the ad.
-  const [dictationAdPrompt, setDictationAdPrompt] = useState<{
-    sentenceIndex: number;
-  } | null>(null);
-  const [dictationAdInFlight, setDictationAdInFlight] = useState(false);
+  // Active "out of hints today" prompt — surfaced when the user taps
+  // the hint button after exhausting today's quota.
+  const [hintAdPrompt, setHintAdPrompt] = useState<boolean>(false);
+  const [hintAdInFlight, setHintAdInFlight] = useState(false);
+  // How many hints have been used in the current dictation attempt.
+  // Reset on retry so retries get a clean slate, but each individual
+  // use still draws from the daily quota.
+  const [hintsUsedThisAttempt, setHintsUsedThisAttempt] = useState(0);
   const {
     startRecording,
     stopRecording,
@@ -358,7 +372,7 @@ export default function SessionScreen() {
     }
   };
 
-  const scoreAnswer = async (transcribedOrTyped: string) => {
+  const scoreAnswer = async (transcribedOrTyped: string, hintsUsed: number = 0) => {
     if (!text) return;
     setPhase("scoring");
 
@@ -400,13 +414,26 @@ export default function SessionScreen() {
       if (stageIdx === 1 && d.wordAccuracy != null) {
         details[t("session.detail.wordAccuracy")] = `${d.wordAccuracy}%`;
       }
+      // Surface hint usage in the result details so the user understands
+      // why their score may be lower than expected. Only show the row if
+      // hints were actually used this attempt.
+      const hintDelta =
+        stageIdx === 1 ? Math.max(0, hintsUsed) * HINT_SCORE_DEDUCTION_PER_USE : 0;
+      if (stageIdx === 1 && hintsUsed > 0) {
+        details[t("dictation.hint.detailRow")] = t("dictation.hint.detailValue", {
+          count: hintsUsed,
+          delta: -hintDelta,
+        });
+      }
       if (stageIdx === 2) {
         details[t("session.detail.coverage")] = `${d.completeness ?? 0}%`;
         const fluencyKey = `fluency.${d.fluency}`;
         details[t("session.detail.fluency")] = d.fluency ? t(fluencyKey) : "";
       }
 
-      const score = d.score ?? 0;
+      // Apply hint deduction to the raw model score, floored at 0.
+      const rawScore = d.score ?? 0;
+      const score = Math.max(0, rawScore - hintDelta);
       const passed = score >= STAGE_PASS_SCORE;
 
       const targetAnnotations = sanitizeAnnotations(d.targetAnnotations, text.text);
@@ -417,6 +444,10 @@ export default function SessionScreen() {
       if (targetAnnotations) persistedDetails.targetAnnotations = targetAnnotations;
       if (userAnnotations) persistedDetails.userAnnotations = userAnnotations;
       if (userTranscript) persistedDetails.userTranscript = userTranscript;
+      if (stageIdx === 1 && hintsUsed > 0) {
+        persistedDetails.hintsUsed = hintsUsed;
+        persistedDetails.hintScoreDeduction = hintDelta;
+      }
 
       await addResult({
         id: Date.now().toString() + Math.random().toString(36).slice(2, 8),
@@ -538,13 +569,14 @@ export default function SessionScreen() {
       Alert.alert(t("common.tip"), t("session.alert.dictationEmpty"));
       return;
     }
-    await scoreAnswer(dictationInput.trim());
+    await scoreAnswer(dictationInput.trim(), hintsUsedThisAttempt);
   };
 
   const handleRetry = () => {
     setResult(null);
     setDictationInput("");
     setShadowRecordingUri(null);
+    setHintsUsedThisAttempt(0);
     setPhase("intro");
   };
 
@@ -552,29 +584,54 @@ export default function SessionScreen() {
     router.back();
   };
 
-  // Dictation listen-again gate. Returns true to allow playback, false to
-  // deny. On denial we surface an in-app modal that lets the user either
-  // watch an ad for +3 plays or upgrade to Pro. Pro users always get
-  // through (the quota hook itself is a no-op for them).
-  const handleDictationGate = (sentenceIndex: number): boolean => {
-    if (dictationQuota.tryConsume(sentenceIndex)) return true;
-    setDictationAdPrompt({ sentenceIndex });
-    return false;
+  // Use a hint. Consumes one from today's quota and increments the
+  // per-attempt counter so the score deduction can be applied at submit
+  // time. If the daily quota is exhausted we surface the ad-prompt
+  // modal instead of consuming.
+  //
+  // Guarded by a ref against double-tap races: the on-screen disabled
+  // state is computed from React state which lags by one frame, so
+  // a quick double-tap could otherwise consume two quota units while
+  // only revealing one new word (and over-deducting the score).
+  const hintInFlightRef = useRef(false);
+  const handleUseHint = () => {
+    if (hintInFlightRef.current) return;
+    if (!hintQuota.isReady) return;
+    if (!text) return;
+    // Re-check the per-sentence reveal cap inside the handler so even
+    // a stale-state tap can't push past it.
+    const { totalHintable } = buildDictationHintMask(text.text, hintsUsedThisAttempt);
+    if (totalHintable > 0 && hintsUsedThisAttempt >= totalHintable) return;
+    hintInFlightRef.current = true;
+    try {
+      if (!hintQuota.tryConsume()) {
+        setHintAdPrompt(true);
+        return;
+      }
+      setHintsUsedThisAttempt((n) => n + 1);
+    } finally {
+      // Release on the next tick so a second synchronous tap (same
+      // event loop) can't slip through, but normal subsequent taps
+      // remain responsive.
+      setTimeout(() => {
+        hintInFlightRef.current = false;
+      }, 0);
+    }
   };
 
-  const handleDictationWatchAd = async () => {
-    if (!dictationAdPrompt || dictationAdInFlight) return;
-    setDictationAdInFlight(true);
+  const handleHintWatchAd = async () => {
+    if (hintAdInFlight) return;
+    setHintAdInFlight(true);
     try {
-      const outcome = await showDictationAd();
+      const outcome = await showHintAd();
       if (outcome === "rewarded") {
-        dictationQuota.grantBonus(dictationAdPrompt.sentenceIndex);
-        setDictationAdPrompt(null);
+        hintQuota.grantBonus();
+        setHintAdPrompt(false);
       }
       // On dismiss/unavailable: leave the prompt open so the user can
-      // retry or upgrade — they get no plays from a half-watched ad.
+      // retry or upgrade — they get no hints from a half-watched ad.
     } finally {
-      setDictationAdInFlight(false);
+      setHintAdInFlight(false);
     }
   };
 
@@ -954,8 +1011,78 @@ export default function SessionScreen() {
               contentType={text.contentType}
               articleId={text.id}
               targetLanguage={text.targetLanguage}
-              playGate={handleDictationGate}
             />
+
+            {(() => {
+              const remaining = hintQuota.getRemaining();
+              const remainingLabel = isPro
+                ? t("dictation.hint.unlimited")
+                : t("dictation.hint.remaining", { n: Math.max(0, remaining) });
+              const mask = buildDictationHintMask(text.text, hintsUsedThisAttempt);
+              const totalHintable = mask.totalHintable;
+              const reachedReveals =
+                totalHintable === 0 || hintsUsedThisAttempt >= totalHintable;
+              // Disable the hint button when the user has revealed
+              // everything that's hintable in this sentence (further
+              // taps would consume quota for nothing) or while the
+              // persisted quota state is still loading. Out-of-quota
+              // taps are NOT disabled — they open the ad prompt.
+              const hintBtnDisabled = reachedReveals || !hintQuota.isReady;
+              return (
+                <View style={[styles.hintBlock, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View style={styles.hintHeaderRow}>
+                    <TouchableOpacity
+                      onPress={handleUseHint}
+                      disabled={hintBtnDisabled}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.hintBtn,
+                        {
+                          backgroundColor: stageColor + "1F",
+                          borderColor: stageColor + "55",
+                          opacity: hintBtnDisabled ? 0.45 : 1,
+                        },
+                      ]}
+                    >
+                      <Lightbulb size={16} color={stageColor} />
+                      <Text style={[styles.hintBtnText, { color: stageColor }]}>
+                        {t("dictation.hint.button")}
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={[styles.hintRemaining, { color: colors.mutedForeground }]}>
+                      {remainingLabel}
+                    </Text>
+                  </View>
+                  {hintsUsedThisAttempt > 0 ? (
+                    <>
+                      <Text style={[styles.hintCardLabel, { color: colors.mutedForeground }]}>
+                        {t("dictation.hint.cardLabel", {
+                          used: hintsUsedThisAttempt,
+                          total: Math.max(totalHintable, hintsUsedThisAttempt),
+                        })}
+                      </Text>
+                      <Text
+                        // RTL direction is determined from the original
+                        // unmasked sentence — masked output is mostly
+                        // ▁ characters, which would otherwise cause
+                        // direction detection to fall back to LTR.
+                        style={[styles.hintMaskText, { color: colors.foreground }, rtlTextStyle(text.text)]}
+                        selectable={false}
+                      >
+                        {mask.display}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={[styles.hintEmptyText, { color: colors.mutedForeground }]}>
+                      {t("dictation.hint.empty")}
+                    </Text>
+                  )}
+                  <Text style={[styles.hintScoreNote, { color: colors.mutedForeground }]}>
+                    {t("dictation.hint.scoreNote", { n: HINT_SCORE_DEDUCTION_PER_USE })}
+                  </Text>
+                </View>
+              );
+            })()}
 
             <View style={[styles.dictationBox, { backgroundColor: colors.card, borderColor: stageColor }]}>
               <Text style={[styles.dictationLabel, { color: colors.mutedForeground }]}>{t("session.dictation.label")}</Text>
@@ -1292,10 +1419,10 @@ export default function SessionScreen() {
       {micPermissionModal}
 
       <Modal
-        visible={!!dictationAdPrompt}
+        visible={hintAdPrompt}
         transparent
         animationType="fade"
-        onRequestClose={() => !dictationAdInFlight && setDictationAdPrompt(null)}
+        onRequestClose={() => !hintAdInFlight && setHintAdPrompt(false)}
       >
         <View style={styles.adPromptBackdrop}>
           <View
@@ -1310,40 +1437,40 @@ export default function SessionScreen() {
                 { backgroundColor: stageColor + "1F" },
               ]}
             >
-              <Volume2 size={24} color={stageColor} />
+              <Lightbulb size={24} color={stageColor} />
             </View>
             <Text style={[styles.adPromptTitle, { color: colors.foreground }]}>
-              {t("dictation.replay.outTitle")}
+              {t("dictation.hint.outTitle")}
             </Text>
             <Text
               style={[styles.adPromptBody, { color: colors.mutedForeground }]}
             >
-              {t("dictation.replay.outBody", { total: 3 })}
+              {t("dictation.hint.outBody", { total: HINT_FREE_PER_DAY })}
             </Text>
             <TouchableOpacity
-              onPress={handleDictationWatchAd}
-              disabled={dictationAdInFlight}
+              onPress={handleHintWatchAd}
+              disabled={hintAdInFlight}
               activeOpacity={0.85}
               style={[
                 styles.adPromptPrimary,
                 {
                   backgroundColor: stageColor,
-                  opacity: dictationAdInFlight ? 0.6 : 1,
+                  opacity: hintAdInFlight ? 0.6 : 1,
                 },
               ]}
             >
-              {dictationAdInFlight ? (
+              {hintAdInFlight ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Sparkles size={16} color="#fff" />
               )}
               <Text style={styles.adPromptPrimaryText}>
-                {t("dictation.replay.exhausted")}
+                {t("dictation.hint.exhausted")}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => setDictationAdPrompt(null)}
-              disabled={dictationAdInFlight}
+              onPress={() => setHintAdPrompt(false)}
+              disabled={hintAdInFlight}
               activeOpacity={0.85}
               style={styles.adPromptSecondary}
             >
@@ -1564,6 +1691,60 @@ const styles = StyleSheet.create({
   recordHint: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
+  },
+  hintBlock: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+  },
+  hintHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  hintBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  hintBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
+  hintRemaining: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  hintCardLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  hintMaskText: {
+    fontSize: 16,
+    fontFamily: "Inter_500Medium",
+    lineHeight: 26,
+    letterSpacing: 1,
+  },
+  hintEmptyText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    fontStyle: "italic",
+  },
+  hintScoreNote: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    marginTop: 2,
   },
   dictationBox: {
     borderRadius: 14,

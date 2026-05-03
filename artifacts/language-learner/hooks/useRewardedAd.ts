@@ -7,12 +7,12 @@ import { Platform } from "react-native";
  *
  * - `generation`        : "+1 article generation" after the daily quota
  * - `analysis_unlock`   : "unlock per-sentence detailed score analysis"
- * - `dictation_replay`  : "+3 listen-again plays" on a dictation sentence
+ * - `dictation_hint`    : "+3 dictation hints" added to today's quota
  */
 export type AdPlacement =
   | "generation"
   | "analysis_unlock"
-  | "dictation_replay";
+  | "dictation_hint";
 
 /**
  * Result of a `show()` call.
@@ -133,7 +133,7 @@ function adUnitIdFor(placement: AdPlacement): string {
         return isIOS
           ? "EXPO_PUBLIC_ADMOB_REWARDED_ANALYSIS_ID_IOS"
           : "EXPO_PUBLIC_ADMOB_REWARDED_ANALYSIS_ID_ANDROID";
-      case "dictation_replay":
+      case "dictation_hint":
         return isIOS
           ? "EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_IOS"
           : "EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_ANDROID";

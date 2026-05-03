@@ -38,7 +38,7 @@ rewarded unit IDs when unset):
 | ------------------ | ---------------------------------------------------- | -------------------------------------------------------- |
 | `generation`       | `EXPO_PUBLIC_ADMOB_REWARDED_GENERATION_ID_IOS`       | `EXPO_PUBLIC_ADMOB_REWARDED_GENERATION_ID_ANDROID`       |
 | `analysis_unlock`  | `EXPO_PUBLIC_ADMOB_REWARDED_ANALYSIS_ID_IOS`         | `EXPO_PUBLIC_ADMOB_REWARDED_ANALYSIS_ID_ANDROID`         |
-| `dictation_replay` | `EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_IOS`        | `EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_ANDROID`        |
+| `dictation_hint` | `EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_IOS`        | `EXPO_PUBLIC_ADMOB_REWARDED_DICTATION_ID_ANDROID`        |
 
 ## Pre-publish checklist
 

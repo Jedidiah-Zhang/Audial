@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from "react-native";
-import { ChevronLeft, ChevronRight, Info, PlayCircle, Square } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, Info, PlayCircle, RotateCcw, Square } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useAudioPlayer, prefetchTTS } from "@/hooks/useAudio";
 import { AudioWaveform } from "@/components/AudioWaveform";
@@ -35,17 +35,6 @@ interface SentenceArticleProps {
    * always wins.
    */
   targetLanguage?: string;
-  /**
-   * Optional gate invoked before any sentence playback (single-tap or
-   * play-all). Receives the global sentence index. Return `true` to
-   * allow the play, `false` to deny (the caller is expected to surface
-   * its own UI, e.g. a "watch ad to unlock" modal).
-   *
-   * Used by the dictation phase to enforce a per-sentence "listen again"
-   * quota for free users without coupling this component to the quota
-   * model itself.
-   */
-  playGate?: (sentenceIndex: number) => boolean;
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -66,7 +55,6 @@ export function SentenceArticle({
   articleId,
   disablePlayback = false,
   targetLanguage,
-  playGate,
 }: SentenceArticleProps) {
   const colors = useColors();
   const t = useT();
@@ -155,10 +143,6 @@ export function SentenceArticle({
 
   const playOne = useCallback(
     async (idx: number) => {
-      // Consult the play gate (e.g. dictation listen-again quota) before
-      // touching playback state. A denied gate must not interrupt any
-      // currently-playing sentence — the user's request is a no-op.
-      if (playGate && !playGate(idx)) return;
       sequenceCancelRef.current = true;
       setIsSequence(false);
       stop();
@@ -174,8 +158,17 @@ export function SentenceArticle({
         rate
       );
     },
-    [playableSentences, voice, playTTS, stop, onPlay, rate, playGate]
+    [playableSentences, voice, playTTS, stop, onPlay, rate]
   );
+
+  const replayCurrent = useCallback(() => {
+    if (playableSentences.length === 0) return;
+    // Replays whichever sentence the user last interacted with. From
+    // the initial state (no cursor yet), default to sentence 0 so the
+    // button is always actionable.
+    const target = cursorIdx ?? 0;
+    playOne(target);
+  }, [cursorIdx, playOne, playableSentences.length]);
 
   const playPrev = useCallback(() => {
     if (playableSentences.length === 0) return;
@@ -195,22 +188,12 @@ export function SentenceArticle({
 
   const playSequence = useCallback(
     (startIdx: number = 0) => {
-      // Gate the very first sentence; if it's denied, abort the whole
-      // sequence (Play All is implicitly a request for sentence #0).
-      if (playGate && !playGate(startIdx)) return;
       sequenceCancelRef.current = false;
       setIsSequence(true);
       onPlay?.();
 
       const playFrom = (i: number) => {
         if (sequenceCancelRef.current || i >= playableSentences.length) {
-          setActiveIdx(null);
-          setIsSequence(false);
-          return;
-        }
-        // Gate every subsequent sentence. If the user runs out of plays
-        // mid-sequence we stop cleanly rather than silently skipping.
-        if (i !== startIdx && playGate && !playGate(i)) {
           setActiveIdx(null);
           setIsSequence(false);
           return;
@@ -232,7 +215,7 @@ export function SentenceArticle({
       };
       playFrom(startIdx);
     },
-    [playableSentences, voice, playTTS, onPlay, rate, userId, articleId, playGate]
+    [playableSentences, voice, playTTS, onPlay, rate, userId, articleId]
   );
 
   const stopAll = useCallback(() => {
@@ -553,6 +536,24 @@ export function SentenceArticle({
                   <ChevronLeft size={16} color={colors.foreground} />
                   <Text style={[styles.stepBtnText, { color: colors.foreground }]}>
                     {t("sentence.prev")}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={replayCurrent}
+                  disabled={total === 0}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.stepBtn,
+                    {
+                      backgroundColor: colors.muted,
+                      borderColor: colors.border,
+                      opacity: total === 0 ? 0.4 : 1,
+                    },
+                  ]}
+                >
+                  <RotateCcw size={16} color={colors.foreground} />
+                  <Text style={[styles.stepBtnText, { color: colors.foreground }]}>
+                    {t("sentence.replay")}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
