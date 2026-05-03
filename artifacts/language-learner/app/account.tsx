@@ -387,18 +387,28 @@ function AccountEditModal({
       setOkMsg(t("auth.username.changed"));
       setTimeout(() => onClose(), 600);
     } catch (e: any) {
-      const firstErr = e?.errors?.[0];
-      const code = firstErr?.code;
-      const rawMessage: string =
-        firstErr?.longMessage || firstErr?.message || e?.message || "";
+      const errs: any[] = Array.isArray(e?.errors) ? e.errors : [];
+      const allText = [
+        ...errs.map((x) => `${x?.code ?? ""} ${x?.longMessage ?? ""} ${x?.message ?? ""} ${x?.meta?.paramName ?? ""}`),
+        e?.message ?? "",
+      ].join(" | ");
       const looksLikeUnsupported =
-        code === "form_param_unknown" ||
-        code === "form_identifier_not_allowed" ||
-        /username is not a valid parameter/i.test(rawMessage);
+        errs.some(
+          (x) =>
+            x?.code === "form_param_unknown" ||
+            x?.code === "form_identifier_not_allowed" ||
+            x?.code === "form_param_not_allowed" ||
+            x?.meta?.paramName === "username",
+        ) ||
+        /username.*(not a valid parameter|is not allowed|is not a valid)/i.test(allText) ||
+        /not a valid parameter.*username/i.test(allText);
       if (looksLikeUnsupported) {
         setError(t("auth.username.unavailable"));
       } else {
-        setError(rawMessage || t("auth.error.generic"));
+        const firstErr = errs[0];
+        setError(
+          firstErr?.longMessage || firstErr?.message || e?.message || t("auth.error.generic"),
+        );
       }
     } finally {
       setBusy(false);
