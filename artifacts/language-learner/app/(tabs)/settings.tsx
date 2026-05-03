@@ -87,9 +87,6 @@ export default function SettingsScreen() {
             // forced shrink on the value text.
             inlineSlot={isCloudSyncableUser(userId) ? <SyncIndicator /> : undefined}
           />
-        </Section>
-
-        <Section title={t("settings.section.subscription")} colors={colors}>
           <SubscriptionRow
             colors={colors}
             isPro={isPro}
