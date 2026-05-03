@@ -71,6 +71,34 @@ describe("buildScoreTips", () => {
       metrics: { coverage: 90 },
     });
     expect(out.tips).toEqual([]);
+    // No dimension was evaluated (coverage isn't a dimension), so we
+    // shouldn't celebrate either — there's no signal to celebrate on.
+    expect(out.encouragement).toBe(false);
+  });
+
+  it("emits an accuracy tip for low-accuracy dictation (mapped from wordAccuracy)", () => {
+    const out = buildScoreTips({
+      mode: "dictation",
+      metrics: { accuracy: 45, hintsUsed: 0 },
+    });
+    expect(out.tips).toHaveLength(1);
+    expect(out.tips[0].icon).toBe("accuracy");
+    expect(out.tips[0].reasonKey).toContain("severe");
+    expect(out.encouragement).toBe(false);
+  });
+
+  it("returns no tips and no encouragement when no metrics were provided", () => {
+    const out = buildScoreTips({ mode: "dictation", metrics: {} });
+    expect(out.tips).toEqual([]);
+    expect(out.encouragement).toBe(false);
+  });
+
+  it("celebrates a clean dictation only when accuracy was actually evaluated", () => {
+    const out = buildScoreTips({
+      mode: "dictation",
+      metrics: { accuracy: 95 },
+    });
+    expect(out.tips).toEqual([]);
     expect(out.encouragement).toBe(true);
   });
 });

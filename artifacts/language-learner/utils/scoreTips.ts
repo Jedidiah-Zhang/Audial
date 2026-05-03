@@ -32,6 +32,12 @@ export interface ScoreTipsInput {
 
 export interface ScoreTipsResult {
   tips: ScoreTip[];
+  /**
+   * True when at least one dimension was actually evaluated AND all of
+   * them cleared the high-score threshold. Stays false when no
+   * dimension data was provided at all, so we never show "great job!"
+   * to a user we have no signal on.
+   */
   encouragement: boolean;
 }
 
@@ -74,8 +80,10 @@ export function buildScoreTips(input: ScoreTipsInput): ScoreTipsResult {
   const { mode, metrics } = input;
 
   const candidates: { dim: Dimension; score: number; severity: "severe" | "mild" }[] = [];
+  let dimensionsEvaluated = 0;
   const considerDim = (dim: Dimension, raw: number | null | undefined) => {
     if (typeof raw !== "number" || !Number.isFinite(raw)) return;
+    dimensionsEvaluated += 1;
     const s = severityFor(raw);
     if (!s) return;
     candidates.push({ dim, score: raw, severity: s });
@@ -123,5 +131,10 @@ export function buildScoreTips(input: ScoreTipsInput): ScoreTipsResult {
     }
   }
 
-  return { tips, encouragement: tips.length === 0 };
+  // Only celebrate when we actually saw at least one dimension AND
+  // nothing fired. With no dimensions evaluated we return an empty
+  // result so callers don't render "everything's strong" to a user we
+  // have no signal on.
+  const encouragement = tips.length === 0 && dimensionsEvaluated > 0;
+  return { tips, encouragement };
 }

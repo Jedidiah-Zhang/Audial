@@ -590,9 +590,23 @@ export default function SessionScreen() {
       // Stage 1 (dictation) only carries hint info; stage 2 (recitation)
       // surfaces the model's `completeness` percentage as coverage.
       const tipMetrics: ScoreTipsInput["metrics"] = {};
-      if (stageIdx === 1 && hintsUsed > 0) {
-        tipMetrics.hintsUsed = hintsUsed;
-        tipMetrics.hintScoreDeduction = hintDelta;
+      if (stageIdx === 1) {
+        // Dictation surfaces `wordAccuracy` (0-100) as its only
+        // numeric sub-score; map it onto the generic `accuracy`
+        // dimension so users with a low dictation accuracy still get
+        // a severity-based tip rather than the "all good" fallback.
+        if (typeof d.wordAccuracy === "number") {
+          tipMetrics.accuracy = d.wordAccuracy;
+        } else if (typeof d.score === "number") {
+          // Older server payloads / fallbacks: derive accuracy from
+          // the overall score so the tips block still has at least
+          // one dimension to reason about.
+          tipMetrics.accuracy = d.score;
+        }
+        if (hintsUsed > 0) {
+          tipMetrics.hintsUsed = hintsUsed;
+          tipMetrics.hintScoreDeduction = hintDelta;
+        }
       }
       if (stageIdx === 2 && typeof d.completeness === "number") {
         tipMetrics.coverage = d.completeness;
