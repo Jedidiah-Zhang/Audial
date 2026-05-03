@@ -659,7 +659,7 @@ router.post("/language/score-pronunciation", requireDeepseek, async (req, res) =
 - "score": 0-100 overall accuracy score
 - "fluency": 0-100 numeric sub-score for how smoothly the user read (rhythm, hesitations, completeness). Lower if many words were skipped or the reading sounds halting.
 - "accuracy": 0-100 numeric sub-score for word-level pronunciation correctness. Lower if specific words were mispronounced or substituted.
-- "feedback": 1-2 sentences of constructive feedback in the user's native language (${nativeLanguage})
+- "feedback": 1-2 sentences of warm, encouraging feedback in the user's native language (${nativeLanguage}). Open with a brief, sincere acknowledgement of what they did well, then give ONE specific, actionable suggestion. Avoid blunt criticism — frame any issue as a clear next step, not a verdict.
 - "mistakes": array of specific words/phrases that were wrong or missing (max 3)
 - "praise": one specific thing they did well
 - "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed"} that tokenizes the target text in original order. Use "wrong" for words the user mispronounced, "missed" for words they skipped entirely, "ok" otherwise. The concatenation of all words MUST exactly reproduce the target text (include punctuation as its own token or attached to the previous word).
@@ -788,7 +788,7 @@ You will receive (a) the target text the learner was supposed to read aloud, (b)
 
 Return JSON with:
 - "accuracy": 0-100 numeric sub-score for word-level reading accuracy. A perfect read of the target text scores 100.
-- "feedback": 1-2 sentences of constructive feedback in the user's native language (${language}).
+- "feedback": 1-2 sentences of warm, encouraging feedback in the user's native language (${language}). Open with a brief, sincere acknowledgement of what they did well, then give ONE specific, actionable suggestion. Avoid blunt criticism — frame any issue as a clear next step, not a verdict.
 - "mistakes": array of specific words/phrases that were truly wrong or missing (max 3). Do NOT include words that only appear in "lowConfidenceWords" — those are STT-uncertain, not necessarily mispronounced.
 - "praise": one specific thing they did well.
 - "targetAnnotations": array of {"word": string, "status": "ok" | "wrong" | "missed" | "unsure"} that tokenizes the target text in original order. Use "wrong" for words clearly mispronounced or substituted, "missed" for words skipped entirely, "unsure" for words whose target form appears in the provided lowConfidenceWords list AND the transcript is genuinely ambiguous (the STT couldn't tell), "ok" otherwise. The concatenation of all words MUST exactly reproduce the target text (include punctuation as its own token or attached to the previous word).
@@ -905,7 +905,7 @@ router.post("/language/score-dictation", requireDeepseek, async (req, res) => {
           role: "system",
           content: `You are a language dictation judge. Compare the target text with the user's written response. Return JSON with:
 - "score": 0-100 accuracy score (penalize spelling errors, missing words, wrong words)
-- "feedback": 1-2 sentences of constructive feedback in ${nativeLanguage}
+- "feedback": 1-2 sentences of warm, encouraging feedback in ${nativeLanguage}. Open with a brief, sincere acknowledgement of what they got right, then give ONE specific, actionable suggestion (e.g. which type of error to focus on). Avoid blunt criticism — frame any issue as a clear next step, not a verdict.
 - "corrections": array of objects {wrong: string, correct: string} showing what was wrong (max 5)
 - "wordAccuracy": percentage of words spelled correctly
 - "userAnnotations": array of {"word": string, "status": "ok" | "wrong" | "extra", "correct"?: string} that tokenizes the user's writing in original order. Use "wrong" for misspelled or wrong words (include the suggested correction in "correct"), "extra" for words the user wrote that aren't in the target, "ok" otherwise.
@@ -1024,7 +1024,7 @@ router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
           role: "system",
           content: `You are a language recitation judge. The user was supposed to recite a text from memory. Compare what they said vs the target. Return JSON with:
 - "score": 0-100 memory accuracy score
-- "feedback": 1-2 sentences of constructive feedback in ${nativeLanguage}
+- "feedback": 1-2 sentences of warm, encouraging feedback in ${nativeLanguage}. Open with a brief, sincere acknowledgement of what they remembered well, then give ONE specific, actionable suggestion. Avoid blunt criticism — frame any issue as a clear next step, not a verdict.
 - "completeness": percentage of the text they covered
 - "fluency": "excellent" | "good" | "fair" | "needs_work"
 - "encouragement": a motivating closing sentence
