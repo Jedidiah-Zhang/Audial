@@ -14,9 +14,11 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowRightCircle,
+  EyeOff,
   Headphones,
   Play,
   Square,
+  Timer,
   Volume2,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -32,6 +34,7 @@ import { useT } from "@/utils/i18n";
 import type { ContentType } from "@/types";
 import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
 import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
+import { buildRecitationHintPlan } from "@/utils/recitationHint";
 import { getContentTypeLabel } from "@/utils/i18n";
 import {
   getSessionCloseRunner,
@@ -54,7 +57,31 @@ function estimateTtsMs(text: string): number {
   return Math.max(2000, ms);
 }
 
-type FlowPhase = "ready" | "playing" | "recording";
+// Per-sentence "look/listen → cover → recite" loop.
+//   - preview     : original sentence is visible; TTS auto-plays once.
+//   - memorizing  : original sentence still visible, short countdown ticking
+//                   so the user can lock it into short-term memory. User can
+//                   tap "I'm ready" to skip the countdown.
+//   - reciting    : original sentence is hidden behind a mask; mic is armed
+//                   so the user can recite from memory.
+//   - reviewing   : original sentence is restored for self-comparison; the
+//                   user can replay their own take, replay the original, or
+//                   move on to the next sentence.
+type FlowPhase = "preview" | "memorizing" | "reciting" | "reviewing";
+
+// Per-sentence countdown for the "memorize" beat. Same shape as
+// `computeMemorizeDuration` in session.tsx but tuned for a single
+// sentence — base + per-token slope, clamped to a friendly range so
+// the countdown never feels broken on tiny fragments or huge run-ons.
+function computeSentenceMemorizeDuration(rawText: string): number {
+  const trimmed = (rawText ?? "").trim();
+  if (!trimmed) return 3;
+  const words = trimmed.split(/\s+/).filter(Boolean).length;
+  const chars = Array.from(trimmed).length;
+  const units = words > 1 ? words : Math.max(1, Math.round(chars / 2));
+  const seconds = Math.round(2 + units * 0.6);
+  return Math.min(15, Math.max(3, seconds));
+}
 
 interface SentenceState {
   listened: boolean;
@@ -132,6 +159,7 @@ export function RecitePrepFlow({
   const {
     startRecording,
     stopRecording,
+    isRecording,
     permission,
     requestPermission,
     openAppSettings,
@@ -152,11 +180,15 @@ export function RecitePrepFlow({
   const sentences = useMemo(() => flattenSentences(layout), [layout]);
 
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [phase, setPhase] = useState<FlowPhase>("ready");
+  const [phase, setPhase] = useState<FlowPhase>("preview");
   const [states, setStates] = useState<SentenceState[]>(() =>
     sentences.map(() => ({ listened: false, recorded: false }))
   );
   const [isPlayingMyRecording, setIsPlayingMyRecording] = useState(false);
+  // Counts down from `computeSentenceMemorizeDuration` while the user
+  // is in `memorizing`. 0 means "go" — we transition to reciting.
+  const [memorizeRemaining, setMemorizeRemaining] = useState(0);
+  const memorizeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const statesRef = useRef<SentenceState[]>(states);
   const updateStates = useCallback(
@@ -180,10 +212,41 @@ export function RecitePrepFlow({
   // recording (e.g. parent navigates away unexpectedly) would leak the
   // mic handle into the next screen — including the stage-2 scored take
   // that runs on the session-level recorder right after `onContinue`.
-  const phaseRef = useRef<FlowPhase>("ready");
+  const phaseRef = useRef<FlowPhase>("preview");
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  const clearMemorizeTimer = useCallback(() => {
+    if (memorizeTimerRef.current) {
+      clearInterval(memorizeTimerRef.current);
+      memorizeTimerRef.current = null;
+    }
+  }, []);
+
+  // Start the per-sentence countdown. Sets phase=memorizing, ticks once
+  // a second, and flips to "reciting" when it hits 0. Calling this
+  // while already counting clears the previous timer first so callers
+  // don't have to coordinate.
+  const startMemorizeCountdown = useCallback(
+    (idx: number) => {
+      clearMemorizeTimer();
+      const total = computeSentenceMemorizeDuration(sentences[idx] ?? "");
+      setMemorizeRemaining(total);
+      setPhase("memorizing");
+      memorizeTimerRef.current = setInterval(() => {
+        setMemorizeRemaining((n) => {
+          if (n <= 1) {
+            clearMemorizeTimer();
+            setPhase("reciting");
+            return 0;
+          }
+          return n - 1;
+        });
+      }, 1000);
+    },
+    [sentences, clearMemorizeTimer]
+  );
 
   const scrollRef = useRef<ScrollView>(null);
   const contentRef = useRef<View>(null);
@@ -210,27 +273,41 @@ export function RecitePrepFlow({
     };
   }, [sentences, voice, userId, articleId]);
 
+  // Plays sentence `idx`. The `intent` decides what to do when playback
+  // ends:
+  //   - "auto"  : we're in the preview beat; chain into the memorize
+  //               countdown when audio finishes.
+  //   - "replay": user explicitly tapped a "listen again" affordance;
+  //               do NOT advance the state machine — return them to
+  //               the same phase they were in (preview/memorizing/
+  //               reviewing) so they can keep doing what they were doing.
   const playSentence = useCallback(
-    (idx: number) => {
+    (idx: number, intent: "auto" | "replay" = "auto") => {
       if (idx >= sentences.length) return;
       clearPlaybackWatchdog();
+      // If a memorize countdown is already running for this sentence,
+      // pause it while audio plays so the phase doesn't auto-flip to
+      // "reciting" mid-playback. We'll restart it when audio ends.
+      const wasMemorizing = phaseRef.current === "memorizing";
+      if (wasMemorizing) clearMemorizeTimer();
       const gen = ++playGenRef.current;
-      setPhase("playing");
+      const onFinish = () => {
+        updateStates((prev) =>
+          prev.map((s, i) => (i === idx ? { ...s, listened: true } : s))
+        );
+        if (intent === "auto" || wasMemorizing) {
+          startMemorizeCountdown(idx);
+        }
+      };
       try {
         player.playTTS(sentences[idx], voice, () => {
           if (gen !== playGenRef.current) return;
           clearPlaybackWatchdog();
-          setPhase("ready");
-          updateStates((prev) =>
-            prev.map((s, i) => (i === idx ? { ...s, listened: true } : s))
-          );
+          onFinish();
         });
       } catch {
         if (gen === playGenRef.current) {
-          setPhase("ready");
-          updateStates((prev) =>
-            prev.map((s, i) => (i === idx ? { ...s, listened: true } : s))
-          );
+          onFinish();
         }
         return;
       }
@@ -238,34 +315,38 @@ export function RecitePrepFlow({
       playbackWatchdogRef.current = setTimeout(() => {
         if (gen !== playGenRef.current) return;
         playbackWatchdogRef.current = null;
-        setPhase("ready");
-        updateStates((prev) =>
-          prev.map((s, i) => (i === idx ? { ...s, listened: true } : s))
-        );
+        onFinish();
       }, estMs);
     },
-    [sentences, voice, player, clearPlaybackWatchdog, updateStates]
+    [sentences, voice, player, clearPlaybackWatchdog, updateStates, startMemorizeCountdown, clearMemorizeTimer]
   );
 
-  // Mount-time cleanup. We intentionally do NOT auto-play the first
-  // sentence — same rationale as ShadowSentenceFlow.
+  // Mount-time auto-play. The recitation loop is "look/listen → cover
+  // → recite", so the first beat is the TTS. We kick it off
+  // automatically on mount and again whenever `currentIdx` changes
+  // (see `goToSentence`).
   //
-  // Important: also tear down an in-flight recording on unmount so the
-  // mic handle is released before the parent transitions into the
-  // scored stage-2 take (which uses the session-level recorder). The
-  // hand-off path already calls stopRecording, but unmount triggered by
-  // any other path (parent re-render, navigation race, etc.) would
-  // otherwise leak the mic.
+  // Cleanup: tear down an in-flight recording on unmount so the mic
+  // handle is released before the parent transitions into the scored
+  // stage-2 take (which uses the session-level recorder). The hand-off
+  // path already calls stopRecording, but unmount triggered by any
+  // other path (parent re-render, navigation race, etc.) would
+  // otherwise leak the mic. Also clear the per-sentence countdown so
+  // it doesn't keep ticking against an unmounted component.
   useEffect(() => {
+    if (sentences.length > 0) {
+      playSentence(0, "auto");
+    }
     return () => {
       clearPlaybackWatchdog();
+      clearMemorizeTimer();
       try {
         player.stop();
       } catch {}
       try {
         recordingPlayer.stop();
       } catch {}
-      if (phaseRef.current === "recording") {
+      if (phaseRef.current === "reciting") {
         try {
           void stopRecording().catch(() => {});
         } catch {}
@@ -304,7 +385,8 @@ export function RecitePrepFlow({
               setShadowLeaveIntercept(false);
               // Tear down any in-progress recording so we don't leak
               // the mic handle after unmount.
-              if (phase === "recording") {
+              clearMemorizeTimer();
+              if (phase === "reciting") {
                 try {
                   void stopRecording().catch(() => {});
                 } catch {}
@@ -329,52 +411,75 @@ export function RecitePrepFlow({
       );
     });
     return sub;
-  }, [navigation, phase, stopRecording, t]);
+  }, [navigation, phase, stopRecording, t, clearMemorizeTimer]);
 
   // ── per-sentence loop ─────────────────────────────────────────────────
 
+  // "I'm ready" — bypass the rest of the memorize countdown and jump
+  // straight to reciting. Also used implicitly when the mic button is
+  // pressed during preview/memorizing.
+  const handleSkipToReciting = useCallback(() => {
+    clearMemorizeTimer();
+    try {
+      player.stop();
+    } catch {}
+    playGenRef.current++;
+    clearPlaybackWatchdog();
+    setMemorizeRemaining(0);
+    setPhase("reciting");
+  }, [clearMemorizeTimer, player, clearPlaybackWatchdog]);
+
   const handleMicPress = useCallback(async () => {
-    if (phase === "recording") {
-      await stopRecording();
-      setPhase("ready");
+    if (phase === "reciting" && isRecording) {
+      // Actively recording → stop, mark recorded, → reviewing.
+      await stopRecording().catch(() => null);
       updateStates((prev) =>
         prev.map((s, i) => (i === currentIdx ? { ...s, recorded: true } : s))
       );
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setPhase("reviewing");
       return;
     }
-    if (phase === "ready" || phase === "playing") {
-      try {
-        player.stop();
-      } catch {}
-      playGenRef.current++;
-      clearPlaybackWatchdog();
+    if (phase === "reciting" && !isRecording) {
+      // Mic is armed but not recording yet — start.
       requestMicAccess(async () => {
         const ok = await startRecording();
         if (!ok) return;
-        setPhase("recording");
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      });
+      return;
+    }
+    // From preview / memorizing the mic press both jumps to "reciting"
+    // AND arms the mic in one tap, so the user gets the immediate
+    // "go ahead" affordance they'd expect when bailing out of the
+    // countdown early.
+    if (phase === "preview" || phase === "memorizing") {
+      handleSkipToReciting();
+      requestMicAccess(async () => {
+        const ok = await startRecording();
+        if (!ok) return;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       });
     }
   }, [
     phase,
-    player,
+    isRecording,
     stopRecording,
     startRecording,
     requestMicAccess,
     currentIdx,
     updateStates,
-    clearPlaybackWatchdog,
+    handleSkipToReciting,
   ]);
 
   const handleReplayCurrent = useCallback(() => {
-    if (phase === "recording") return;
-    playSentence(currentIdx);
+    if (phase === "reciting") return;
+    playSentence(currentIdx, "replay");
   }, [phase, playSentence, currentIdx]);
 
   const handlePlayMyRecording = useCallback(() => {
     if (!lastRecordingUri) return;
-    if (phase === "recording") return;
+    if (phase === "reciting") return;
     try {
       player.stop();
     } catch {}
@@ -395,19 +500,31 @@ export function RecitePrepFlow({
   const goToSentence = useCallback(
     (nextIdx: number) => {
       if (nextIdx < 0 || nextIdx >= sentences.length) return;
-      if (phase === "recording") return;
+      if (phase === "reciting" && isRecording) return;
       try {
         player.stop();
       } catch {}
       try {
         recordingPlayer.stop();
       } catch {}
+      clearMemorizeTimer();
+      setMemorizeRemaining(0);
       setIsPlayingMyRecording(false);
       clearLastRecording();
       setCurrentIdx(nextIdx);
-      playSentence(nextIdx);
+      setPhase("preview");
+      playSentence(nextIdx, "auto");
     },
-    [sentences.length, phase, player, recordingPlayer, clearLastRecording, playSentence]
+    [
+      sentences.length,
+      phase,
+      isRecording,
+      player,
+      recordingPlayer,
+      clearLastRecording,
+      clearMemorizeTimer,
+      playSentence,
+    ]
   );
 
   const handleNext = useCallback(() => {
@@ -420,14 +537,14 @@ export function RecitePrepFlow({
 
   const replayAny = useCallback(
     (idx: number) => {
-      if (phase === "recording") return;
+      if (phase === "reciting" && isRecording) return;
       if (idx === currentIdx) {
-        playSentence(idx);
+        playSentence(idx, "replay");
         return;
       }
       goToSentence(idx);
     },
-    [phase, currentIdx, playSentence, goToSentence]
+    [phase, isRecording, currentIdx, playSentence, goToSentence]
   );
 
   // Hand-off to the parent's recitation flow. Tear down audio + mic and
@@ -449,7 +566,8 @@ export function RecitePrepFlow({
     clearPlaybackWatchdog();
     suppressInterceptRef.current = true;
     setShadowLeaveIntercept(false);
-    if (phase === "recording") {
+    clearMemorizeTimer();
+    if (phase === "reciting" && isRecording) {
       // Block the hand-off until stopRecording resolves so the next
       // recorder (the scored take on the session-level useAudioRecorder)
       // doesn't race with our mic handle. Capped so a stuck recorder
@@ -464,10 +582,12 @@ export function RecitePrepFlow({
     onContinue();
   }, [
     phase,
+    isRecording,
     stopRecording,
     player,
     recordingPlayer,
     clearPlaybackWatchdog,
+    clearMemorizeTimer,
     onContinue,
   ]);
 
@@ -525,11 +645,22 @@ export function RecitePrepFlow({
     </View>
   ) : null;
 
-  const replayDisabled = phase === "recording";
+  const replayDisabled = phase === "reciting" && isRecording;
+
+  // The current sentence is replaced with its masked rendering ONLY
+  // while the user is reciting from memory. Other beats — preview,
+  // memorize-countdown, post-recording review — show the original so
+  // the user can read along, memorize, or self-compare.
+  const maskedCurrentText = useMemo(() => {
+    if (currentIdx >= sentences.length) return "";
+    return buildRecitationHintPlan(sentences[currentIdx] ?? "", 0).display;
+  }, [sentences, currentIdx]);
 
   const renderSentenceRow = (globalIdx: number, sent: string) => {
     const st = states[globalIdx];
     const isCurrent = globalIdx === currentIdx;
+    const showMasked = isCurrent && phase === "reciting";
+    const displayText = showMasked ? maskedCurrentText || sent : sent;
     let bg: string | undefined;
     let color = colors.foreground;
     let opacity = 1;
@@ -574,9 +705,15 @@ export function RecitePrepFlow({
             { backgroundColor: playColor + "1A", borderColor: playColor + "33" },
           ]}
         >
-          <Play size={11} color={playColor} fill={playColor} />
+          {showMasked ? (
+            <EyeOff size={11} color={playColor} />
+          ) : (
+            <Play size={11} color={playColor} fill={playColor} />
+          )}
         </View>
-        <Text style={[styles.sentText, { color }, rtlTextStyle(sent)]}>{sent}</Text>
+        <Text style={[styles.sentText, { color }, rtlTextStyle(displayText)]}>
+          {displayText}
+        </Text>
         <View
           style={[
             styles.statusDot,
@@ -672,11 +809,24 @@ export function RecitePrepFlow({
     );
   }
 
-  const loopHint =
-    phase === "recording"
-      ? t("session.shadow.stopHint")
-      : t("session.recite.prep.guidedHint");
+  let loopHint: string;
+  if (phase === "preview") {
+    loopHint = t("session.recite.prep.previewHint");
+  } else if (phase === "memorizing") {
+    loopHint = t("session.recite.prep.memorizeHint");
+  } else if (phase === "reciting") {
+    loopHint = isRecording
+      ? t("session.recite.prep.recordingHint")
+      : t("session.recite.prep.reciteHint");
+  } else {
+    loopHint = t("session.recite.prep.reviewHint");
+  }
   const isLast = currentIdx >= sentences.length - 1;
+  // The mic button is the focal action only once we've reached the
+  // reciting beat — earlier beats have their own affordances (auto-play
+  // during preview, "I'm ready" during memorizing) so the mic stays
+  // disabled there to keep the call-to-action obvious.
+  const micDisabled = phase === "preview";
 
   const renderControls = () => (
     <View style={styles.controls}>
@@ -845,25 +995,65 @@ export function RecitePrepFlow({
       {renderControls()}
 
       <View style={styles.recordSection}>
+        {phase === "memorizing" ? (
+          <View
+            style={[
+              styles.countdownChip,
+              {
+                backgroundColor: accentColor + "15",
+                borderColor: accentColor + "55",
+              },
+            ]}
+          >
+            <Timer size={16} color={accentColor} />
+            <Text style={[styles.countdownChipNum, { color: accentColor }]}>
+              {memorizeRemaining}
+            </Text>
+            <Text
+              style={[styles.countdownChipLabel, { color: colors.mutedForeground }]}
+            >
+              {t("session.recite.prep.countdownLabel")}
+            </Text>
+          </View>
+        ) : null}
+
         <TouchableOpacity
           onPress={handleMicPress}
-          disabled={phase === "playing"}
+          disabled={micDisabled}
           style={[
             styles.recordBtn,
             {
-              backgroundColor: phase === "recording" ? "#EF4444" : accentColor,
-              shadowColor: phase === "recording" ? "#EF4444" : accentColor,
-              opacity: phase === "playing" ? 0.6 : 1,
+              backgroundColor: isRecording ? "#EF4444" : accentColor,
+              shadowColor: isRecording ? "#EF4444" : accentColor,
+              opacity: micDisabled ? 0.45 : 1,
             },
           ]}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={loopHint}
         >
-          <Icon name={phase === "recording" ? "square" : "mic"} size={32} color="#fff" />
+          <Icon name={isRecording ? "square" : "mic"} size={32} color="#fff" />
         </TouchableOpacity>
         <Text style={[styles.hintText, { color: colors.mutedForeground }]}>{loopHint}</Text>
-        {phase === "recording" ? <AudioWaveform isActive color="#EF4444" /> : null}
+        {isRecording ? <AudioWaveform isActive color="#EF4444" /> : null}
 
-        {phase !== "recording" ? (
+        {phase === "memorizing" ? (
+          <TouchableOpacity
+            onPress={handleSkipToReciting}
+            style={[
+              styles.readyBtn,
+              { backgroundColor: accentColor + "1A", borderColor: accentColor },
+            ]}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.readyBtnText, { color: accentColor }]}>
+              {t("session.recite.prep.readyNow")}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {!isRecording ? (
           <View style={styles.optionRow}>
             <TouchableOpacity
               onPress={handlePrev}
@@ -879,7 +1069,7 @@ export function RecitePrepFlow({
                 {t("session.shadow.prev")}
               </Text>
             </TouchableOpacity>
-            {lastRecordingUri ? (
+            {phase === "reviewing" && lastRecordingUri ? (
               <TouchableOpacity
                 onPress={isPlayingMyRecording ? handleStopMyRecording : handlePlayMyRecording}
                 style={[styles.optBtn, { borderColor: colors.border }]}
@@ -1151,6 +1341,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   optBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  countdownChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  countdownChipNum: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    minWidth: 22,
+    textAlign: "center",
+  },
+  countdownChipLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
+  readyBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  readyBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
   fullReadCta: {
     flexDirection: "row",
     alignItems: "center",
