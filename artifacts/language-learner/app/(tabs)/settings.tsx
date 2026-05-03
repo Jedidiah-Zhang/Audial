@@ -66,9 +66,6 @@ export default function SettingsScreen() {
         <Text style={[styles.title, { color: colors.foreground }]}>
           {t("settings.title")}
         </Text>
-        <View style={{ marginTop: 8 }}>
-          <SyncIndicator />
-        </View>
       </View>
 
       <ScrollView
@@ -83,6 +80,7 @@ export default function SettingsScreen() {
             label={t("settings.section.account")}
             value={accountSummary}
             onPress={() => router.push("/account")}
+            inlineSlot={<SyncIndicator />}
           />
         </Section>
 
@@ -349,6 +347,7 @@ function Row({
   label,
   value,
   valuePrefix,
+  inlineSlot,
   onPress,
 }: {
   colors: ReturnType<typeof useColors>;
@@ -360,8 +359,19 @@ function Row({
    * language rows to show a small flag image next to the language name.
    */
   valuePrefix?: React.ReactNode;
+  /**
+   * Optional element rendered between the value text and the chevron.
+   * Used to inject custom controls (e.g. the SyncIndicator pill) into a
+   * row without breaking the standard label/value/chevron layout.
+   * The slot may render `null` (e.g. for guests), so callers don't need
+   * to conditionally pass it.
+   */
+  inlineSlot?: React.ReactNode;
   onPress?: () => void;
 }) {
+  // When an inline slot is present we let the value text shrink instead
+  // of pushing the pill or chevron off-screen on narrow widths.
+  const valueCanShrink = inlineSlot != null;
   return (
     <TouchableOpacity
       activeOpacity={0.7}
@@ -377,9 +387,17 @@ function Row({
       {valuePrefix ? (
         <View style={styles.valuePrefixWrap}>{valuePrefix}</View>
       ) : null}
-      <Text style={[styles.itemValue, { color: colors.mutedForeground }]} numberOfLines={1}>
+      <Text
+        style={[
+          styles.itemValue,
+          { color: colors.mutedForeground },
+          valueCanShrink && { flexShrink: 1, minWidth: 0 },
+        ]}
+        numberOfLines={1}
+      >
         {value}
       </Text>
+      {inlineSlot ? <View style={styles.inlineSlotWrap}>{inlineSlot}</View> : null}
       <ChevronRight size={18} color={colors.mutedForeground} style={flipIfRTL()} />
     </TouchableOpacity>
   );
@@ -529,6 +547,10 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     maxWidth: 160,
     textAlign: "right",
+  },
+  inlineSlotWrap: {
+    marginLeft: 8,
+    flexShrink: 0,
   },
   overlay: {
     flex: 1,
