@@ -52,9 +52,46 @@ export default function SignUpScreen() {
 
   const handleSubmit = async () => {
     setSubmitError(null);
-    const { error } = await signUp.password({ emailAddress, password });
+    const trimmedEmail = emailAddress.trim();
+    // If the in-memory signUp resource is from a previous attempt that
+    // targeted a different email (or is already past the create step),
+    // reset it so we don't get a stale "identifier already exists" error
+    // pointing at the prior email.
+    const su = signUp as any;
+    const previousEmail: string | undefined =
+      typeof su?.emailAddress === "string" ? su.emailAddress : undefined;
+    const hasStale =
+      !!su?.id &&
+      ((previousEmail && previousEmail !== trimmedEmail) ||
+        su?.status === "complete" ||
+        su?.status === "abandoned");
+    if (hasStale && typeof su.reset === "function") {
+      try {
+        await su.reset();
+      } catch {
+        /* best-effort reset */
+      }
+    }
+    const { error } = await signUp.password({
+      emailAddress: trimmedEmail,
+      password,
+    });
     if (error) {
-      setSubmitError(error.message ?? t("auth.error.generic"));
+      // Field-level Clerk errors (e.g. "email already taken") are already
+      // rendered inline next to the affected input via `errors.fields.*`.
+      // Only surface a top-level submitError for non-field/general errors
+      // so the same message doesn't appear twice.
+      const errAny = error as any;
+      const isFieldError =
+        !!errAny?.fields?.emailAddress ||
+        !!errAny?.fields?.password ||
+        errAny?.code === "form_identifier_exists" ||
+        errAny?.code === "form_password_pwned" ||
+        errAny?.code === "form_password_length_too_short" ||
+        errAny?.code === "form_param_format_invalid";
+      if (!isFieldError) {
+        setSubmitError(error.message ?? t("auth.error.generic"));
+      }
       return;
     }
     await signUp.verifications.sendEmailCode();
@@ -226,7 +263,7 @@ export default function SignUpScreen() {
               </Text>
             )}
 
-            {submitError ? (
+            {submitError && !errors.fields.emailAddress && !errors.fields.password ? (
               <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
                 {submitError}
               </Text>
