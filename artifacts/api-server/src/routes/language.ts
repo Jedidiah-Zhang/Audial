@@ -812,7 +812,11 @@ function stripPunctuation(s: string): string {
   return s.replace(PUNCT_RE, "");
 }
 function normalizeForCompare(s: string): string {
-  return stripPunctuation(s).replace(/\s+/g, "").toLowerCase();
+  // Collapse runs of whitespace to a single space (don't strip them) so
+  // that real word-boundary differences like "goodmorning" vs "good
+  // morning" are still treated as different — only punctuation, case,
+  // and incidental whitespace formatting are ignored.
+  return stripPunctuation(s).replace(/\s+/g, " ").trim().toLowerCase();
 }
 function isPurePunctuation(token: string): boolean {
   if (!token) return false;
