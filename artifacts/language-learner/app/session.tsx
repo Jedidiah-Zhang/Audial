@@ -84,6 +84,11 @@ function computeMemorizeDuration(rawText: string): number {
 const HINT_SCORE_DEDUCTION_PER_USE = 10;
 const HINT_FREE_PER_DAY = 3;
 const HINT_AD_BONUS = 3;
+/**
+ * Whole-passage plays allowed per dictation session. Per-session only —
+ * not persisted across app restarts. See `dictationPlaysRemaining`.
+ */
+const DICTATION_MAX_PLAYS = 3;
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
 
@@ -210,6 +215,13 @@ export default function SessionScreen() {
 
   const [phase, setPhase] = useState<SessionPhase>("intro");
   const [dictationInput, setDictationInput] = useState("");
+  // Per-dictation-session whole-passage play counter. Starts full at
+  // the beginning of each dictation session and decrements on every
+  // tap of the Play All button that actually starts playback. Once it
+  // hits 0 the button is disabled. Reset on retry, on phase exit from
+  // study, and whenever the article or stage changes.
+  const [dictationPlaysRemaining, setDictationPlaysRemaining] =
+    useState<number>(DICTATION_MAX_PLAYS);
   const [result, setResult] = useState<{
     score: number;
     feedback: string;
@@ -691,6 +703,10 @@ export default function SessionScreen() {
     setHintVisible(false);
     setRecitationHintsRevealed(0);
     setRecitationHintAdPrompt(false);
+    // Restarting the dictation session refills the play counter — see
+    // task spec: "Starting a new dictation session (new passage /
+    // restart) resets the counter to 3."
+    setDictationPlaysRemaining(DICTATION_MAX_PLAYS);
     setPhase("intro");
   };
 
@@ -762,6 +778,18 @@ export default function SessionScreen() {
       setRecitationHintAdPrompt(false);
     }
   }, [phase, stageIdx]);
+
+  // Refill the dictation play counter at the start of each fresh
+  // dictation session: when the article changes, when the active
+  // stage changes, or whenever we step out of the study phase
+  // (covers the "back to intro then re-enter" path even though
+  // handleRetry also explicitly resets it).
+  useEffect(() => {
+    if (stageIdx !== 1) return;
+    if (phase !== "study") {
+      setDictationPlaysRemaining(DICTATION_MAX_PLAYS);
+    }
+  }, [phase, stageIdx, text?.id]);
 
   // Hint button handler — three behaviours rolled into one tap:
   //   1. Card is currently shown   → hide it (no quota consumption).
@@ -1290,6 +1318,13 @@ export default function SessionScreen() {
               contentType={text.contentType}
               articleId={text.id}
               targetLanguage={text.targetLanguage}
+              dictationMode
+              playLimit={{
+                remaining: dictationPlaysRemaining,
+                total: DICTATION_MAX_PLAYS,
+                onConsume: () =>
+                  setDictationPlaysRemaining((n) => Math.max(0, n - 1)),
+              }}
             />
 
             {(() => {

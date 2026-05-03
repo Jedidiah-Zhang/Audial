@@ -29,6 +29,27 @@ interface SentenceArticleProps {
   /** When true, sentence taps and Play All controls are disabled (e.g. during mic recording). */
   disablePlayback?: boolean;
   /**
+   * Dictation-stage mode. When true, the per-sentence controls are
+   * suppressed (no tap-to-play, no prev / next / replay) so the only
+   * way to hear the audio is the whole-passage Play All button.
+   * Other consumers (study, recitation) leave this off and keep the
+   * full control set. Pair with `playLimit` to additionally cap the
+   * number of full-passage plays per dictation session.
+   */
+  dictationMode?: boolean;
+  /**
+   * Optional cap on whole-passage plays. When provided, the Play All
+   * button shows "{remaining} / {total} plays left", calls
+   * `onConsume()` on each tap that actually starts playback, and is
+   * disabled (with a "limit reached" hint) once `remaining` hits 0.
+   * Currently only consumed by the dictation stage.
+   */
+  playLimit?: {
+    remaining: number;
+    total: number;
+    onConsume: () => void;
+  };
+  /**
    * The article's target language code (e.g. `en-US`, `en-GB`). When the user
    * has not manually picked a voice, we default to a voice matching this
    * language's accent (en-GB → fable, en-US → nova). An explicit `voice` prop
@@ -54,6 +75,8 @@ export function SentenceArticle({
   maxTextHeight = 320,
   articleId,
   disablePlayback = false,
+  dictationMode = false,
+  playLimit,
   targetLanguage,
 }: SentenceArticleProps) {
   const colors = useColors();
@@ -271,7 +294,11 @@ export function SentenceArticle({
               return (
                 <Text
                   key={globalIdx}
-                  onPress={disablePlayback ? undefined : () => playOne(globalIdx)}
+                  onPress={
+                    disablePlayback || dictationMode
+                      ? undefined
+                      : () => playOne(globalIdx)
+                  }
                   suppressHighlighting
                   style={[
                     styles.sentence,
@@ -386,12 +413,14 @@ export function SentenceArticle({
           })()}
           </ScrollView>
 
-          <View style={[styles.hintRow, { borderTopColor: colors.border }]}>
-            <Info size={11} color={colors.mutedForeground} />
-            <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
-              {t("sentence.hint", { n: playableSentences.length })}
-            </Text>
-          </View>
+          {!dictationMode && (
+            <View style={[styles.hintRow, { borderTopColor: colors.border }]}>
+              <Info size={11} color={colors.mutedForeground} />
+              <Text style={[styles.hintText, { color: colors.mutedForeground }]}>
+                {t("sentence.hint", { n: playableSentences.length })}
+              </Text>
+            </View>
+          )}
         </View>
       ) : null}
 
@@ -481,7 +510,7 @@ export function SentenceArticle({
             })}
           </View>
 
-          {(() => {
+          {!dictationMode && (() => {
             const total = playableSentences.length;
             // Prev is disabled when there is no current sentence to step
             // back from (cursorIdx===null) or we're already at the first
@@ -589,26 +618,57 @@ export function SentenceArticle({
               <Text style={styles.bigBtnText}>{t("sentence.stop")}</Text>
               <AudioWaveform isActive color="#fff" barCount={4} />
             </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              onPress={() => playSequence(0)}
-              disabled={isLoading}
-              style={[styles.bigBtn, {
-                backgroundColor: accentColor,
-                opacity: isLoading ? 0.6 : 1,
-              }]}
-              activeOpacity={0.85}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <PlayCircle size={22} color="#fff" />
-              )}
-              <Text style={styles.bigBtnText}>
-                {isLoading ? t("sentence.loading") : t("sentence.playAll")}
-              </Text>
-            </TouchableOpacity>
-          )}
+          ) : (() => {
+            // Dictation cap: when a `playLimit` is supplied (currently
+            // only by the dictation stage), each tap that actually starts
+            // playback consumes one play. Once the counter hits 0 the
+            // button is disabled and we surface a short hint explaining
+            // why; tapping the disabled button is a no-op (no audio).
+            const limitReached =
+              !!playLimit && playLimit.remaining <= 0;
+            const playDisabled = isLoading || limitReached;
+            return (
+              <View style={{ width: "100%" }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (limitReached) return;
+                    if (playLimit) playLimit.onConsume();
+                    playSequence(0);
+                  }}
+                  disabled={playDisabled}
+                  style={[styles.bigBtn, {
+                    backgroundColor: accentColor,
+                    opacity: playDisabled ? 0.5 : 1,
+                  }]}
+                  activeOpacity={0.85}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <PlayCircle size={22} color="#fff" />
+                  )}
+                  <Text style={styles.bigBtnText}>
+                    {isLoading ? t("sentence.loading") : t("sentence.playAll")}
+                  </Text>
+                </TouchableOpacity>
+                {playLimit && (
+                  <Text
+                    style={[
+                      styles.playLimitLabel,
+                      { color: limitReached ? "#EF4444" : colors.mutedForeground },
+                    ]}
+                  >
+                    {limitReached
+                      ? t("dictation.playLimit.reached")
+                      : t("dictation.playLimit.remaining", {
+                          n: playLimit.remaining,
+                          total: playLimit.total,
+                        })}
+                  </Text>
+                )}
+              </View>
+            );
+          })()}
 
         </View>
       )}
@@ -810,5 +870,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_500Medium",
     alignSelf: "center",
+  },
+  playLimitLabel: {
+    marginTop: 8,
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    textAlign: "center",
   },
 });
