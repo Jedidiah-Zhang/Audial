@@ -46,6 +46,7 @@ export default function SignUpScreen() {
   const { startSSOFlow } = useSSO();
   const { settings, updateSettings } = useApp();
 
+  const [username, setUsername] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -69,16 +70,20 @@ export default function SignUpScreen() {
   const handleSubmit = async () => {
     setSubmitError(null);
     const trimmedEmail = emailAddress.trim();
+    const trimmedUsername = username.trim();
     // If the in-memory signUp resource is from a previous attempt that
-    // targeted a different email (or is already past the create step),
-    // reset it so we don't get a stale "identifier already exists" error
-    // pointing at the prior email.
+    // targeted a different email/username (or is already past the create
+    // step), reset it so we don't get a stale "identifier already exists"
+    // error pointing at the prior values.
     const su = signUp as any;
     const previousEmail: string | undefined =
       typeof su?.emailAddress === "string" ? su.emailAddress : undefined;
+    const previousUsername: string | undefined =
+      typeof su?.username === "string" ? su.username : undefined;
     const hasStale =
       !!su?.id &&
       ((previousEmail && previousEmail !== trimmedEmail) ||
+        (previousUsername && previousUsername !== trimmedUsername) ||
         su?.status === "complete" ||
         su?.status === "abandoned");
     if (hasStale && typeof su.reset === "function") {
@@ -89,6 +94,7 @@ export default function SignUpScreen() {
       }
     }
     const { error } = await signUp.password({
+      username: trimmedUsername,
       emailAddress: trimmedEmail,
       password,
     });
@@ -101,7 +107,10 @@ export default function SignUpScreen() {
       const isFieldError =
         !!errAny?.fields?.emailAddress ||
         !!errAny?.fields?.password ||
+        !!errAny?.fields?.username ||
         errAny?.code === "form_identifier_exists" ||
+        errAny?.code === "form_username_invalid_length" ||
+        errAny?.code === "form_username_invalid_character" ||
         errAny?.code === "form_password_pwned" ||
         errAny?.code === "form_password_length_too_short" ||
         errAny?.code === "form_param_format_invalid";
@@ -307,7 +316,28 @@ export default function SignUpScreen() {
           </View>
         ) : (
           <View style={styles.form}>
-            <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.email")}</Text>
+            <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.username")}</Text>
+            <TextInput
+              style={[
+                styles.input,
+                { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
+              ]}
+              value={username}
+              onChangeText={setUsername}
+              placeholder={t("auth.username.signUpPlaceholder")}
+              placeholderTextColor={colors.mutedForeground}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username-new"
+              textContentType="username"
+            />
+            {(errors.fields as any).username && (
+              <Text style={[styles.fieldError, { color: colors.destructive }]}>
+                {(errors.fields as any).username.message}
+              </Text>
+            )}
+
+            <Text style={[styles.label, { color: colors.foreground, marginTop: 14 }]}>{t("auth.email")}</Text>
             <TextInput
               style={[
                 styles.input,
@@ -342,7 +372,7 @@ export default function SignUpScreen() {
               </Text>
             )}
 
-            {submitError && !errors.fields.emailAddress && !errors.fields.password ? (
+            {submitError && !errors.fields.emailAddress && !errors.fields.password && !(errors.fields as any).username ? (
               <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
                 {submitError}
               </Text>
@@ -352,10 +382,10 @@ export default function SignUpScreen() {
               style={[
                 styles.primaryBtn,
                 { backgroundColor: colors.primary },
-                (!emailAddress || !password || fetchStatus === "fetching") && { opacity: 0.5 },
+                (!username || !emailAddress || !password || fetchStatus === "fetching") && { opacity: 0.5 },
               ]}
               onPress={handleSubmit}
-              disabled={!emailAddress || !password || fetchStatus === "fetching"}
+              disabled={!username || !emailAddress || !password || fetchStatus === "fetching"}
               activeOpacity={0.85}
             >
               {fetchStatus === "fetching" ? (

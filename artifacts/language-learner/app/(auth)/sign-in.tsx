@@ -45,7 +45,7 @@ export default function SignInScreen() {
   const { isSignedIn } = useAuth();
   const { startSSOFlow } = useSSO();
   const { settings, updateSettings } = useApp();
-  const [emailAddress, setEmailAddress] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -78,7 +78,7 @@ export default function SignInScreen() {
 
   const handleSubmit = async () => {
     setSubmitError(null);
-    const trimmedEmail = emailAddress.trim();
+    const trimmedIdentifier = identifier.trim();
 
     try {
       // If the in-memory signIn resource is left over from a previous
@@ -98,7 +98,7 @@ export default function SignInScreen() {
       }
 
       const { error } = await signIn.password({
-        emailAddress: trimmedEmail,
+        identifier: trimmedIdentifier,
         password,
       });
       if (error) {
@@ -489,19 +489,20 @@ export default function SignInScreen() {
           </View>
         ) : (
         <View style={styles.form}>
-          <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.email")}</Text>
+          <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.identifier")}</Text>
           <TextInput
             style={[
               styles.input,
               { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
             ]}
-            value={emailAddress}
-            onChangeText={setEmailAddress}
-            placeholder={t("auth.email.placeholder")}
+            value={identifier}
+            onChangeText={setIdentifier}
+            placeholder={t("auth.identifier.placeholder")}
             placeholderTextColor={colors.mutedForeground}
             autoCapitalize="none"
-            keyboardType="email-address"
-            autoComplete="email"
+            autoCorrect={false}
+            autoComplete="username"
+            textContentType="username"
           />
 
           <Text style={[styles.label, { color: colors.foreground, marginTop: 14 }]}>
@@ -533,10 +534,10 @@ export default function SignInScreen() {
             style={[
               styles.primaryBtn,
               { backgroundColor: colors.primary },
-              (!emailAddress || !password || fetchStatus === "fetching") && { opacity: 0.5 },
+              (!identifier || !password || fetchStatus === "fetching") && { opacity: 0.5 },
             ]}
             onPress={handleSubmit}
-            disabled={!emailAddress || !password || fetchStatus === "fetching"}
+            disabled={!identifier || !password || fetchStatus === "fetching"}
             activeOpacity={0.85}
           >
             {fetchStatus === "fetching" ? (
