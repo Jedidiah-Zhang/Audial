@@ -896,6 +896,25 @@ CRITICAL: Punctuation differences DO NOT count as errors. Ignore any difference 
       });
     }
 
+    // Guard: the model occasionally "fixes up" the user's writing in
+    // userAnnotations (changes case, inserts missing punctuation,
+    // straightens quotes…). The result page renders those tokens
+    // verbatim under "what you wrote", so the user sees text that isn't
+    // theirs. If the concatenated user-side annotations don't match the
+    // original userText (modulo whitespace), drop them so the client
+    // falls back to displaying the raw userText. Whitespace is the
+    // only formatting we tolerate because tokenization may attach or
+    // detach spaces between words.
+    if (Array.isArray(data.userAnnotations) && typeof userText === "string") {
+      const stripWs = (s: string) => s.replace(/\s+/g, "");
+      const reconstructed = data.userAnnotations
+        .map((a: any) => (a && typeof a.word === "string" ? a.word : ""))
+        .join("");
+      if (stripWs(reconstructed) !== stripWs(userText)) {
+        data.userAnnotations = undefined;
+      }
+    }
+
     if (
       typeof targetText === "string" &&
       typeof userText === "string" &&
