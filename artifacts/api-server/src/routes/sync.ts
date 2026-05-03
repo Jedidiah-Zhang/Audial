@@ -20,7 +20,9 @@ function todayKey(): string {
   return shifted.toISOString().slice(0, 10);
 }
 
-router.use(requireClerkAuth);
+// Scope auth to /sync/* so it doesn't leak onto sibling routers
+// (e.g. /language/*) mounted at the same root path in routes/index.ts.
+router.use("/sync", requireClerkAuth);
 
 router.get("/sync/snapshot", async (req, res) => {
   const userId = req.auth!.userId;
