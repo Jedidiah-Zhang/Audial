@@ -38,7 +38,7 @@ export default function SignInScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { signIn, fetchStatus } = useSignIn();
+  const { signIn, errors, fetchStatus } = useSignIn();
   const { isSignedIn } = useAuth();
   const { startSSOFlow } = useSSO();
   const [emailAddress, setEmailAddress] = useState("");
@@ -52,17 +52,60 @@ export default function SignInScreen() {
 
   const handleSubmit = async () => {
     setSubmitError(null);
-    const { error } = await signIn.password({ emailAddress, password });
-    if (error) {
-      setSubmitError(error.message ?? t("auth.error.generic"));
-      return;
-    }
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: () => {
-          router.replace("/(tabs)");
-        },
+    const trimmedEmail = emailAddress.trim();
+
+    try {
+      // If the in-memory signIn resource is left over from a previous
+      // attempt (e.g. abandoned or already-complete), reset it so
+      // signIn.password() doesn't no-op against a stale state machine.
+      const si = signIn as any;
+      if (
+        !!si?.id &&
+        (si?.status === "complete" || si?.status === "abandoned") &&
+        typeof si.reset === "function"
+      ) {
+        try {
+          await si.reset();
+        } catch {
+          /* best-effort reset */
+        }
+      }
+
+      const { error } = await signIn.password({
+        emailAddress: trimmedEmail,
+        password,
       });
+      if (error) {
+        const errAny = error as any;
+        const isFieldError =
+          !!errAny?.fields?.identifier ||
+          !!errAny?.fields?.password ||
+          !!errors?.fields?.identifier ||
+          !!errors?.fields?.password;
+        if (!isFieldError) {
+          setSubmitError(error.message ?? t("auth.error.generic"));
+        }
+        return;
+      }
+
+      if (signIn.status === "complete") {
+        await signIn.finalize({
+          navigate: () => {
+            router.replace("/(tabs)");
+          },
+        });
+        return;
+      }
+
+      // Any other status (needs_second_factor / needs_client_trust /
+      // needs_first_factor / needs_identifier / etc.) — surface
+      // something so the button click never feels like it did nothing.
+      setSubmitError(t("auth.error.generic"));
+    } catch (err: any) {
+      // signIn.password() can throw on network errors / malformed state.
+      // Without this catch the rejection is swallowed and the user is
+      // left staring at a button that "did nothing".
+      setSubmitError(err?.message ?? t("auth.error.generic"));
     }
   };
 
