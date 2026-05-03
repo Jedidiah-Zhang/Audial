@@ -14,6 +14,12 @@ import { detectContentType } from "@/utils/contentType";
 import { clearArticleAudio } from "@/utils/ttsCache";
 import { migrateGuestData } from "@/utils/migrateGuestData";
 import {
+  listSavedAccounts,
+  notifySavedAccountsChanged,
+  removeSavedAccount,
+  upsertSavedAccount,
+} from "@/utils/savedAccounts";
+import {
   buildPushFromQueue,
   enqueuePending,
   isCloudSyncableUser,
@@ -1167,6 +1173,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // will be remembered for after sign-out).
       await AsyncStorage.setItem(ACTIVE_LOCAL_KEY, account.id);
       setActiveLocalAccountId(account.id);
+      // Surface the new local profile in the cross-screen "saved
+      // accounts" picker so it shows up on the sign-in screen too.
+      try {
+        await upsertSavedAccount({
+          id: account.id,
+          kind: "local",
+          displayName: account.name,
+          lastMethod: "local",
+        });
+        notifySavedAccountsChanged();
+      } catch {
+        // best-effort
+      }
       return account;
     },
     [localAccounts, persistLocalAccounts]
@@ -1181,9 +1200,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       // Reject ids that don't correspond to a known local profile to avoid
       // entering a hidden scope with no addressable profile.
-      if (!localAccounts.some((a) => a.id === id)) return;
+      const matched = localAccounts.find((a) => a.id === id);
+      if (!matched) return;
       await AsyncStorage.setItem(ACTIVE_LOCAL_KEY, id);
       setActiveLocalAccountId(id);
+      try {
+        await upsertSavedAccount({
+          id: matched.id,
+          kind: "local",
+          displayName: matched.name,
+          lastMethod: "local",
+        });
+        notifySavedAccountsChanged();
+      } catch {
+        // best-effort
+      }
     },
     [localAccounts]
   );
@@ -1203,6 +1234,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.removeItem(ACTIVE_LOCAL_KEY);
         setActiveLocalAccountId(null);
       }
+      // Drop the deleted profile from the saved-accounts picker too;
+      // otherwise it would offer a one-tap entry into a profile that
+      // no longer exists.
+      try {
+        await removeSavedAccount("local", id);
+        notifySavedAccountsChanged();
+      } catch {
+        // best-effort
+      }
     },
     [activeLocalAccountId, localAccounts, persistLocalAccounts]
   );
@@ -1213,6 +1253,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!name) return;
       const next = localAccounts.map((a) => (a.id === id ? { ...a, name } : a));
       await persistLocalAccounts(next);
+      try {
+        // Renames shouldn't change the entry's position in the picker.
+        // Look up the existing timestamp (if any) and reuse it so the
+        // ordering stays stable; falling back to `now` only when there
+        // is no prior entry to preserve.
+        const existing = (await listSavedAccounts()).find(
+          (a) => a.kind === "local" && a.id === id,
+        );
+        await upsertSavedAccount({
+          id,
+          kind: "local",
+          displayName: name,
+          lastMethod: "local",
+          lastUsedAt: existing?.lastUsedAt ?? Date.now(),
+        });
+        notifySavedAccountsChanged();
+      } catch {
+        // best-effort
+      }
     },
     [localAccounts, persistLocalAccounts]
   );

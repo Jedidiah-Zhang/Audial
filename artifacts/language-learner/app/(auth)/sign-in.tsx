@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,8 +12,8 @@ import {
 } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
-import { useSignIn, useSSO, useAuth } from "@clerk/expo";
-import { router } from "expo-router";
+import { useSignIn, useSSO, useAuth, useSessionList } from "@clerk/expo";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Globe, ShieldCheck, User, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
@@ -23,6 +23,9 @@ import { PasswordInput } from "@/components/PasswordInput";
 import { LanguagePickerSheet } from "@/components/LanguagePickerSheet";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
+import { setPendingSignInMethod, type SavedAccount } from "@/utils/savedAccounts";
+import { useSavedAccounts } from "@/hooks/useSavedAccounts";
+import { SavedAccountsList } from "@/components/SavedAccountsList";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -44,9 +47,38 @@ export default function SignInScreen() {
   const { signIn, errors, fetchStatus } = useSignIn();
   const { isSignedIn } = useAuth();
   const { startSSOFlow } = useSSO();
-  const { settings, updateSettings } = useApp();
-  const [identifier, setIdentifier] = useState("");
+  // `useSessionList` exposes the typed list of sessions Clerk has cached
+  // on this device along with the typed `setActive` for fast-switching.
+  // Reaching into `useClerk().client.sessions` directly would force `any`
+  // casts because the field is internal; this hook is the supported,
+  // properly-typed access path.
+  const { sessions: cachedSessions, setActive: setActiveSession } = useSessionList();
+  const { settings, updateSettings, switchLocalAccount } = useApp();
+  // Optional pre-fill hints from sibling screens (e.g. tapping a Clerk
+  // row in the Local Accounts manage screen). Read once on mount and
+  // applied as the initial identifier / suggested SSO so the user
+  // lands on a primed form instead of an empty one.
+  const params = useLocalSearchParams<{ identifier?: string; sso?: string }>();
+  const savedAccounts = useSavedAccounts();
+  const passwordInputRef = useRef<TextInput | null>(null);
+  const initialIdentifier = typeof params.identifier === "string" ? params.identifier : "";
+  const initialSso: "google" | "microsoft" | null =
+    params.sso === "google" || params.sso === "microsoft" ? params.sso : null;
+  const [identifier, setIdentifier] = useState(initialIdentifier);
   const [password, setPassword] = useState("");
+  const [suggestedSso, setSuggestedSso] = useState<"google" | "microsoft" | null>(initialSso);
+  // When the screen is opened with a prefilled identifier (e.g. tapped
+  // from the Local Accounts manage screen), drop the keyboard straight
+  // into the password field so the user can finish signing in without
+  // an extra tap. Only fires once on mount.
+  useEffect(() => {
+    if (initialIdentifier) {
+      const timer = setTimeout(() => passwordInputRef.current?.focus(), 250);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [langPickerOpen, setLangPickerOpen] = useState(false);
@@ -76,6 +108,59 @@ export default function SignInScreen() {
     router.replace("/(tabs)");
   };
 
+  /**
+   * Handler for when the user taps a row in the "Continue as…" picker.
+   *
+   * - Local accounts switch immediately into that profile.
+   * - Clerk accounts that already have a live cached session on
+   *   `clerk.client.sessions` are activated directly via `setActive` —
+   *   no password prompt.
+   * - Otherwise we pre-fill the identifier, focus the password field,
+   *   and (if the row remembers an SSO method) highlight the matching
+   *   provider button as the suggested next step.
+   */
+  const handleSavedAccountTap = useCallback(
+    async (acc: SavedAccount) => {
+      setSubmitError(null);
+      if (acc.kind === "local") {
+        await updateSettings({ onboarded: true });
+        await switchLocalAccount(acc.id);
+        router.replace("/(tabs)");
+        return;
+      }
+      // Clerk: try to fast-switch via a cached session.
+      try {
+        const cached = (cachedSessions ?? []).find(
+          (s) => s.user?.id === acc.id && s.status === "active",
+        );
+        if (cached && setActiveSession) {
+          await setActiveSession({
+            session: cached.id,
+            navigate: () => router.replace("/(tabs)"),
+          });
+          return;
+        }
+      } catch {
+        // Fall through to pre-fill behaviour below.
+      }
+      // No live session — pre-fill and focus password. If the saved
+      // method is SSO, surface that as the suggested next step.
+      const prefill = acc.email || acc.username || "";
+      setIdentifier(prefill);
+      if (acc.lastMethod === "google" || acc.lastMethod === "microsoft") {
+        setSuggestedSso(acc.lastMethod);
+      } else {
+        setSuggestedSso(null);
+      }
+      // Defer focus a tick so the prefilled identifier is committed
+      // before we move the keyboard target.
+      setTimeout(() => {
+        passwordInputRef.current?.focus();
+      }, 50);
+    },
+    [cachedSessions, setActiveSession, switchLocalAccount, updateSettings],
+  );
+
   const handleSubmit = async () => {
     setSubmitError(null);
     const trimmedIdentifier = identifier.trim();
@@ -97,6 +182,7 @@ export default function SignInScreen() {
         }
       }
 
+      setPendingSignInMethod("password");
       const { error } = await signIn.password({
         identifier: trimmedIdentifier,
         password,
@@ -239,6 +325,7 @@ export default function SignInScreen() {
       try {
         setSubmitError(null);
         setOauthBusy(strategy);
+        setPendingSignInMethod(strategy === "oauth_google" ? "google" : "microsoft");
         const {
           createdSessionId,
           setActive,
@@ -331,7 +418,7 @@ export default function SignInScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 32 },
+          { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 32 },
         ]}
         keyboardShouldPersistTaps="handled"
       >
@@ -489,6 +576,7 @@ export default function SignInScreen() {
           </View>
         ) : (
         <View style={styles.form}>
+          <SavedAccountsList accounts={savedAccounts} onSelect={handleSavedAccountTap} />
           <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.identifier")}</Text>
           <TextInput
             style={[
@@ -509,6 +597,7 @@ export default function SignInScreen() {
             {t("auth.password")}
           </Text>
           <PasswordInput
+            ref={passwordInputRef}
             value={password}
             onChangeText={setPassword}
             placeholder={t("auth.password.placeholder")}
@@ -558,7 +647,14 @@ export default function SignInScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.oauthBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+            style={[
+              styles.oauthBtn,
+              { borderColor: colors.border, backgroundColor: colors.card },
+              suggestedSso === "google" && {
+                borderColor: colors.primary,
+                borderWidth: 2,
+              },
+            ]}
             onPress={() => onOAuth("oauth_google")}
             disabled={oauthBusy !== null}
             activeOpacity={0.85}
@@ -570,6 +666,31 @@ export default function SignInScreen() {
                 <GoogleIcon size={18} />
                 <Text style={[styles.oauthText, { color: colors.foreground }]}>
                   {t("auth.continueWith", { provider: "Google" })}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.oauthBtn,
+              { borderColor: colors.border, backgroundColor: colors.card, marginTop: 10 },
+              suggestedSso === "microsoft" && {
+                borderColor: colors.primary,
+                borderWidth: 2,
+              },
+            ]}
+            onPress={() => onOAuth("oauth_microsoft")}
+            disabled={oauthBusy !== null}
+            activeOpacity={0.85}
+          >
+            {oauthBusy === "oauth_microsoft" ? (
+              <ActivityIndicator size="small" color={colors.foreground} />
+            ) : (
+              <>
+                <MicrosoftIcon size={18} />
+                <Text style={[styles.oauthText, { color: colors.foreground }]}>
+                  {t("auth.continueWith", { provider: "Microsoft" })}
                 </Text>
               </>
             )}
@@ -638,7 +759,7 @@ const styles = StyleSheet.create({
   },
   langChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   skipBtn: { alignSelf: "center", marginTop: 18, padding: 8 },
-  heroBox: { alignItems: "center", marginTop: 8, marginBottom: 24, gap: 8 },
+  heroBox: { alignItems: "center", marginTop: 16, marginBottom: 28, gap: 8 },
   logo: {
     width: 64,
     height: 64,

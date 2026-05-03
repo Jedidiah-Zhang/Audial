@@ -17,6 +17,10 @@ import { Edit2, Plus, Trash2, User, Users, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
 import { useApp, type LocalAccount } from "@/context/AppContext";
+import { useSavedAccounts } from "@/hooks/useSavedAccounts";
+import { SavedAccountsList } from "@/components/SavedAccountsList";
+import type { SavedAccount } from "@/utils/savedAccounts";
+import { useAuth, useSessionList } from "@clerk/expo";
 
 export default function LocalAccountsScreen() {
   const colors = useColors();
@@ -32,9 +36,58 @@ export default function LocalAccountsScreen() {
     updateSettings,
   } = useApp();
 
+  const savedAccounts = useSavedAccounts();
+  const { isSignedIn } = useAuth();
+  const { sessions: cachedSessions, setActive: setActiveSession } = useSessionList();
+
   const [name, setName] = useState("");
   const [renameTarget, setRenameTarget] = useState<LocalAccount | null>(null);
   const [renameValue, setRenameValue] = useState("");
+
+  // Tap handler for the unified "Continue as…" picker shown on this
+  // screen. Local profiles switch in-place; Clerk accounts try to
+  // fast-switch via a cached session, otherwise fall through to the
+  // sign-in screen so the user can authenticate.
+  const onSavedAccountTap = async (acc: SavedAccount) => {
+    if (acc.kind === "local") {
+      await updateSettings({ onboarded: true });
+      await switchLocalAccount(acc.id);
+      router.replace("/(tabs)");
+      return;
+    }
+    // Don't try to fast-switch into another Clerk session while one is
+    // already active — Clerk's `setActive` would still work, but most
+    // users on this screen reached it via "manage local profiles" while
+    // signed-out, so this branch is mostly for the rare cached case.
+    if (!isSignedIn) {
+      const cached = (cachedSessions ?? []).find(
+        (s) => s.user?.id === acc.id && s.status === "active",
+      );
+      if (cached && setActiveSession) {
+        try {
+          await setActiveSession({
+            session: cached.id,
+            navigate: () => router.replace("/(tabs)"),
+          });
+          return;
+        } catch {
+          // Fall through to the sign-in screen.
+        }
+      }
+    }
+    // Pass the saved account hint along so the sign-in screen can
+    // pre-fill the identifier and highlight the matching SSO button —
+    // without this, tapping a Clerk row from the manage screen would
+    // dump the user into a blank form, which is slower than the
+    // experience the picker promises elsewhere.
+    router.push({
+      pathname: "/(auth)/sign-in",
+      params: {
+        identifier: acc.email || acc.username || "",
+        sso: acc.lastMethod === "google" || acc.lastMethod === "microsoft" ? acc.lastMethod : "",
+      },
+    });
+  };
 
   const onCreate = async () => {
     const v = name.trim();
@@ -117,6 +170,10 @@ export default function LocalAccountsScreen() {
             {t("auth.local.subtitle")}
           </Text>
         </View>
+
+        {savedAccounts.length > 0 && (
+          <SavedAccountsList accounts={savedAccounts} onSelect={onSavedAccountTap} />
+        )}
 
         <View style={{ gap: 8, marginTop: 8 }}>
           <Text style={[styles.label, { color: colors.foreground }]}>

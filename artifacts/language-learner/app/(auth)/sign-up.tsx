@@ -23,6 +23,7 @@ import { PasswordInput } from "@/components/PasswordInput";
 import { LanguagePickerSheet } from "@/components/LanguagePickerSheet";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
+import { setPendingSignInMethod } from "@/utils/savedAccounts";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -93,6 +94,7 @@ export default function SignUpScreen() {
         /* best-effort reset */
       }
     }
+    setPendingSignInMethod("password");
     const { error } = await signUp.password({
       username: trimmedUsername,
       emailAddress: trimmedEmail,
@@ -139,6 +141,7 @@ export default function SignUpScreen() {
       try {
         setSubmitError(null);
         setOauthBusy(strategy);
+        setPendingSignInMethod(strategy === "oauth_google" ? "google" : "microsoft");
         const {
           createdSessionId,
           setActive,
@@ -227,7 +230,7 @@ export default function SignUpScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 32 },
+          { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 32 },
         ]}
         keyboardShouldPersistTaps="handled"
       >
@@ -489,7 +492,7 @@ const styles = StyleSheet.create({
   },
   langChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
   skipBtn: { alignSelf: "center", marginTop: 18, padding: 8 },
-  heroBox: { alignItems: "center", marginTop: 8, marginBottom: 24, gap: 8 },
+  heroBox: { alignItems: "center", marginTop: 16, marginBottom: 28, gap: 8 },
   logo: {
     width: 64,
     height: 64,

@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React, { forwardRef, useState } from "react";
 import { View, TextInput, TouchableOpacity, StyleSheet, Platform, TextInputProps } from "react-native";
 import { Eye, EyeOff } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 
 type Props = Omit<TextInputProps, "secureTextEntry">;
 
-export function PasswordInput(props: Props) {
+export const PasswordInput = forwardRef<TextInput, Props>(function PasswordInput(props, ref) {
   const colors = useColors();
   const [visible, setVisible] = useState(false);
   const { style, ...rest } = props;
@@ -19,6 +19,7 @@ export function PasswordInput(props: Props) {
     >
       <TextInput
         {...rest}
+        ref={ref}
         style={[styles.input, { color: colors.foreground }, style]}
         secureTextEntry={!visible}
         autoCapitalize="none"
@@ -39,7 +40,7 @@ export function PasswordInput(props: Props) {
       </TouchableOpacity>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: {

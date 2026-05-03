@@ -15,9 +15,16 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setBaseUrl, setAuthTokenGetter } from "@workspace/api-client-react";
-import { ClerkProvider, useAuth } from "@clerk/expo";
+import { ClerkProvider, useAuth, useUser } from "@clerk/expo";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import {
+  consumePendingSignInMethod,
+  notifySavedAccountsChanged,
+  upsertSavedAccount,
+  type SavedAccountMethod,
+} from "@/utils/savedAccounts";
+import { translate } from "@/utils/i18n";
 import { useColors } from "@/hooks/useColors";
 import { StatusBar } from "expo-status-bar";
 
@@ -39,6 +46,70 @@ setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
  * specify a template name so Clerk returns its default session token,
  * which the api-server verifies via `@clerk/backend.verifyToken`.
  */
+/**
+ * Watches Clerk's signed-in user and records each sign-in into the
+ * device-local "saved accounts" picker so the next visit to the sign-in
+ * screen can offer a one-tap re-entry. Mounting inside `ClerkProvider`
+ * (where `useUser()` resolves) means we don't have to thread the
+ * post-finalize user object back into each individual auth screen — any
+ * code path that lands at a fresh signed-in session, including OAuth
+ * redirects that re-enter the JS bundle, gets recorded automatically.
+ *
+ * The "method" (password / google / microsoft) is set by the auth screen
+ * before it kicks off the flow via `setPendingSignInMethod()`. If we see
+ * a sign-in with no pending method (e.g. cold launch into an existing
+ * Clerk session, or a flow we forgot to instrument), we fall back to
+ * inspecting `user.externalAccounts` and finally `user.passwordEnabled`
+ * — that way the picker still records the account, just with a generic
+ * method that won't get a "Continue with X" SSO highlight.
+ */
+function SavedAccountsRecorder() {
+  const { isSignedIn, user } = useUser();
+  // NOTE: this component is mounted directly under <ClerkProvider> and
+  // sits *outside* <AppProvider>, so the `useT()` hook (which reads
+  // `useApp()` for the current language) would throw "useApp must be
+  // used within AppProvider" at runtime. Use the standalone
+  // `translate()` helper with `undefined` lang — it falls back to the
+  // English string table, which is the only locale this picker supports.
+  const lastRecordedRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (!isSignedIn || !user) {
+      lastRecordedRef.current = null;
+      return;
+    }
+    if (lastRecordedRef.current === user.id) return;
+    lastRecordedRef.current = user.id;
+    const pending = consumePendingSignInMethod();
+    let method: SavedAccountMethod = pending ?? "password";
+    if (!pending) {
+      const ext = user.externalAccounts ?? [];
+      const hasGoogle = ext.some((a) => a.provider === "google");
+      const hasMicrosoft = ext.some((a) => a.provider === "microsoft");
+      if (hasGoogle && !user.passwordEnabled) method = "google";
+      else if (hasMicrosoft && !user.passwordEnabled) method = "microsoft";
+      else method = "password";
+    }
+    const email = user.primaryEmailAddress?.emailAddress ?? null;
+    const username = user.username ?? null;
+    const displayName =
+      user.fullName ||
+      [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+      username ||
+      email ||
+      translate(undefined, "auth.savedAccounts.fallbackName");
+    void upsertSavedAccount({
+      id: user.id,
+      kind: "clerk",
+      displayName,
+      email,
+      username,
+      imageUrl: user.imageUrl ?? null,
+      lastMethod: method,
+    }).then(() => notifySavedAccountsChanged());
+  }, [isSignedIn, user]);
+  return null;
+}
+
 function ClerkApiTokenBridge() {
   const { getToken, isSignedIn } = useAuth();
   useEffect(() => {
@@ -228,6 +299,7 @@ export default function RootLayout() {
   return (
     <ClerkProvider publishableKey={clerkPublishableKey} tokenCache={tokenCache}>
       <ClerkApiTokenBridge />
+      <SavedAccountsRecorder />
       <SafeAreaProvider>
         <ErrorBoundary>
           <QueryClientProvider client={queryClient}>
