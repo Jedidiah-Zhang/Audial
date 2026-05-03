@@ -50,6 +50,13 @@
         }
       ],
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "需要麦克风权限进行跟读和背诵练习",
+          "speechRecognitionPermission": "需要语音识别权限以显示实时字幕"
+        }
+      ],
+      [
         "react-native-google-mobile-ads",
         {
           "androidAppId": "ca-app-pub-3940256099942544~3347511713",

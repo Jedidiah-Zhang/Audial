@@ -29,6 +29,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { useAudioRecorder, transcribeAudio, useAudioPlayer } from "@/hooks/useAudio";
+import { useLiveTranscript } from "@/hooks/useLiveTranscript";
 import { useMicPermissionGate } from "@/components/MicPermissionPrompt";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { ScoreCard, type PerSentenceRow } from "@/components/ScoreCard";
@@ -196,6 +197,11 @@ export default function SessionScreen() {
       requestPermission: requestMicPermission,
       openAppSettings: openMicAppSettings,
     });
+  // Live (interim + final) transcript that runs alongside the
+  // recitation recorder. Best-effort by design: see useLiveTranscript
+  // for the failure / fallback contract. Never used for scoring — the
+  // authoritative score comes from Whisper after stopRecording.
+  const liveTranscript = useLiveTranscript();
   const lang = settings.nativeLanguage;
 
   const stageIdx = parseInt(stageParam ?? "0", 10);
@@ -423,6 +429,14 @@ export default function SessionScreen() {
 
   const handleRecord = async () => {
     if (isRecording) {
+      // Stop the live recognizer first; failures here must NEVER block
+      // the audio recorder stop / Whisper transcription. The recognizer
+      // is a UI preview only.
+      try {
+        liveTranscript.stop();
+      } catch {
+        /* ignore — best effort */
+      }
       setPhase("transcribing");
       const blob = await stopRecording();
       if (!blob) {
@@ -449,6 +463,19 @@ export default function SessionScreen() {
         if (!started) return;
         setPhase("recording");
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        // Kick the live recognizer off in parallel with the recorder.
+        // Wrapped in a try/catch + fire-and-forget: any failure
+        // silently flips the hook's `isLiveTranscriptAvailable` to
+        // false (so the UI shows the "unavailable" notice) but never
+        // blocks or rolls back the recording itself.
+        if (text?.targetLanguage) {
+          liveTranscript.reset();
+          void liveTranscript
+            .start(text.targetLanguage)
+            .catch(() => {
+              /* swallow — hook already mirrors error into state */
+            });
+        }
       });
     }
   };
@@ -999,6 +1026,11 @@ export default function SessionScreen() {
               // stopRecording resolves with the captured blob which we
               // intentionally discard here.
               if (isRecitation) {
+                try {
+                  liveTranscript.stop();
+                } catch {
+                  /* ignore */
+                }
                 void stopRecording().catch(() => {});
               }
               dispatchClose();
@@ -1021,6 +1053,7 @@ export default function SessionScreen() {
     dictationInput,
     isRecording,
     stopRecording,
+    liveTranscript,
     t,
   ]);
 
@@ -1468,6 +1501,50 @@ export default function SessionScreen() {
 
         {phase === "recording" && stageIdx !== 0 && (
           <View style={[styles.section, styles.centerSection]}>
+            {/* Live transcript preview. Shows finalized text in normal
+                style and the in-progress hypothesis dimmed/italic so
+                users see exactly what the recognizer is hearing in
+                real time. When availability is `false` (no platform
+                support, denied permission, language unsupported, or
+                a mid-session error) we surface a single subtle line
+                so the user knows the live preview isn't available
+                but recording is still going. The Whisper-based score
+                still runs unchanged after stop. */}
+            {liveTranscript.isLiveTranscriptAvailable === false ? (
+              <Text
+                style={[styles.liveTranscriptUnavailable, { color: colors.mutedForeground }]}
+              >
+                {t("session.recitation.liveUnavailable")}
+              </Text>
+            ) : liveTranscript.finalTranscript || liveTranscript.interimTranscript ? (
+              <ScrollView
+                style={[
+                  styles.liveTranscriptBox,
+                  { backgroundColor: colors.muted, borderColor: colors.border },
+                ]}
+                contentContainerStyle={styles.liveTranscriptContent}
+                showsVerticalScrollIndicator={false}
+                ref={(ref) => {
+                  // Auto-scroll to bottom as new tokens arrive so the
+                  // most recent words are always visible.
+                  ref?.scrollToEnd?.({ animated: false });
+                }}
+              >
+                <Text style={[styles.liveTranscriptText, { color: colors.foreground }]}>
+                  {liveTranscript.finalTranscript}
+                  {liveTranscript.finalTranscript && liveTranscript.interimTranscript ? " " : ""}
+                  <Text style={[styles.liveTranscriptInterim, { color: colors.mutedForeground }]}>
+                    {liveTranscript.interimTranscript}
+                  </Text>
+                </Text>
+              </ScrollView>
+            ) : liveTranscript.isLiveTranscriptAvailable === true ? (
+              <Text
+                style={[styles.liveTranscriptPlaceholder, { color: colors.mutedForeground }]}
+              >
+                {t("session.recitation.liveListening")}
+              </Text>
+            ) : null}
             <AudioWaveform isActive color="#EF4444" barCount={9} />
             <TouchableOpacity
               onPress={handleRecord}
@@ -2087,6 +2164,36 @@ const styles = StyleSheet.create({
   recordHint: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
+  },
+  liveTranscriptBox: {
+    width: "100%",
+    maxHeight: 140,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  liveTranscriptContent: {
+    flexGrow: 1,
+  },
+  liveTranscriptText: {
+    fontSize: 16,
+    fontFamily: "Inter_500Medium",
+    lineHeight: 22,
+  },
+  liveTranscriptInterim: {
+    fontStyle: "italic",
+    fontFamily: "Inter_400Regular",
+  },
+  liveTranscriptPlaceholder: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    fontStyle: "italic",
+  },
+  liveTranscriptUnavailable: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
   },
   hintBlock: {
     borderRadius: 14,
