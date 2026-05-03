@@ -311,9 +311,12 @@ export default function PracticeScreen() {
     );
   }
 
-  const isUnlocked = (idx: number) => idx === 0 || stagePassed[idx - 1];
+  // All stages are always unlocked — users can pick any stage to practice.
+  const isUnlocked = (_idx: number) => true;
   const isPassed = (idx: number) => stagePassed[idx];
-  const isCurrent = (idx: number) => isUnlocked(idx) && !isPassed(idx);
+  // "Current" tag still highlights the first unpassed stage as a hint.
+  const firstUnpassedIdx = STAGES.findIndex((_, i) => !stagePassed[i]);
+  const isCurrent = (idx: number) => idx === firstUnpassedIdx;
 
   const totalScore = stageBests.filter((s) => s > 0).length > 0
     ? Math.round(stageBests.reduce((a, b) => a + b, 0) / STAGES.length)
