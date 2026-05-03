@@ -34,6 +34,7 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import { ScoreCard, type PerSentenceRow } from "@/components/ScoreCard";
 import { SentenceArticle } from "@/components/SentenceArticle";
 import { ShadowSentenceFlow, type ShadowFlowResult } from "@/components/ShadowSentenceFlow";
+import { RecitePrepFlow } from "@/components/RecitePrepFlow";
 import { AnnotatedText, AnnotatedLegend, type Annotation } from "@/components/AnnotatedText";
 import { StageCard } from "@/components/StageCard";
 import { STAGES, STAGE_PASS_SCORE } from "@/types";
@@ -121,6 +122,7 @@ function parseGeom(p: {
 type SessionPhase =
   | "intro"
   | "study"
+  | "recite-prep"
   | "memorize"
   | "recording"
   | "transcribing"
@@ -380,20 +382,40 @@ export default function SessionScreen() {
     };
   }, []);
 
+  // Kick off the memorize countdown for stage 2. Factored out so the
+  // recite-prep flow can hand control here when the user taps "Start
+  // full recitation" — the per-sentence prep is a warm-up only, the
+  // existing memorize → hidden-text recording → scoring path is still
+  // the single source of truth for the scored take.
+  const startMemorizeCountdown = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setPhase("memorize");
+    setMemorizeCountdown(computeMemorizeDuration(text?.text ?? ""));
+    countdownRef.current = setInterval(() => {
+      setMemorizeCountdown((n) => {
+        if (n <= 1) {
+          if (countdownRef.current) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+          }
+          setPhase("study");
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+  }, [text?.text]);
+
   const handleBeginPractice = () => {
     if (stageIdx === 2) {
-      setPhase("memorize");
-      setMemorizeCountdown(computeMemorizeDuration(text?.text ?? ""));
-      countdownRef.current = setInterval(() => {
-        setMemorizeCountdown((n) => {
-          if (n <= 1) {
-            clearInterval(countdownRef.current!);
-            setPhase("study");
-            return 0;
-          }
-          return n - 1;
-        });
-      }, 1000);
+      // Stage 2 (recitation) now starts with a per-sentence prep loop
+      // that mirrors the shadowing warm-up. The CTA inside the prep
+      // component invokes startMemorizeCountdown to enter the existing
+      // memorize phase, so the scored take itself is unchanged.
+      setPhase("recite-prep");
     } else {
       setPhase("study");
     }
@@ -1167,6 +1189,19 @@ export default function SessionScreen() {
                 {text.text}
               </Text>
             </View>
+          </View>
+        )}
+
+        {phase === "recite-prep" && stageIdx === 2 && (
+          <View style={styles.section}>
+            <RecitePrepFlow
+              text={text.text}
+              voice={settings.preferredVoice ?? "nova"}
+              accentColor={stageColor}
+              contentType={text.contentType}
+              articleId={text.id}
+              onContinue={startMemorizeCountdown}
+            />
           </View>
         )}
 
