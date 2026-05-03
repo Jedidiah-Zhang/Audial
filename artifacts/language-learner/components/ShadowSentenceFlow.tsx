@@ -590,7 +590,25 @@ export function ShadowSentenceFlow({
   }, []);
 
   const enterFullReadIntro = useCallback(() => {
-    if (phase === "recording") return;
+    // If a per-sentence recording is in progress when the user taps the
+    // full-read CTA, tear it down cleanly so the mic is released and the
+    // elapsed-time watchdogs don't fire after we've already navigated
+    // away. Fire-and-forget — we don't need the resulting blob here, we
+    // just want the recorder hardware released.
+    if (phase === "recording") {
+      try {
+        stopRecording();
+      } catch {}
+      if (recTickRef.current) {
+        clearInterval(recTickRef.current);
+        recTickRef.current = null;
+      }
+      if (recAutoStopRef.current) {
+        clearTimeout(recAutoStopRef.current);
+        recAutoStopRef.current = null;
+      }
+      setRecElapsedMs(0);
+    }
     try {
       player.stop();
     } catch {}
@@ -601,7 +619,7 @@ export function ShadowSentenceFlow({
     } catch {}
     setIsPlayingMyRecording(false);
     setPhase("full-read-intro");
-  }, [phase, player, recordingPlayer, clearPlaybackWatchdog]);
+  }, [phase, player, recordingPlayer, clearPlaybackWatchdog, stopRecording]);
 
   // Whether the user has heard every sentence at least once. Used both
   // by the per-sentence loop UI (to enable the "continue" CTA) and by
@@ -1269,32 +1287,25 @@ export function ShadowSentenceFlow({
         ) : null}
       </View>
 
-      {/* CTA to enter the mandatory full read-through. Locked until
-          every sentence has been heard at least once so the hint copy
-          and button state stay consistent. This is the ONLY way into
-          the full-read intro — there is no auto-advance — which keeps
-          the last sentence available for recording / replaying right
-          up until the user explicitly taps continue. */}
+      {/* CTA to enter the full read-through. Always tappable — users
+          should be able to jump into the full read-through at any time,
+          even before they've heard every sentence and even mid-recording
+          (the handler tears down any in-progress per-sentence recording
+          before transitioning). This is still the ONLY way into the
+          full-read intro — there is no auto-advance — which keeps the
+          per-sentence loop available right up until the user explicitly
+          taps continue. */}
       <TouchableOpacity
         onPress={enterFullReadIntro}
-        disabled={!allListened || phase === "recording"}
         style={[
           styles.fullReadCta,
-          {
-            backgroundColor: allListened ? accentColor : accentColor + "55",
-            opacity: !allListened || phase === "recording" ? 0.6 : 1,
-          },
+          { backgroundColor: accentColor },
         ]}
         activeOpacity={0.85}
       >
         <Headphones size={18} color="#fff" />
         <Text style={styles.fullReadCtaText}>{t("session.shadow.startFullRead")}</Text>
       </TouchableOpacity>
-      {!allListened ? (
-        <Text style={[styles.fullReadHint, { color: colors.mutedForeground }]}>
-          {t("session.shadow.fullReadHint")}
-        </Text>
-      ) : null}
 
       {micPermissionModal}
     </View>
