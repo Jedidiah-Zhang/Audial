@@ -37,7 +37,7 @@ export default function SignInScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { signIn, errors, fetchStatus } = useSignIn();
+  const { signIn, fetchStatus } = useSignIn();
   const { isSignedIn } = useAuth();
   const { startSSOFlow } = useSSO();
   const [emailAddress, setEmailAddress] = useState("");
@@ -195,11 +195,6 @@ export default function SignInScreen() {
             keyboardType="email-address"
             autoComplete="email"
           />
-          {errors.fields.identifier && (
-            <Text style={[styles.fieldError, { color: colors.destructive }]}>
-              {errors.fields.identifier.message}
-            </Text>
-          )}
 
           <Text style={[styles.label, { color: colors.foreground, marginTop: 14 }]}>
             {t("auth.password")}
@@ -215,12 +210,6 @@ export default function SignInScreen() {
             placeholderTextColor={colors.mutedForeground}
             secureTextEntry
           />
-          {errors.fields.password && (
-            <Text style={[styles.fieldError, { color: colors.destructive }]}>
-              {errors.fields.password.message}
-            </Text>
-          )}
-
           <TouchableOpacity
             style={styles.forgotRow}
             onPress={() => router.push("/(auth)/forgot-password")}
@@ -231,7 +220,7 @@ export default function SignInScreen() {
             </Text>
           </TouchableOpacity>
 
-          {submitError && !errors.fields.password && !errors.fields.identifier ? (
+          {submitError ? (
             <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
               {submitError}
             </Text>
