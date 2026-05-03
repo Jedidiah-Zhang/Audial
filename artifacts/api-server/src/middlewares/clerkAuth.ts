@@ -54,6 +54,20 @@ export function invalidateUserCache(userId: string) {
 }
 
 async function extractUserId(req: Request): Promise<string | null> {
+  // Test-only auth shortcut. Strictly opt-in via env var AND requires
+  // NODE_ENV !== "production" so a misconfigured prod deploy can never
+  // honor an unsigned `x-test-user-id` header even if the bypass var
+  // were ever set there. Used by the sync-route integration tests
+  // (test/sync/sync.test.ts) so they don't have to mint real Clerk JWTs.
+  if (
+    process.env.CLERK_TEST_BYPASS === "1" &&
+    process.env.NODE_ENV !== "production" &&
+    typeof req.headers["x-test-user-id"] === "string" &&
+    req.headers["x-test-user-id"].length > 0
+  ) {
+    return req.headers["x-test-user-id"] as string;
+  }
+
   const auth = req.headers.authorization;
   if (!auth || !auth.toLowerCase().startsWith("bearer ")) return null;
   const token = auth.slice(7).trim();
