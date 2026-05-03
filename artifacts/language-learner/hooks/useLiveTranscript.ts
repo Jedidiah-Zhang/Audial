@@ -1,10 +1,53 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
-import {
-  ExpoSpeechRecognitionModule,
-  type ExpoSpeechRecognitionErrorEvent,
-  type ExpoSpeechRecognitionResultEvent,
+import type {
+  ExpoSpeechRecognitionErrorEvent,
+  ExpoSpeechRecognitionResultEvent,
 } from "expo-speech-recognition";
+
+/**
+ * Resolve `expo-speech-recognition`'s native module *defensively*.
+ *
+ * The package ships a config plugin and only works in a custom dev /
+ * production build. In Expo Go (and on web before the JS shim has
+ * loaded) the native module simply isn't registered, and a top-level
+ * `import { ExpoSpeechRecognitionModule } from "expo-speech-recognition"`
+ * throws "Cannot find native module 'ExpoSpeechRecognition'" at module
+ * evaluation time — *before* any of the try/catches inside this hook
+ * can run, so the whole screen red-boxes.
+ *
+ * Loading via `require` inside a try/catch turns that crash into a
+ * `null` module, which the hook below already treats as "live
+ * transcription not available" and silently degrades. Server-side
+ * Whisper still produces the authoritative score, so the recitation
+ * flow keeps working.
+ */
+type SpeechModule = {
+  isRecognitionAvailable(): boolean;
+  getPermissionsAsync(): Promise<{ granted: boolean }>;
+  requestPermissionsAsync(): Promise<{ granted: boolean }>;
+  addListener(event: string, cb: (ev: never) => void): { remove: () => void };
+  start(opts: {
+    lang: string;
+    interimResults?: boolean;
+    continuous?: boolean;
+    maxAlternatives?: number;
+  }): void;
+  stop(): void;
+  abort(): void;
+};
+
+const ExpoSpeechRecognitionModule: SpeechModule | null = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("expo-speech-recognition") as {
+      ExpoSpeechRecognitionModule?: SpeechModule;
+    };
+    return mod?.ExpoSpeechRecognitionModule ?? null;
+  } catch {
+    return null;
+  }
+})();
 
 /**
  * Live on-device speech recognition that runs *alongside* an active
@@ -77,10 +120,10 @@ export function useLiveTranscript(): LiveTranscript {
     }
     activeRef.current = false;
     try {
-      ExpoSpeechRecognitionModule.stop();
+      ExpoSpeechRecognitionModule?.stop();
     } catch {
       try {
-        ExpoSpeechRecognitionModule.abort();
+        ExpoSpeechRecognitionModule?.abort();
       } catch {
         /* swallow — recognizer was never running cleanly */
       }
@@ -114,6 +157,15 @@ export function useLiveTranscript(): LiveTranscript {
           return;
         }
       } else {
+        // Native: bail immediately if the native module isn't even
+        // registered (Expo Go, or any build that didn't include the
+        // config plugin). Without this guard we'd hit `null.method()`
+        // below; the early return keeps the UI in a clean "not
+        // available" state and lets the recording flow continue.
+        if (!ExpoSpeechRecognitionModule) {
+          setIsLiveTranscriptAvailable(false);
+          return;
+        }
         // Native: ask the module if a recognizer exists at all.
         try {
           if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
@@ -143,6 +195,15 @@ export function useLiveTranscript(): LiveTranscript {
           setIsLiveTranscriptAvailable(false);
           return;
         }
+      }
+
+      // Web fallthrough also needs a real module to attach listeners /
+      // call start(); the package's web shim registers one, but if for
+      // any reason the require above failed on web too, treat as
+      // unavailable rather than crashing on the next line.
+      if (!ExpoSpeechRecognitionModule) {
+        setIsLiveTranscriptAvailable(false);
+        return;
       }
 
       // Subscribe to result + error + end events. We use the module's
@@ -226,7 +287,7 @@ export function useLiveTranscript(): LiveTranscript {
       // down to avoid leaking native callbacks across screens.
       if (activeRef.current) {
         try {
-          ExpoSpeechRecognitionModule.abort();
+          ExpoSpeechRecognitionModule?.abort();
         } catch {
           /* ignore */
         }
