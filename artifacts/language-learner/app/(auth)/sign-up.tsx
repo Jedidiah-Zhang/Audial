@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { UserPlus, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
+import { GoogleIcon } from "@/components/GoogleIcon";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -352,13 +353,6 @@ export default function SignUpScreen() {
   );
 }
 
-function GoogleIcon({ size = 18 }: { size?: number }) {
-  return (
-    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ fontSize: size, fontFamily: "Inter_700Bold", color: "#4285F4" }}>G</Text>
-    </View>
-  );
-}
 function MicrosoftIcon({ size = 18 }: { size?: number }) {
   const s = size / 2;
   return (
