@@ -330,7 +330,7 @@ const requireOpenai: RequestHandler = (_req, res, next) => {
     res.status(503).json({
       success: false,
       error:
-        "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后将其添加为 Replit Secret OPENAI_API_KEY 后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
+        "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后设置 OPENAI_API_KEY 环境变量后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
     });
     return;
   }
@@ -1121,7 +1121,7 @@ router.post("/language/score-recitation", requireDeepseek, async (req, res) => {
       res.status(503).json({
         success: false,
         error:
-          "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后将其添加为 Replit Secret OPENAI_API_KEY 后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
+          "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后设置 OPENAI_API_KEY 环境变量后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
       });
       return;
     }

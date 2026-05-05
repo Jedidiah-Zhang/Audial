@@ -14,7 +14,7 @@ async function main() {
     console.error("DATABASE_URL is not set");
     process.exit(1);
   }
-  const isProd = (process.env.REPLIT_DEPLOYMENT ?? "") === "1";
+  const isProd = (process.env.NODE_ENV ?? "") === "production";
   if (isProd && process.argv[2] !== "--yes-prod") {
     console.error(
       "Refusing to run against production. Re-invoke with --yes-prod after explicit owner approval.",

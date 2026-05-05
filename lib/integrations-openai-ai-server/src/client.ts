@@ -12,7 +12,7 @@ if (!_isConfigured) {
       "    endpoints will return HTTP 503 until configured.\n" +
       "    Text-based AI (DeepSeek) endpoints are unaffected.\n" +
       "    Get a key at https://platform.openai.com and add it as\n" +
-      "    a Replit secret named OPENAI_API_KEY to enable these features.\n" +
+      "    the OPENAI_API_KEY environment variable to enable these features.\n" +
       "============================================================\n",
   );
 }
@@ -28,7 +28,7 @@ export function isOpenaiConfigured(): boolean {
 export class OpenAINotConfiguredError extends Error {
   constructor() {
     super(
-      "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后将其添加为 Replit Secret OPENAI_API_KEY 后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
+      "OpenAI 未配置：请到 https://platform.openai.com 申请 API key，然后设置 OPENAI_API_KEY 环境变量后重启服务（OpenAI is not configured: set OPENAI_API_KEY and restart the server）",
     );
     this.name = "OpenAINotConfiguredError";
   }

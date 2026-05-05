@@ -13,7 +13,7 @@ if (!_isConfigured) {
       "    score-dictation, score-recitation) will return HTTP 503.\n" +
       "    Audio (TTS/STT) and image generation are unaffected.\n" +
       "    Add DEEPSEEK_API_KEY (https://platform.deepseek.com) as\n" +
-      "    a Replit secret to enable these features.\n" +
+      "    an environment variable to enable these features.\n" +
       "============================================================\n",
   );
 }
