@@ -44,6 +44,10 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
+# Environment (contains secrets)
+.env
+.env.local
+
 # Build cache
 .cache/
 .local/
