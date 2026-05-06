@@ -66,7 +66,7 @@ export function PaywallModal({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const t = useT();
   const router = useRouter();
-  const { isPro, isGuest, upgradeToPro, downgradeToFree } = useApp();
+  const { isPro, isGuest, isLocalAccount, upgradeToPro, downgradeToFree } = useApp();
   // Brief spinner on the primary CTA so the demo "subscribe" tap reads as
   // a deliberate action rather than an instant state flip.
   const [busy, setBusy] = useState(false);
@@ -81,10 +81,10 @@ export function PaywallModal({ visible, onClose }: Props) {
 
   const handleSubscribe = async () => {
     if (busy) return;
-    // Guests can't subscribe — Pro state is per-user and would be discarded
-    // on sign-in (account scope swap in AppContext). Funnel them to sign-in
-    // instead so the upgrade attaches to a real account.
-    if (isGuest) {
+    // Guests and local accounts can't subscribe — Pro state requires a
+    // cloud-linked Clerk account. Funnel them to sign-in so the upgrade
+    // attaches to a real account that syncs across devices.
+    if (isGuest || isLocalAccount) {
       onClose();
       router.push("/(auth)/sign-in");
       return;
