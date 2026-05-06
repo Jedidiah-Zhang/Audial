@@ -18,7 +18,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Globe, User, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useT } from "@/utils/i18n";
-import { GoogleIcon } from "@/components/GoogleIcon";
 import { PasswordInput } from "@/components/PasswordInput";
 import { LanguagePickerSheet } from "@/components/LanguagePickerSheet";
 import { useApp } from "@/context/AppContext";
@@ -489,63 +488,7 @@ export default function SignInScreen() {
             )}
           </TouchableOpacity>
 
-          <View style={styles.dividerRow}>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-            <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>
-              {t("auth.or")}
-            </Text>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.oauthBtn,
-              { borderColor: colors.border, backgroundColor: colors.card },
-              suggestedSso === "google" && {
-                borderColor: colors.primary,
-                borderWidth: 2,
-              },
-            ]}
-            onPress={() => onOAuth("oauth_google")}
-            disabled={oauthBusy !== null}
-            activeOpacity={0.85}
-          >
-            {oauthBusy === "oauth_google" ? (
-              <ActivityIndicator size="small" color={colors.foreground} />
-            ) : (
-              <>
-                <GoogleIcon size={18} />
-                <Text style={[styles.oauthText, { color: colors.foreground }]}>
-                  {t("auth.continueWith", { provider: "Google" })}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.oauthBtn,
-              { borderColor: colors.border, backgroundColor: colors.card, marginTop: 10 },
-              suggestedSso === "microsoft" && {
-                borderColor: colors.primary,
-                borderWidth: 2,
-              },
-            ]}
-            onPress={() => onOAuth("oauth_microsoft")}
-            disabled={oauthBusy !== null}
-            activeOpacity={0.85}
-          >
-            {oauthBusy === "oauth_microsoft" ? (
-              <ActivityIndicator size="small" color={colors.foreground} />
-            ) : (
-              <>
-                <MicrosoftIcon size={18} />
-                <Text style={[styles.oauthText, { color: colors.foreground }]}>
-                  {t("auth.continueWith", { provider: "Microsoft" })}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
+          {/* TODO: OAuth buttons temporarily disabled — Google/Microsoft SSO needs fixing */}
 
           <View style={styles.footerRow}>
             <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
@@ -576,17 +519,6 @@ export default function SignInScreen() {
   );
 }
 
-function MicrosoftIcon({ size = 18 }: { size?: number }) {
-  const s = size / 2;
-  return (
-    <View style={{ width: size, height: size, flexDirection: "row", flexWrap: "wrap" }}>
-      <View style={{ width: s, height: s, backgroundColor: "#F25022" }} />
-      <View style={{ width: s, height: s, backgroundColor: "#7FBA00" }} />
-      <View style={{ width: s, height: s, backgroundColor: "#00A4EF" }} />
-      <View style={{ width: s, height: s, backgroundColor: "#FFB900" }} />
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 24, gap: 8 },
