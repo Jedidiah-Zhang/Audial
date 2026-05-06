@@ -262,7 +262,7 @@ export function PaywallModal({ visible, onClose }: Props) {
             </>
           ) : (
             <>
-              {isGuest ? (
+              {isGuest || isLocalAccount ? (
                 <Text
                   style={[styles.guestNote, { color: colors.mutedForeground }]}
                 >
@@ -285,7 +285,7 @@ export function PaywallModal({ visible, onClose }: Props) {
                   <Text
                     style={[styles.primaryBtnText, { color: colors.primaryForeground }]}
                   >
-                    {isGuest
+                    {isGuest || isLocalAccount
                       ? t("paywall.cta.signInToSubscribe")
                       : t("paywall.cta.subscribe")}
                   </Text>
