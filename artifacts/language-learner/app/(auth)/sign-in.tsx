@@ -235,30 +235,15 @@ export default function SignInScreen() {
         setOauthBusy(strategy);
         setPendingSignInMethod(strategy === "oauth_google" ? "google" : "microsoft");
 
-        // If the signIn from useSignIn() is already in a non-initial state
-        // (e.g. the user touched the email/password form before switching to
-        // Google), reset it so the SSO transfer doesn't fail with
-        // "There is no account to transfer".
-        const si = signIn as any;
-        if (si?.id && typeof si.reset === "function") {
-          try { await si.reset(); } catch { /* best-effort */ }
-        }
-
-        const {
-          createdSessionId,
-          setActive,
-          signIn: ssoSignIn,
-          signUp: ssoSignUp,
-          authSessionResult,
-        } = await startSSOFlow({
+        const result = await startSSOFlow({
           strategy,
           redirectUrl: AuthSession.makeRedirectUri(),
         });
 
         // Happy path: Clerk minted a session for an existing user.
-        if (createdSessionId && setActive) {
-          await setActive({
-            session: createdSessionId,
+        if (result.createdSessionId && result.setActive) {
+          await result.setActive({
+            session: result.createdSessionId,
             navigate: () => {
               router.replace("/(tabs)");
             },
@@ -267,26 +252,23 @@ export default function SignInScreen() {
         }
 
         // The user closed the in-app browser before completing the
-        // provider flow. Stay silent — they'll see the sign-in screen
-        // again and can retry. Surfacing an error here would scold them
-        // for cancelling intentionally.
+        // provider flow.
         if (
-          authSessionResult &&
-          authSessionResult.type !== "success"
+          result.authSessionResult &&
+          result.authSessionResult.type !== "success"
         ) {
           return;
         }
 
-        // startSSOFlow may have already created the user internally
-        // (Clerk SDK does this since v3.1.x).  If signUp is complete
-        // but createdSessionId wasn't propagated, activate directly.
+        // startSSOFlow may have already created the user internally.
+        // Activate the session from signUp if available.
         if (
-          ssoSignUp?.status === "complete" &&
-          ssoSignUp.createdSessionId &&
-          setActive
+          result.signUp?.status === "complete" &&
+          result.signUp.createdSessionId &&
+          result.setActive
         ) {
-          await setActive({
-            session: ssoSignUp.createdSessionId,
+          await result.setActive({
+            session: result.signUp.createdSessionId,
             navigate: () => {
               router.replace("/(tabs)");
             },
@@ -294,19 +276,17 @@ export default function SignInScreen() {
           return;
         }
 
-        // New user via OAuth: convert the verified external account into
-        // a real Clerk user.  Guard against the case where startSSOFlow
-        // already handled this (signUp.status === "complete") to avoid a
-        // duplicate create() call.
+        // New user via OAuth: convert the verified external account.
+        // Only if signUp hasn't already been completed by startSSOFlow.
         if (
-          ssoSignUp &&
-          ssoSignIn?.firstFactorVerification?.status === "transferable" &&
-          ssoSignUp.status !== "complete"
+          result.signUp &&
+          result.signIn?.firstFactorVerification?.status === "transferable" &&
+          result.signUp.status !== "complete"
         ) {
-          await ssoSignUp.create({ transfer: true });
-          if (ssoSignUp.createdSessionId && setActive) {
-            await setActive({
-              session: ssoSignUp.createdSessionId,
+          await result.signUp.create({ transfer: true });
+          if (result.signUp.createdSessionId && result.setActive) {
+            await result.setActive({
+              session: result.signUp.createdSessionId,
               navigate: () => {
                 router.replace("/(tabs)");
               },
@@ -318,13 +298,13 @@ export default function SignInScreen() {
         // Conversely: a Clerk account with this email exists but the
         // OAuth identity isn't linked yet — transfer to sign-in.
         if (
-          ssoSignIn &&
-          ssoSignUp?.verifications?.externalAccount?.status === "transferable"
+          result.signIn &&
+          result.signUp?.verifications?.externalAccount?.status === "transferable"
         ) {
-          await ssoSignIn.create({ transfer: true });
-          if (ssoSignIn.createdSessionId && setActive) {
-            await setActive({
-              session: ssoSignIn.createdSessionId,
+          await result.signIn.create({ transfer: true });
+          if (result.signIn.createdSessionId && result.setActive) {
+            await result.setActive({
+              session: result.signIn.createdSessionId,
               navigate: () => {
                 router.replace("/(tabs)");
               },
@@ -334,11 +314,70 @@ export default function SignInScreen() {
         }
 
         // Reached the end of every known happy path without a session.
-        // Surface something so the user isn't left staring at a silently
-        // unchanged screen.
         setSubmitError(t("auth.error.generic"));
       } catch (err: any) {
-        setSubmitError(err?.message ?? t("auth.error.generic"));
+        // If Clerk threw because an existing sign-in attempt (e.g. from
+        // auto-initialisation or a prior email/password attempt) conflicts
+        // with the SSO transfer, reset it and retry once.
+        const message: string = err?.message ?? "";
+        if (
+          message.toLowerCase().includes("no account to transfer") ||
+          message.toLowerCase().includes("no account")
+        ) {
+          const si = signIn as any;
+          if (si?.id && typeof si.reset === "function") {
+            try { await si.reset(); } catch { /* best-effort */ }
+          }
+          try {
+            const retry = await startSSOFlow({
+              strategy,
+              redirectUrl: AuthSession.makeRedirectUri(),
+            });
+            if (retry.createdSessionId && retry.setActive) {
+              await retry.setActive({
+                session: retry.createdSessionId,
+                navigate: () => {
+                  router.replace("/(tabs)");
+                },
+              });
+              return;
+            }
+            if (
+              retry.signUp &&
+              retry.signIn?.firstFactorVerification?.status === "transferable" &&
+              retry.signUp.status !== "complete"
+            ) {
+              await retry.signUp.create({ transfer: true });
+              if (retry.signUp.createdSessionId && retry.setActive) {
+                await retry.setActive({
+                  session: retry.signUp.createdSessionId,
+                  navigate: () => {
+                    router.replace("/(tabs)");
+                  },
+                });
+                return;
+              }
+            }
+            if (
+              retry.signIn &&
+              retry.signUp?.verifications?.externalAccount?.status === "transferable"
+            ) {
+              await retry.signIn.create({ transfer: true });
+              if (retry.signIn.createdSessionId && retry.setActive) {
+                await retry.setActive({
+                  session: retry.signIn.createdSessionId,
+                  navigate: () => {
+                    router.replace("/(tabs)");
+                  },
+                });
+                return;
+              }
+            }
+          } catch {
+            // Retry also failed — fall through to show the original error.
+          }
+        }
+        setSubmitError(message || t("auth.error.generic"));
       } finally {
         setOauthBusy(null);
       }
