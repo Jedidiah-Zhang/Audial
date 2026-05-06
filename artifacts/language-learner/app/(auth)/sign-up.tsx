@@ -188,24 +188,6 @@ export default function SignUpScreen() {
           return;
         }
 
-        // First-ever Google sign-up: convert the verified external
-        // account into a real Clerk user via the sign-up transfer flow.
-        if (
-          ssoSignUp &&
-          ssoSignIn?.firstFactorVerification?.status === "transferable"
-        ) {
-          await ssoSignUp.create({ transfer: true });
-          if (ssoSignUp.createdSessionId && setActive) {
-            await setActive({
-              session: ssoSignUp.createdSessionId,
-              navigate: () => {
-                router.replace("/(tabs)");
-              },
-            });
-            return;
-          }
-        }
-
         // Email already belongs to a Clerk account — transfer over to
         // sign-in so the OAuth identity gets linked.
         if (

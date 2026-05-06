@@ -277,26 +277,6 @@ export default function SignInScreen() {
           return;
         }
 
-        // OAuth verification succeeded but no session yet. This happens
-        // on first-ever Google sign-in: Clerk needs us to convert the
-        // verified external account into a new user via the sign-up
-        // transfer flow before a session can be activated.
-        if (
-          ssoSignUp &&
-          ssoSignIn?.firstFactorVerification?.status === "transferable"
-        ) {
-          await ssoSignUp.create({ transfer: true });
-          if (ssoSignUp.createdSessionId && setActive) {
-            await setActive({
-              session: ssoSignUp.createdSessionId,
-              navigate: () => {
-                router.replace("/(tabs)");
-              },
-            });
-            return;
-          }
-        }
-
         // Conversely: a Clerk account with this email exists but the
         // OAuth identity isn't linked yet — transfer to sign-in.
         if (
