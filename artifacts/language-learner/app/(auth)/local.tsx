@@ -89,6 +89,11 @@ export default function LocalAccountsScreen() {
     });
   };
 
+  const handleClose = () => {
+    if (router.canGoBack()) { router.back(); return; }
+    updateSettings({ onboarded: true }).then(() => router.replace("/(tabs)"));
+  };
+
   const onCreate = async () => {
     const v = name.trim();
     if (!v) return;
@@ -157,7 +162,7 @@ export default function LocalAccountsScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
+        <TouchableOpacity onPress={handleClose} style={styles.backBtn} hitSlop={12}>
           <X size={22} color={colors.foreground} />
         </TouchableOpacity>
 

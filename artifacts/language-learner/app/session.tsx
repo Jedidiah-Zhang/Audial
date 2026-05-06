@@ -980,7 +980,8 @@ export default function SessionScreen() {
   };
 
   const handleNextStage = () => {
-    router.back();
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)");
   };
 
   // Recitation hint plan: derived from the passage text and the
@@ -1450,7 +1451,7 @@ export default function SessionScreen() {
         ]}
       >
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <TouchableOpacity onPress={() => { router.canGoBack() ? router.back() : router.replace("/(tabs)"); }} style={styles.backBtn} activeOpacity={0.7}>
           <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>

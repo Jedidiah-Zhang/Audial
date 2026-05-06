@@ -99,6 +99,11 @@ export default function SignInScreen() {
     router.replace("/(tabs)");
   };
 
+  const handleClose = () => {
+    if (router.canGoBack()) { router.back(); return; }
+    updateSettings({ onboarded: true }).then(() => router.replace("/(tabs)"));
+  };
+
   /**
    * Handler for when the user taps a row in the "Continue as…" picker.
    *
@@ -336,7 +341,7 @@ export default function SignInScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.topRow}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
+          <TouchableOpacity onPress={handleClose} style={styles.backBtn} hitSlop={12}>
             <X size={22} color={colors.foreground} />
           </TouchableOpacity>
           <TouchableOpacity

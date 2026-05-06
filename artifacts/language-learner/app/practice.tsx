@@ -300,7 +300,8 @@ export default function PracticeScreen() {
   });
 
   const handleBack = useCallback(() => {
-    router.back();
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)");
   }, []);
 
   if (!text) {
