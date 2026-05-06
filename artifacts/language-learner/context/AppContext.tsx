@@ -251,6 +251,7 @@ interface AppContextValue {
   isLoading: boolean;
   userId: string;
   isGuest: boolean;
+  isLocalAccount: boolean;
   // Subscription (UI-only demo, no real billing)
   subscription: SubscriptionState;
   subscriptionTier: SubscriptionTier;
@@ -336,6 +337,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const userId = clerkUserId
     ?? (activeLocalAccountId ? `local:${activeLocalAccountId}` : GUEST_USER_ID);
   const isGuest = !clerkUserId && !activeLocalAccountId;
+  const isLocalAccount = !clerkUserId && !!activeLocalAccountId;
 
   // Source of truth for the active user that all async ops compare against
   // before committing state or writes. Updated synchronously on user change.
@@ -1036,6 +1038,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const upgradeToPro = useCallback(async () => {
     const uidAtCall = currentUserRef.current;
+    // Only cloud-syncable (Clerk-authenticated) users can subscribe.
+    // Guests and local accounts are device-only and must sign in first.
+    if (!isCloudSyncableUser(uidAtCall)) return;
     const K = keysFor(uidAtCall);
     // Preserve the original upgrade timestamp on repeat calls so a
     // downgrade → re-upgrade still records the new event without rewriting
@@ -1049,9 +1054,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     setSubscription(next);
     safeWrite(uidAtCall, K.SUBSCRIPTION, JSON.stringify(next));
-    if (isCloudSyncableUser(uidAtCall)) {
-      void pushSubscriptionTier("pro");
-    }
+    void pushSubscriptionTier("pro");
   }, []);
 
   const downgradeToFree = useCallback(async () => {
@@ -1069,7 +1072,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // from event handlers. Centralized here so every "create article"
   // entry point gates on the exact same logic.
   const canCreateArticle = useCallback((): { allowed: boolean; remaining: number } => {
-    if (subscriptionRef.current.tier === "pro") {
+    if (subscriptionRef.current.tier === "pro" && isCloudSyncableUser(currentUserRef.current)) {
       return { allowed: true, remaining: Number.POSITIVE_INFINITY };
     }
     const today = todayDateKey();
@@ -1301,9 +1304,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isLoading: isLoading || !authLoaded || !localLoaded,
         userId,
         isGuest,
+        isLocalAccount,
         subscription,
         subscriptionTier: subscription.tier,
-        isPro: subscription.tier === "pro",
+        isPro: subscription.tier === "pro" && isCloudSyncableUser(userId),
         upgradeToPro,
         downgradeToFree,
         dailyGenerationCount,
@@ -1313,7 +1317,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // app open through midnight). Treat any persisted count whose
         // date isn't today's local date as 0 used.
         generationsRemaining:
-          subscription.tier === "pro"
+          subscription.tier === "pro" && isCloudSyncableUser(userId)
             ? Number.POSITIVE_INFINITY
             : Math.max(
                 0,
