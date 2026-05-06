@@ -311,8 +311,10 @@ export default function GenerateScreen() {
         return { ok: false, kind: "quota_exceeded", quota: json?.data };
       }
 
-      const result = (await response.json()) as { success: boolean; data: any };
-      if (!result.success) return { ok: false, kind: "error" };
+      const result = (await response.json()) as { success: boolean; data: any; error?: string; detail?: string };
+      if (!result.success) {
+        return { ok: false, kind: "error" };
+      }
 
       const rawText = result.data.text ?? "";
       const declaredType = result.data.contentType as ContentType | undefined;
@@ -324,7 +326,7 @@ export default function GenerateScreen() {
         contentType: isContentType(declaredType) ? declaredType : detectContentType(rawText),
       };
       return { ok: true, payload };
-    } catch {
+    } catch (e) {
       return { ok: false, kind: "error" };
     }
   };
@@ -492,7 +494,7 @@ export default function GenerateScreen() {
       setQuotaSheetOpen(false);
       if (quotaTrigger === "manual") {
         const ok = await runManualSave(token);
-        if (ok) router.back();
+        if (ok) router.canGoBack() ? router.back() : router.replace("/(tabs)");
         return;
       }
       // AI generation retry path.
@@ -539,7 +541,7 @@ export default function GenerateScreen() {
     };
     await addText(text);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
+    router.canGoBack() ? router.back() : router.replace("/(tabs)");
   };
 
   const handleDiscardDraft = () => {
@@ -633,7 +635,7 @@ export default function GenerateScreen() {
       return;
     }
     const ok = await runManualSave();
-    if (ok) router.back();
+    if (ok) router.canGoBack() ? router.back() : router.replace("/(tabs)");
   };
 
   const inputStyle = { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground };
@@ -869,7 +871,7 @@ export default function GenerateScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <TouchableOpacity onPress={() => { router.canGoBack() ? router.back() : router.replace("/(tabs)"); }} style={styles.backBtn} activeOpacity={0.7}>
           <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.title")}</Text>

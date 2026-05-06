@@ -45,7 +45,11 @@ export function invalidateUserCache(userId: string) {
   userCache.delete(userId);
 }
 
-async function extractUserId(req: Request): Promise<string | null> {
+async function extractUserId(req: Request | undefined): Promise<string | null> {
+  if (!req) {
+    console.error("[clerk] extractUserId called with undefined req");
+    return null;
+  }
   // Test-only auth bypass
   if (
     Deno.env.get("CLERK_TEST_BYPASS") === "1" &&
@@ -70,7 +74,9 @@ async function extractUserId(req: Request): Promise<string | null> {
 }
 
 export async function optionalClerkAuth(c: Context, next: Next) {
+  console.log("[clerk] optionalClerkAuth start");
   const userId = await extractUserId(c.req.raw);
+  console.log("[clerk] optionalClerkAuth: userId =", userId || "(none)");
   if (userId) {
     const tier = await ensureUserRow(userId);
     c.set("auth", { userId, tier } as AuthState);

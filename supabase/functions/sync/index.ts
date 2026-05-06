@@ -1,11 +1,9 @@
 import { Hono } from "npm:hono";
-import { corsMiddleware } from "../_shared/cors.ts";
 import { db, usersTable, textsTable, resultsTable, progressTable } from "../_shared/db.ts";
 import { requireClerkAuth, getUserId, invalidateUserCache } from "../_shared/clerk.ts";
 import { eq, and, sql } from "npm:drizzle-orm";
 
 const app = new Hono();
-app.use("*", corsMiddleware);
 app.use("*", requireClerkAuth);
 
 // ===================================================================

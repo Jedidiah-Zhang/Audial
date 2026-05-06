@@ -229,6 +229,16 @@ export default function SignInScreen() {
         setSubmitError(null);
         setOauthBusy(strategy);
         setPendingSignInMethod(strategy === "oauth_google" ? "google" : "microsoft");
+
+        // If the signIn from useSignIn() is already in a non-initial state
+        // (e.g. the user touched the email/password form before switching to
+        // Google), reset it so the SSO transfer doesn't fail with
+        // "There is no account to transfer".
+        const si = signIn as any;
+        if (si?.id && typeof si.reset === "function") {
+          try { await si.reset(); } catch { /* best-effort */ }
+        }
+
         const {
           createdSessionId,
           setActive,
@@ -310,7 +320,7 @@ export default function SignInScreen() {
         setOauthBusy(null);
       }
     },
-    [startSSOFlow, t]
+    [startSSOFlow, t, signIn]
   );
 
   return (

@@ -1,5 +1,4 @@
 import { Hono, type Context, type Next } from "npm:hono";
-import { corsMiddleware } from "../_shared/cors.ts";
 import { db, generationQuotaTable } from "../_shared/db.ts";
 import { deepseek, DEEPSEEK_MODEL, isDeepseekConfigured } from "../_shared/deepseek-client.ts";
 import { isOpenaiConfigured } from "../_shared/openai-client.ts";
@@ -11,7 +10,6 @@ import { computeProsodyMetrics } from "./_lib/prosody.ts";
 import { scoreFromSignals } from "./_lib/scoring.ts";
 
 const app = new Hono();
-app.use("*", corsMiddleware);
 
 // ===================================================================
 // Quota system (ported from Express version)
@@ -20,7 +18,56 @@ app.use("*", corsMiddleware);
 const FREE_DAILY_GENERATION_LIMIT = 3;
 const REWARD_TOKEN_TTL_MS = 30 * 60 * 1000;
 
-const rewardTokens = new Map<string, { userId: string; expiresAt: number }>();
+// HMAC-based reward tokens — stateless, so they survive Edge Function
+// scale-to-zero and work across concurrent instances.
+const REWARD_SECRET = new TextEncoder().encode(
+  Deno.env.get("DEEPSEEK_API_KEY") ?? Deno.env.get("CLERK_SECRET_KEY") ?? "fallback-reward-secret",
+);
+
+async function signRewardToken(userId: string, expiresAt: number): Promise<string> {
+  const payload = `${userId}:${expiresAt}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    REWARD_SECRET,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const sigHex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${payload}:${sigHex}`;
+}
+
+async function verifyRewardToken(token: string): Promise<string | null> {
+  const parts = token.split(":");
+  if (parts.length < 3) return null;
+  const sigHex = parts[parts.length - 1];
+  if (sigHex.length !== 64) return null;
+  const payload = parts.slice(0, -1).join(":");
+  // payload is "userId:expiresAt". userId may itself contain colons
+  // (e.g. "guest:1.2.3.4"), so the last ":"-delimited piece is the
+  // expiration timestamp and everything before it is the userId.
+  const lastColon = payload.lastIndexOf(":");
+  if (lastColon < 0) return null;
+  const expiresAtStr = payload.slice(lastColon + 1);
+  if (!expiresAtStr) return null;
+
+  const expiresAt = parseInt(expiresAtStr, 10);
+  if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return null;
+
+  // Import with ["sign", "verify"] so we can both sign and verify
+  const key = await crypto.subtle.importKey(
+    "raw",
+    REWARD_SECRET,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const sigBytes = new Uint8Array(sigHex.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
+  const ok = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(payload));
+  if (!ok) return null;
+  return payload;
+}
 
 function todayKey(): string {
   const shifted = new Date(Date.now() + 4 * 60 * 60 * 1000);
@@ -40,11 +87,13 @@ function readTierFromCtx(c: Context): "free" | "pro" {
 }
 
 async function enforceGenerationQuota(c: Context, next: Next) {
+  console.log("[lang] enforceGenerationQuota start");
   const tier = readTierFromCtx(c);
   const body = c.get("parsedBody") || {};
 
   // Pro users and regenerations are exempt
   if (tier === "pro" || body.regenerate) {
+    console.log("[lang] enforceGenerationQuota: pro/regenerate, skipping");
     return await next();
   }
 
@@ -52,12 +101,15 @@ async function enforceGenerationQuota(c: Context, next: Next) {
   const userId = readUserIdFromCtx(c);
 
   if (rewardToken) {
-    const tokenData = rewardTokens.get(rewardToken);
-    if (tokenData && tokenData.userId === userId && Date.now() < tokenData.expiresAt) {
-      rewardTokens.delete(rewardToken);
-      return await next();
+    const payload = await verifyRewardToken(rewardToken);
+    if (payload) {
+      const lastColon = payload.lastIndexOf(":");
+      const tokenUserId = lastColon >= 0 ? payload.slice(0, lastColon) : payload;
+      if (tokenUserId === userId) {
+        return await next();
+      }
     }
-    // Invalid token — fall through to quota check
+    // Invalid or expired token — fall through to quota check
   }
 
   const date = todayKey();
@@ -92,7 +144,12 @@ async function enforceGenerationQuota(c: Context, next: Next) {
         and(eq(generationQuotaTable.userId, userId), eq(generationQuotaTable.date, date)),
       );
     return c.json(
-      { success: false, error: "Daily generation limit reached", code: "QUOTA_EXCEEDED" },
+      {
+        success: false,
+        error: "Daily generation limit reached",
+        code: "QUOTA_EXCEEDED",
+        data: { limit: FREE_DAILY_GENERATION_LIMIT, used: current, remaining: 0 },
+      },
       429,
     );
   }
@@ -167,8 +224,8 @@ app.get("/quota", optionalClerkAuth, async (c) => {
 app.post("/ad/grant-reward", optionalClerkAuth, async (c) => {
   const body = await c.req.json();
   const userId = readUserIdFromCtx(c);
-  const token = crypto.randomUUID();
-  rewardTokens.set(token, { userId, expiresAt: Date.now() + REWARD_TOKEN_TTL_MS });
+  const expiresAt = Date.now() + REWARD_TOKEN_TTL_MS;
+  const token = await signRewardToken(userId, expiresAt);
   return c.json(ok({ placement: body.placement, token, expiresInMs: REWARD_TOKEN_TTL_MS }));
 });
 
@@ -177,6 +234,7 @@ app.post("/ad/grant-reward", optionalClerkAuth, async (c) => {
 // ===================================================================
 
 app.post("/generate-text", optionalClerkAuth, requireDeepseek, enforceGenerationQuota, async (c) => {
+  console.log("[lang] generate-text handler start");
   const body = await c.req.json();
   const { topic, difficulty, language, targetLanguage, contentType, regenerate, previousText, previousTitle } = body;
 

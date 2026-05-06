@@ -1,20 +1,31 @@
 import { openai, assertOpenaiConfigured } from "../../_shared/openai-client.ts";
 
-// Text-to-speech using OpenAI TTS
+// Text-to-speech using OpenAI Chat Completions API with gpt-audio model.
+// This is the same approach the original Express server used — NOT the
+// Speech API (openai.audio.speech), which does not support "gpt-audio".
 export async function textToSpeech(
   text: string,
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "nova",
   format: "mp3" | "wav" = "mp3",
 ): Promise<Uint8Array> {
   assertOpenaiConfigured();
-  const response = await openai.audio.speech.create({
-    model: "tts-1",
-    voice,
-    input: text,
-    response_format: format,
+  const response = await openai.chat.completions.create({
+    model: "gpt-audio",
+    modalities: ["text", "audio"],
+    audio: { voice, format },
+    messages: [
+      { role: "system", content: "You are an assistant that performs text-to-speech." },
+      { role: "user", content: `Repeat the following text verbatim: ${text}` },
+    ],
   });
-  const arrayBuffer = await response.arrayBuffer();
-  return new Uint8Array(arrayBuffer);
+  const audioData = (response.choices[0]?.message as any)?.audio?.data ?? "";
+  // Base64-decode the audio data
+  const binaryStr = atob(audioData);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return bytes;
 }
 
 // Speech-to-text using OpenAI Whisper

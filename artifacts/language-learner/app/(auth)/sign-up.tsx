@@ -142,6 +142,17 @@ export default function SignUpScreen() {
         setSubmitError(null);
         setOauthBusy(strategy);
         setPendingSignInMethod(strategy === "oauth_google" ? "google" : "microsoft");
+
+        // If the signUp from useSignUp() is already in a non-initial state
+        // (e.g. the user touched the email/password form before switching to
+        // Google), reset it. Otherwise the SSO transfer can fail with
+        // "There is no account to transfer" because Clerk sees a sign-up
+        // that was already created outside of the SSO flow.
+        const su = signUp as any;
+        if (su?.id && typeof su.reset === "function") {
+          try { await su.reset(); } catch { /* best-effort */ }
+        }
+
         const {
           createdSessionId,
           setActive,
@@ -215,7 +226,7 @@ export default function SignUpScreen() {
         setOauthBusy(null);
       }
     },
-    [startSSOFlow, t]
+    [startSSOFlow, t, signUp]
   );
 
   const isVerifyStep =

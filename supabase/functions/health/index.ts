@@ -1,9 +1,6 @@
 import { Hono } from "npm:hono";
-import { corsMiddleware } from "../_shared/cors.ts";
 
 const app = new Hono();
-
-app.use("*", corsMiddleware);
 
 app.get("/", (c) => {
   return c.json({ status: "ok" });
