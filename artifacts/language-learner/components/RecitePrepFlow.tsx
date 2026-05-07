@@ -32,7 +32,7 @@ import { Icon } from "@/components/Icon";
 import { rtlTextStyle } from "@/utils/rtl";
 import { useT } from "@/utils/i18n";
 import type { ContentType } from "@/types";
-import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
+import { CONTENT_TYPE_META, detectContentType, normalizeContentType } from "@/utils/contentType";
 import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
 import { buildRecitationHintPlan } from "@/utils/recitationHint";
 import { getContentTypeLabel } from "@/utils/i18n";
@@ -170,7 +170,7 @@ export function RecitePrepFlow({
     useMicPermissionGate({ permission, requestPermission, openAppSettings });
 
   const effectiveType: ContentType = useMemo(
-    () => contentType ?? detectContentType(text),
+    () => contentType ? normalizeContentType(contentType) : detectContentType(text),
     [contentType, text]
   );
   const layout = useMemo(

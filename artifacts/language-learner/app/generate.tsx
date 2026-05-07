@@ -20,7 +20,7 @@ import { useColors } from "@/hooks/useColors";
 import { nextQuotaResetAt, todayDateKey, useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
-import { detectContentType, isContentType } from "@/utils/contentType";
+import { detectContentType, isContentType, normalizeContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, getLanguageDisplayName, TOPIC_KEYS } from "@/utils/i18n";
 import { Icon } from "@/components/Icon";
 import { LanguagePickerModal } from "@/components/LanguagePickerModal";
@@ -83,8 +83,28 @@ export default function GenerateScreen() {
   const nativeLanguage = settings.nativeLanguage;
   const [mode, setMode] = useState<"ai" | "manual">("ai");
   const [topic, setTopic] = useState("");
+  const [topicKey, setTopicKey] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>(settings.defaultDifficulty);
   const [targetLanguage, setTargetLanguage] = useState(settings.targetLanguage);
+
+  // Map quick-pick topic keys to their intended content type
+  const topicContentTypeMap: Record<string, ContentType> = {
+    "topic.daily_chat": "dialogue",
+    "topic.dining_out": "dialogue",
+    "topic.shopping": "dialogue",
+    "topic.job_interview": "dialogue",
+    "topic.travel_story": "story",
+    "topic.memorable_moment": "story",
+    "topic.childhood": "story",
+    "topic.my_opinion": "speech",
+    "topic.environment_appeal": "speech",
+    "topic.tech_brief": "info",
+    "topic.health_tips": "info",
+    "topic.history_culture": "info",
+  };
+  const resolvedContentType: ContentType | undefined = topicKey
+    ? topicContentTypeMap[topicKey]
+    : undefined;
   const [manualText, setManualText] = useState("");
   const [manualTitle, setManualTitle] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -294,6 +314,7 @@ export default function GenerateScreen() {
             if (lang.code === "en-US" || lang.code === "en-GB") return lang.english;
             return lang.name;
           })(),
+          contentType: resolvedContentType,
           ...(isRetry
             ? {
                 regenerate: true,
@@ -325,7 +346,7 @@ export default function GenerateScreen() {
         text: rawText,
         translation: result.data.translation ?? "",
         vocabulary: result.data.vocabulary ?? [],
-        contentType: isContentType(declaredType) ? declaredType : detectContentType(rawText),
+        contentType: isContentType(declaredType) ? declaredType : declaredType ? normalizeContentType(declaredType) : detectContentType(rawText),
       };
       return { ok: true, payload };
     } catch (e) {
@@ -344,7 +365,7 @@ export default function GenerateScreen() {
   type ManualAttempt =
     | {
         ok: true;
-        data: { targetText: string; nativeText: string; difficulty: Difficulty };
+        data: { targetText: string; nativeText: string; difficulty: Difficulty; contentType?: ContentType };
       }
     | { ok: false; kind: "quota_exceeded"; quota?: QuotaInfo }
     | { ok: false; kind: "error" };
@@ -373,7 +394,7 @@ export default function GenerateScreen() {
       }
       const result = (await response.json()) as {
         success: boolean;
-        data?: { targetText?: string; nativeText?: string; difficulty?: Difficulty };
+        data?: { targetText?: string; nativeText?: string; difficulty?: Difficulty; contentType?: string };
       };
       if (!result.success || !result.data) return { ok: false, kind: "error" };
       const allowedLevels: Difficulty[] = [
@@ -387,7 +408,13 @@ export default function GenerateScreen() {
         detected && allowedLevels.includes(detected) ? detected : "intermediate";
       const targetText = result.data.targetText?.trim() || inputText;
       const nativeText = result.data.nativeText?.trim() ?? "";
-      return { ok: true, data: { targetText, nativeText, difficulty } };
+      const ctRaw = result.data.contentType;
+      const contentType: ContentType | undefined = isContentType(ctRaw)
+        ? ctRaw
+        : ctRaw
+          ? normalizeContentType(ctRaw)
+          : undefined;
+      return { ok: true, data: { targetText, nativeText, difficulty, contentType } };
     } catch {
       return { ok: false, kind: "error" };
     }
@@ -604,7 +631,7 @@ export default function GenerateScreen() {
         targetLanguage,
         nativeLanguage,
         createdAt: Date.now(),
-        contentType: detectContentType(attempt.data.targetText),
+        contentType: attempt.data.contentType ?? detectContentType(attempt.data.targetText),
       };
       await addText(text);
       // Count this manual save against today's quota — same TTS cost as
@@ -966,7 +993,7 @@ export default function GenerateScreen() {
               <TextInput
                 style={[styles.input, inputStyle]}
                 value={topic}
-                onChangeText={setTopic}
+                onChangeText={(t) => { setTopic(t); setTopicKey(null); }}
                 placeholder={t("generate.placeholder.topic")}
                 placeholderTextColor={colors.mutedForeground}
                 returnKeyType="done"
@@ -982,7 +1009,7 @@ export default function GenerateScreen() {
                   return (
                     <TouchableOpacity
                       key={tk}
-                      onPress={() => setTopic(label)}
+                      onPress={() => { setTopic(label); setTopicKey(tk); }}
                       style={[
                         styles.topicChip,
                         {

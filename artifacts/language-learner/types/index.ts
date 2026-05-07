@@ -13,13 +13,9 @@ export interface VocabularyItem {
 
 export type ContentType =
   | "dialogue"
-  | "news"
-  | "email"
-  | "letter"
-  | "speech"
   | "story"
-  | "essay"
-  | "general";
+  | "speech"
+  | "info";
 
 export interface LearningText {
   id: string;

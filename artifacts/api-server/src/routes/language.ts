@@ -339,11 +339,12 @@ const requireOpenai: RequestHandler = (_req, res, next) => {
 
 router.post("/language/generate-text", requireDeepseek, enforceGenerationQuota, async (req, res) => {
   try {
-    const { topic, difficulty, language, targetLanguage, regenerate, previousText, previousTitle } = req.body as {
+    const { topic, difficulty, language, targetLanguage, contentType, regenerate, previousText, previousTitle } = req.body as {
       topic: string;
       difficulty: string;
       language: string;
       targetLanguage: string;
+      contentType?: string;
       regenerate?: boolean;
       previousText?: string;
       previousTitle?: string;
@@ -384,16 +385,10 @@ Format your response as JSON with these fields:
 - "text": the main text in ${targetLanguage}
 - "translation": translation in ${language}
 - "title": a short title for the text (in ${targetLanguage})
-- "contentType": classify the writing **by its actual content and intent, not just its formatting**. Choose ONE of:
-    - "dialogue": a back-and-forth conversation between two or more speakers. Format text with one turn per line as "SpeakerName: utterance".
-    - "news": a news report or journalistic piece (lede, reporting style, third-person factual tone). Separate paragraphs with a blank line.
-    - "email": an email message (has greeting like "Hi X,", a body, and a sign-off; conversational but written; may include subject as the first line "Subject: ...").
-    - "letter": a formal or personal written letter (date, salutation like "Dear X,", body, formal closing like "Sincerely, ..."). Separate paragraphs with a blank line.
-    - "speech": a spoken address or speech meant to be delivered to an audience (rhetorical, addressing "you" / the audience, often inspirational, persuasive, or ceremonial).
-    - "story": a short narrative or story (characters, plot, scenes).
-    - "essay": an opinion piece, argumentative or reflective essay.
-    - "general": none of the above clearly fits.
-  Always prefer the content-based classification over surface formatting.
+- "contentType": ${contentType ? `MUST be "${contentType}".` : `decide yourself. Think step by step:
+    1. What is the topic "${topic}" — social interaction, narrative, opinion, or factual info?
+    2. Pick: "dialogue" (conversation, chat, interview, role-play), "story" (narrative, anecdote, travelogue), "speech" (opinion, appeal, persuasive), or "info" (news, explainer, guide).
+    3. Generate the text in that format.`}
 - "vocabulary": array of 5-8 key vocabulary items, each with:
   - "word": the word in ${targetLanguage}
   - "pronunciation": IPA or romanization if applicable
@@ -416,8 +411,8 @@ Make the text feel like something a real native speaker would say - not textbook
           role: "user",
           content:
             regenerate && previousText
-              ? `Generate a ${difficulty} level text about: ${topic}. Remember: this must be a DIFFERENT article from the previous draft shown above — different angle, different opening, different examples.`
-              : `Generate a ${difficulty} level text about: ${topic}`,
+              ? `Generate a ${difficulty} level text. Topic: ${topic}. This must be DIFFERENT from the previous draft — different angle, different opening, different examples.`
+              : `Generate a ${difficulty} level text. Topic: ${topic}. Let the topic guide the contentType choice per the system instructions.`,
         },
       ],
       response_format: { type: "json_object" },
@@ -503,11 +498,18 @@ router.post("/language/process-manual", requireDeepseek, validateManualPayload, 
 
 Preserve line breaks, paragraph breaks, and any "Speaker:" prefixes for dialogue in both versions.
 
+5. Classify the content type of the text, choosing exactly one of:
+   - "dialogue": a back-and-forth conversation between speakers.
+   - "story": a narrative with characters, plot, or personal experience.
+   - "speech": a spoken address, opinion piece, or persuasive text.
+   - "info": a factual, explanatory, or news-like passage.
+
 Return JSON only:
 {
   "targetText": "...",      // text in ${targetLanguage}
   "nativeText": "...",      // text in ${nativeLanguage}
-  "difficulty": "beginner" | "elementary" | "intermediate" | "advanced"
+  "difficulty": "beginner" | "elementary" | "intermediate" | "advanced",
+  "contentType": "dialogue" | "story" | "speech" | "info"
 }`,
         },
         { role: "user", content: text },

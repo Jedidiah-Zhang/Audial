@@ -238,12 +238,16 @@ app.post("/generate-text", optionalClerkAuth, requireDeepseek, enforceGeneration
   const body = await c.req.json();
   const { topic, difficulty, language, targetLanguage, contentType, regenerate, previousText, previousTitle } = body;
 
-  const systemPrompt = `You are a language-learning content creator. Generate engaging reading passages suitable for ${difficulty} level learners of ${targetLanguage || "English"}.
+  const systemPrompt = `You are a language-learning content creator. Generate engaging reading passages suitable for ${difficulty} level learners of ${targetLanguage || "English"}. The text should sound natural and authentic, suitable for oral practice and memorization.
+
 The response must be valid JSON with these fields:
-- text: the full passage (200-500 characters)
+- text: the full passage (200-500 characters). Format dialogue with "SpeakerName: utterance" per line.
 - translation: translation in ${language || "Chinese"} (natural, not word-for-word)
 - title: a short title in ${targetLanguage || "English"}
-- contentType: "dialogue" | "article" | "story" | "news" | "essay"
+- contentType: ${contentType ? `MUST be "${contentType}".` : `decide yourself. Think step by step:
+    1. What is the topic "${topic}" — is it a social interaction, a narrative, an opinion, or factual info?
+    2. Choose: "dialogue" (conversations, chats, interviews, role-plays), "story" (narratives, anecdotes, travelogues), "speech" (opinions, appeals, persuasive), or "info" (news, explainers, guides).
+    3. Generate the text in that format.`}
 - vocabulary: array of { word, pronunciation?, partOfSpeech, meaning, example?, exampleTranslation? } for 5-8 key words
 
 Topic: ${topic}. Make it interesting and culturally appropriate.
@@ -256,7 +260,7 @@ ${regenerate ? `Previous title was "${previousTitle}". Create something differen
       ...(regenerate && previousText
         ? [{ role: "user", content: `Previously generated: ${previousText.slice(0, 100)}...` }]
         : []),
-      { role: "user", content: `Generate a ${difficulty} level ${contentType || "article"} about ${topic} in ${targetLanguage || "English"}.` },
+      { role: "user", content: `Generate a ${difficulty} level ${contentType || "text in the most suitable format"} for topic "${topic}" in ${targetLanguage || "English"}.` },
     ],
     max_tokens: 2048,
     temperature: regenerate ? 1.1 : 0.7,
@@ -309,10 +313,11 @@ app.post("/process-manual", optionalClerkAuth, requireDeepseek, enforceGeneratio
 {
   "targetText": "the original text",
   "nativeText": "translation to ${nativeLanguage || "Chinese"}",
-  "difficulty": "beginner" | "elementary" | "intermediate" | "advanced"
+  "difficulty": "beginner" | "elementary" | "intermediate" | "advanced",
+  "contentType": "dialogue" | "story" | "speech" | "info"
 }`,
       },
-      { role: "user", content: text },
+      { role: "user", content: `Classify the content type (dialogue/story/speech/info), translate to ${nativeLanguage || "Chinese"}, and assess difficulty:\n\n${text}` },
     ],
     max_tokens: 2000,
     response_format: { type: "json_object" },

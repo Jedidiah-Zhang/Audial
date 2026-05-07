@@ -9,7 +9,7 @@ import { Edit2, Play, Star, Trash2, X } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import type { LearningText } from "@/types";
 import { STAGES } from "@/types";
-import { CONTENT_TYPE_META, detectContentType } from "@/utils/contentType";
+import { CONTENT_TYPE_META, normalizeContentType, detectContentType } from "@/utils/contentType";
 import { useT, getDifficultyLabel, getContentTypeLabel, getStageName } from "@/utils/i18n";
 import { useApp } from "@/context/AppContext";
 import { Flag } from "@/utils/flags";
@@ -68,7 +68,9 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
   const allDone = passedCount === totalStages;
   const hasStarted = passedCount > 0;
   const currentStage = stagesPassed ? STAGES[passedCount] : STAGES[0];
-  const ctype = item.contentType ?? detectContentType(item.text);
+  const ctype = item.contentType
+    ? normalizeContentType(item.contentType)
+    : detectContentType(item.text);
   const ctMeta = CONTENT_TYPE_META[ctype];
 
   const cardChromeStyle = snapshot

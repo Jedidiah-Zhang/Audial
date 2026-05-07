@@ -1,5 +1,5 @@
 import type { ContentType } from "@/types";
-import { detectContentType, parseDialogue, parseParagraphs } from "@/utils/contentType";
+import { detectContentType, normalizeContentType, parseDialogue, parseParagraphs } from "@/utils/contentType";
 
 /**
  * Split a single block of text into sentences. Handles common Western and CJK
@@ -26,6 +26,7 @@ export interface ParagraphGroup {
 
 export type SentenceLayout =
   | { kind: "dialogue"; groups: DialogueGroup[] }
+  | { kind: "sentences"; groups: ParagraphGroup[] }
   | { kind: "paragraphs"; groups: ParagraphGroup[] };
 
 /**
@@ -37,7 +38,7 @@ export function buildSentenceLayout(
   text: string,
   contentType?: ContentType
 ): SentenceLayout {
-  const effectiveType: ContentType = contentType ?? detectContentType(text);
+  const effectiveType: ContentType = contentType ? normalizeContentType(contentType) : detectContentType(text);
   if (effectiveType === "dialogue") {
     const turns = parseDialogue(text);
     const groups: DialogueGroup[] = turns.map((t) => ({
@@ -45,6 +46,14 @@ export function buildSentenceLayout(
       sentences: splitSentences(t.utterance),
     }));
     return { kind: "dialogue", groups };
+  }
+  if (effectiveType === "speech") {
+    // One sentence per group — rendered like TED subtitles
+    const allSentences = splitSentences(text);
+    return {
+      kind: "sentences",
+      groups: allSentences.map((s) => ({ sentences: [s] })),
+    };
   }
   const paragraphs = parseParagraphs(text);
   if (paragraphs.length === 0) {

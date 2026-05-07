@@ -7,7 +7,7 @@ import { AudioWaveform } from "@/components/AudioWaveform";
 import { useApp } from "@/context/AppContext";
 import { VOICE_OPTIONS } from "@/types";
 import type { ContentType } from "@/types";
-import { detectContentType, CONTENT_TYPE_META } from "@/utils/contentType";
+import { detectContentType, normalizeContentType, CONTENT_TYPE_META } from "@/utils/contentType";
 import { buildSentenceLayout, flattenSentences } from "@/utils/sentences";
 import { useT, getContentTypeLabel } from "@/utils/i18n";
 import { Icon, type IconName } from "@/components/Icon";
@@ -113,7 +113,7 @@ export function SentenceArticle({
   const sequenceCancelRef = useRef(false);
 
   const effectiveType: ContentType = useMemo(
-    () => contentType ?? detectContentType(text),
+    () => contentType ? normalizeContentType(contentType) : detectContentType(text),
     [contentType, text]
   );
 
@@ -390,31 +390,80 @@ export function SentenceArticle({
               );
             }
 
-            // Paragraph-based layout for news/email/letter/speech/story/essay/general
-            let cursor = 0;
-            const indent = effectiveType === "news" || effectiveType === "essay";
-            return (
-              <View style={styles.newsWrap}>
-                {Badge}
-                {layout.groups.map((g, gi) => (
-                  <Text
-                    key={gi}
-                    style={[
-                      styles.article,
-                      styles.newsParagraph,
-                      { color: colors.foreground },
-                      rtlTextStyle(g.sentences.join(" ")),
-                    ]}
-                  >
-                    {indent && gi !== 0 ? <Text>{"   "}</Text> : null}
-                    {g.sentences.map((s, i) => {
-                      const idx = cursor++;
-                      return renderSentence(idx, s, i === g.sentences.length - 1);
-                    })}
-                  </Text>
-                ))}
-              </View>
-            );
+            // Story — book-like paragraphs
+            if (effectiveType === "story") {
+              let cursor = 0;
+              return (
+                <View style={styles.storyWrap}>
+                  {Badge}
+                  {layout.groups.map((g, gi) => (
+                    <Text
+                      key={gi}
+                      style={[
+                        styles.storyParagraph,
+                        { color: colors.foreground },
+                        rtlTextStyle(g.sentences.join(" ")),
+                      ]}
+                    >
+                      {g.sentences.map((s, i) => {
+                        const idx = cursor++;
+                        return renderSentence(idx, s, i === g.sentences.length - 1);
+                      })}
+                    </Text>
+                  ))}
+                </View>
+              );
+            }
+
+            // Speech — one sentence per line, like TED subtitles
+            if (effectiveType === "speech") {
+              let cursor = 0;
+              return (
+                <View style={styles.speechWrap}>
+                  {Badge}
+                  {layout.groups.map((g, gi) => (
+                    <Text
+                      key={gi}
+                      style={[
+                        styles.speechSentence,
+                        { color: colors.foreground },
+                        rtlTextStyle(g.sentences.join(" ")),
+                      ]}
+                    >
+                      {g.sentences.map((s, i) => {
+                        const idx = cursor++;
+                        return renderSentence(idx, s, i === g.sentences.length - 1);
+                      })}
+                    </Text>
+                  ))}
+                </View>
+              );
+            }
+
+            // Info — web-news style paragraphs with spacing
+            {
+              let cursor = 0;
+              return (
+                <View style={styles.infoWrap}>
+                  {Badge}
+                  {layout.groups.map((g, gi) => (
+                    <Text
+                      key={gi}
+                      style={[
+                        styles.article,
+                        { color: colors.foreground },
+                        rtlTextStyle(g.sentences.join(" ")),
+                      ]}
+                    >
+                      {g.sentences.map((s, i) => {
+                        const idx = cursor++;
+                        return renderSentence(idx, s, i === g.sentences.length - 1);
+                      })}
+                    </Text>
+                  ))}
+                </View>
+              );
+            }
           })()}
           </ScrollView>
 
@@ -741,11 +790,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxWidth: "92%",
   },
-  newsWrap: {
-    gap: 10,
+  storyWrap: {
+    gap: 18,
   },
-  newsParagraph: {
-    marginBottom: 4,
+  storyParagraph: {
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 32,
+  },
+  speechWrap: {
+    gap: 24,
+  },
+  speechSentence: {
+    fontSize: 17,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 30,
+  },
+  infoWrap: {
+    gap: 14,
   },
   hintRow: {
     flexDirection: "row",
