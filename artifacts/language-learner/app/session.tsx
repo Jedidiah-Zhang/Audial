@@ -11,9 +11,9 @@ import {
   Alert,
   Modal,
   BackHandler,
-  KeyboardAvoidingView,
   useWindowDimensions,
 } from "react-native";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -1477,17 +1477,10 @@ export default function SessionScreen() {
         />
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? topPad + 12 : 0}
-      >
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
       >
         {phase === "intro" && (
           <View style={styles.section}>
@@ -2108,8 +2101,7 @@ export default function SessionScreen() {
             </View>
           </View>
         )}
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollViewCompat>
       </Animated.View>
 
       {hasGeom && overlayMounted && initialGeom && (
