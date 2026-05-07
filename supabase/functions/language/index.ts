@@ -302,22 +302,43 @@ app.post("/translate", optionalClerkAuth, requireDeepseek, async (c) => {
 // ===================================================================
 
 app.post("/process-manual", optionalClerkAuth, requireDeepseek, enforceGenerationQuota, async (c) => {
-  const { text, nativeLanguage } = await c.req.json();
+  const { text, targetLanguage, nativeLanguage } = await c.req.json();
 
   const response = await deepseek.chat.completions.create({
     model: DEEPSEEK_MODEL,
     messages: [
       {
         role: "system",
-        content: `Analyze the following text. Return JSON:
+        content: `You are a language learning assistant. The user provided a piece of text. Your job is to:
+1. Detect what language the input is written in.
+2. Produce a natural, fluent version in ${targetLanguage || "English"} (the learning target).
+   - If the input is already in ${targetLanguage || "English"}, lightly normalize it but keep the wording intact.
+   - Otherwise, translate it into idiomatic ${targetLanguage || "English"}.
+3. Produce a natural translation in ${nativeLanguage || "Chinese"} (the user's native language).
+   - If the input is already in ${nativeLanguage || "Chinese"}, you may use it (lightly cleaned) as the translation.
+4. Assess the difficulty level of the resulting ${targetLanguage || "English"} text on the CEFR scale, choosing exactly one of:
+   - "beginner" (A1-A2): very simple sentences, common everyday words.
+   - "elementary" (A2-B1): simple sentences, everyday topics.
+   - "intermediate" (B1-B2): moderate complexity, varied vocabulary.
+   - "advanced" (C1-C2): complex grammar, idiomatic expressions, sophisticated vocabulary.
+
+Preserve line breaks, paragraph breaks, and any "Speaker:" prefixes for dialogue in both versions.
+
+5. Classify the content type of the text, choosing exactly one of:
+   - "dialogue": a back-and-forth conversation between speakers.
+   - "story": a narrative with characters, plot, or personal experience.
+   - "speech": a spoken address, opinion piece, or persuasive text.
+   - "info": a factual, explanatory, or news-like passage.
+
+Return JSON only:
 {
-  "targetText": "the original text",
-  "nativeText": "translation to ${nativeLanguage || "Chinese"}",
+  "targetText": "...",      // text in ${targetLanguage || "English"}
+  "nativeText": "...",      // text in ${nativeLanguage || "Chinese"}
   "difficulty": "beginner" | "elementary" | "intermediate" | "advanced",
   "contentType": "dialogue" | "story" | "speech" | "info"
 }`,
       },
-      { role: "user", content: `Classify the content type (dialogue/story/speech/info), translate to ${nativeLanguage || "Chinese"}, and assess difficulty:\n\n${text}` },
+      { role: "user", content: text },
     ],
     max_tokens: 2000,
     response_format: { type: "json_object" },

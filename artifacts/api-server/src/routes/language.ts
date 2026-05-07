@@ -527,6 +527,7 @@ Return JSON only:
         targetText: typeof data.targetText === "string" ? data.targetText : text,
         nativeText: typeof data.nativeText === "string" ? data.nativeText : "",
         difficulty,
+        contentType: data.contentType,
       },
     });
   } catch (err) {
