@@ -1668,16 +1668,22 @@ export default function SessionScreen() {
                           total: Math.max(totalHintable, hintsUsedThisAttempt),
                         })}
                       </Text>
-                      <Text
-                        // RTL direction is determined from the original
-                        // unmasked sentence — masked output is mostly
-                        // ▁ characters, which would otherwise cause
-                        // direction detection to fall back to LTR.
-                        style={[styles.hintMaskText, { color: colors.foreground }, rtlTextStyle(text.text)]}
-                        selectable={false}
+                      <ScrollView
+                        style={styles.hintMaskScroll}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={false}
                       >
-                        {mask.display}
-                      </Text>
+                        <Text
+                          // RTL direction is determined from the original
+                          // unmasked sentence — masked output is mostly
+                          // ▁ characters, which would otherwise cause
+                          // direction detection to fall back to LTR.
+                          style={[styles.hintMaskText, { color: colors.foreground }, rtlTextStyle(text.text)]}
+                          selectable={false}
+                        >
+                          {mask.display}
+                        </Text>
+                      </ScrollView>
                     </>
                   ) : (
                     <Text style={[styles.hintEmptyText, { color: colors.mutedForeground }]}>
@@ -1782,16 +1788,22 @@ export default function SessionScreen() {
                     ) : null}
                   </View>
                   {recitationHintsRevealed > 0 ? (
-                    <Text
-                      style={[
-                        styles.hintMaskText,
-                        { color: colors.foreground },
-                        rtlTextStyle(text.text),
-                      ]}
-                      selectable={false}
+                    <ScrollView
+                      style={styles.hintMaskScroll}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
                     >
-                      {recitationHintPlan.display}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.hintMaskText,
+                          { color: colors.foreground },
+                          rtlTextStyle(text.text),
+                        ]}
+                        selectable={false}
+                      >
+                        {recitationHintPlan.display}
+                      </Text>
+                    </ScrollView>
                   ) : null}
                 </View>
               );
@@ -2553,6 +2565,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginTop: 2,
+  },
+  hintMaskScroll: {
+    maxHeight: 130,
   },
   hintMaskText: {
     fontSize: 16,
