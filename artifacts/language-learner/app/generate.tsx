@@ -10,7 +10,6 @@ import {
   Platform,
   Alert,
   Modal,
-  FlatList,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,8 +21,9 @@ import { nextQuotaResetAt, todayDateKey, useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
 import type { ContentType, Difficulty, LearningText, VocabularyItem } from "@/types";
 import { detectContentType, isContentType } from "@/utils/contentType";
-import { useT, getDifficultyLabel, TOPIC_KEYS } from "@/utils/i18n";
+import { useT, getDifficultyLabel, getLanguageDisplayName, TOPIC_KEYS } from "@/utils/i18n";
 import { Icon } from "@/components/Icon";
+import { LanguagePickerModal } from "@/components/LanguagePickerModal";
 import { useRewardedAd } from "@/hooks/useRewardedAd";
 import { useGenerationQuota } from "@/hooks/useGenerationQuota";
 import { PaywallModal } from "@/components/PaywallModal";
@@ -123,9 +123,11 @@ export default function GenerateScreen() {
   nativeLangRef.current = nativeLangObj.english;
 
   useEffect(() => {
+    const debounceRef = syncDebounceRef;
+    const reqIdRef = syncReqIdRef;
     return () => {
-      if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
-      syncReqIdRef.current++;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      reqIdRef.current++;
     };
   }, []);
 
@@ -927,7 +929,7 @@ export default function GenerateScreen() {
                 {targetLangObj.name}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>
-                {targetLangObj.english}
+                {getLanguageDisplayName(targetLangObj.code, nativeLanguage)}
               </Text>
             </View>
             <ChevronDown size={18} color={colors.mutedForeground} />
@@ -1160,66 +1162,14 @@ export default function GenerateScreen() {
 
       <PaywallModal visible={paywallOpen} onClose={() => setPaywallOpen(false)} />
 
-      <Modal
+      <LanguagePickerModal
         visible={targetPickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTargetPickerOpen(false)}
-      >
-        <View style={styles.pickerOverlay}>
-          <TouchableOpacity
-            style={styles.pickerBackdrop}
-            activeOpacity={1}
-            onPress={() => setTargetPickerOpen(false)}
-          />
-          <View style={[styles.pickerCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
-              {t("generate.picker.title")}
-            </Text>
-            <FlatList
-              data={LANGUAGES
-                .filter((l) => l.code !== nativeLanguage)
-                .slice()
-                .sort((a, b) => a.english.localeCompare(b.english))}
-              keyExtractor={(l) => l.code}
-              style={{ maxHeight: 380 }}
-              renderItem={({ item: lang }) => {
-                const selected = lang.code === targetLanguage;
-                return (
-                  <TouchableOpacity
-                    onPress={() => {
-                      setTargetLanguage(lang.code);
-                      setTargetPickerOpen(false);
-                    }}
-                    style={[
-                      styles.pickerRow,
-                      { borderBottomColor: colors.border },
-                      selected && { backgroundColor: colors.primary + "15" },
-                    ]}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={{
-                        color: selected ? colors.primary : colors.foreground,
-                        fontSize: 15,
-                        fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium",
-                      }}>
-                        {lang.name}
-                      </Text>
-                      <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
-                        {lang.english}
-                      </Text>
-                    </View>
-                    {selected && (
-                      <Check size={18} color={colors.primary} />
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          </View>
-        </View>
-      </Modal>
+        selected={targetLanguage}
+        onSelect={(code) => setTargetLanguage(code)}
+        onClose={() => setTargetPickerOpen(false)}
+        title={t("generate.picker.title")}
+        excludeCode={nativeLanguage}
+      />
     </View>
   );
 }
@@ -1314,27 +1264,6 @@ const styles = StyleSheet.create({
   pickerBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  pickerCard: {
-    width: "100%",
-    maxWidth: 380,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 4,
-    gap: 8,
-  },
-  pickerTitle: {
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    paddingHorizontal: 16,
-    paddingBottom: 4,
-  },
-  pickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   langChip: {
     paddingHorizontal: 12,

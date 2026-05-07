@@ -12,7 +12,7 @@ import { ArrowRight, Check, Globe } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { LANGUAGES } from "@/types";
-import { translate } from "@/utils/i18n";
+import { translate, getLanguageDisplayName } from "@/utils/i18n";
 import { isRTL, rtlFlipStyle, rtlTextStyle } from "@/utils/rtl";
 
 export function LanguageOnboarding() {
@@ -77,7 +77,7 @@ export function LanguageOnboarding() {
                         {lang.name}
                       </Text>
                       <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
-                        {lang.english}
+                        {getLanguageDisplayName(lang.code, code)}
                       </Text>
                     </View>
                     {isSelected && <Check size={18} color={colors.primary} />}

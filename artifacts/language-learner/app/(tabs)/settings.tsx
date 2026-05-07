@@ -17,11 +17,12 @@ import { router } from "expo-router";
 import { useAuth, useUser } from "@clerk/expo";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { useT, getDifficultyLabel, getLanguageDisplayName } from "@/utils/i18n";
+import { useT, getDifficultyLabel } from "@/utils/i18n";
 import { LANGUAGES, VOICE_OPTIONS } from "@/types";
 import type { Difficulty } from "@/types";
 import { Flag } from "@/utils/flags";
 import { Icon, type IconName } from "@/components/Icon";
+import { LanguagePickerModal } from "@/components/LanguagePickerModal";
 import { PaywallModal } from "@/components/PaywallModal";
 import { SyncIndicator } from "@/components/SyncIndicator";
 import { isCloudSyncableUser } from "@/utils/cloudSync";
@@ -144,17 +145,13 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* Pickers */}
-      <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={closePicker}>
+      <Modal visible={picker !== null && picker !== "ui" && picker !== "target"} transparent animationType="fade" onRequestClose={closePicker}>
         <View style={styles.overlay}>
           <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={closePicker} />
           <View style={[styles.pickerCard, { backgroundColor: colors.card }]}>
             <View style={[styles.pickerHeader, { borderBottomColor: colors.border }]}>
               <Text style={[styles.pickerTitle, { color: colors.foreground }]}>
-                {picker === "ui"
-                  ? t("settings.changeLanguage")
-                  : picker === "target"
-                  ? t("settings.changeTarget")
-                  : picker === "voice"
+                {picker === "voice"
                   ? t("settings.changeVoice")
                   : picker === "theme"
                   ? t("settings.changeTheme")
@@ -164,72 +161,6 @@ export default function SettingsScreen() {
                 <X size={20} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
-
-            {picker === "ui" && (
-              <FlatList
-                data={LANGUAGES.slice().sort((a, b) => a.english.localeCompare(b.english))}
-                keyExtractor={(l) => l.code}
-                style={{ maxHeight: 420 }}
-                renderItem={({ item }) => {
-                  const selected = item.code === settings.nativeLanguage;
-                  return (
-                    <TouchableOpacity
-                      style={[styles.row, { borderBottomColor: colors.border }, selected && { backgroundColor: colors.primary + "15" }]}
-                      onPress={async () => {
-                        await updateSettings({ nativeLanguage: item.code });
-                        closePicker();
-                      }}
-                    >
-                      <View style={styles.rowFlagWrap}>
-                        <Flag code={item.code} size={22} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: selected ? colors.primary : colors.foreground, fontSize: 15, fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium" }}>
-                          {item.name}
-                        </Text>
-                        <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
-                          {getLanguageDisplayName(item.code, settings.nativeLanguage)}
-                        </Text>
-                      </View>
-                      {selected && <Check size={18} color={colors.primary} />}
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            )}
-
-            {picker === "target" && (
-              <FlatList
-                data={LANGUAGES.slice().sort((a, b) => a.english.localeCompare(b.english))}
-                keyExtractor={(l) => l.code}
-                style={{ maxHeight: 420 }}
-                renderItem={({ item }) => {
-                  const selected = item.code === settings.targetLanguage;
-                  return (
-                    <TouchableOpacity
-                      style={[styles.row, { borderBottomColor: colors.border }, selected && { backgroundColor: colors.primary + "15" }]}
-                      onPress={async () => {
-                        await updateSettings({ targetLanguage: item.code });
-                        closePicker();
-                      }}
-                    >
-                      <View style={styles.rowFlagWrap}>
-                        <Flag code={item.code} size={22} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: selected ? colors.primary : colors.foreground, fontSize: 15, fontFamily: selected ? "Inter_600SemiBold" : "Inter_500Medium" }}>
-                          {item.name}
-                        </Text>
-                        <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 1 }}>
-                          {getLanguageDisplayName(item.code, settings.nativeLanguage)}
-                        </Text>
-                      </View>
-                      {selected && <Check size={18} color={colors.primary} />}
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            )}
 
             {picker === "voice" && (
               <FlatList
@@ -318,6 +249,23 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      <LanguagePickerModal
+        visible={picker === "ui"}
+        selected={settings.nativeLanguage}
+        onSelect={(code) => updateSettings({ nativeLanguage: code })}
+        onClose={closePicker}
+        title={t("settings.changeLanguage")}
+        showFlags
+      />
+      <LanguagePickerModal
+        visible={picker === "target"}
+        selected={settings.targetLanguage}
+        onSelect={(code) => updateSettings({ targetLanguage: code })}
+        onClose={closePicker}
+        title={t("settings.changeTarget")}
+        showFlags
+      />
 
       <PaywallModal visible={paywallOpen} onClose={() => setPaywallOpen(false)} />
     </View>
