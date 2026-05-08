@@ -245,6 +245,7 @@ interface AppContextValue {
   addText: (text: LearningText) => Promise<void>;
   updateText: (id: string, partial: Partial<LearningText>) => Promise<void>;
   removeText: (id: string) => Promise<void>;
+  recordTextClick: (id: string) => Promise<void>;
   addResult: (result: SessionResult) => Promise<void>;
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
   getProgressForText: (textId: string) => UserProgress | undefined;
@@ -804,9 +805,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           return next;
         });
-        setTexts(migrated);
+        const sorted = migrated.sort(
+          (a, b) => (b.lastClickedAt ?? 0) - (a.lastClickedAt ?? 0) || b.createdAt - a.createdAt,
+        );
+        setTexts(sorted);
         if (mutated) {
-          AsyncStorage.setItem(K.TEXTS, JSON.stringify(migrated));
+          AsyncStorage.setItem(K.TEXTS, JSON.stringify(sorted));
         }
       }
       if (resultsRaw) setResults(JSON.parse(resultsRaw));
@@ -943,7 +947,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addText = useCallback(async (text: LearningText) => {
     const uidAtCall = currentUserRef.current;
     const K = keysFor(uidAtCall);
-    const next = [text, ...textsRef.current.filter((t) => t.id !== text.id)];
+    const withClick = { ...text, lastClickedAt: Date.now() };
+    const next = [withClick, ...textsRef.current.filter((t) => t.id !== text.id)];
     setTexts(next);
     safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
     scheduleCloudPush(uidAtCall, { textIds: [text.id] });
@@ -966,6 +971,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTexts(next);
     safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
     scheduleCloudPush(uidAtCall, { deletedTextIds: [id] });
+  }, []);
+
+  const recordTextClick = useCallback(async (id: string) => {
+    const uidAtCall = currentUserRef.current;
+    const K = keysFor(uidAtCall);
+    const now = Date.now();
+    const next = textsRef.current
+      .map((t) => (t.id === id ? { ...t, lastClickedAt: now } : t))
+      .sort((a, b) => (b.lastClickedAt ?? 0) - (a.lastClickedAt ?? 0) || b.createdAt - a.createdAt);
+    setTexts(next);
+    safeWrite(uidAtCall, K.TEXTS, JSON.stringify(next));
+    scheduleCloudPush(uidAtCall, { textIds: [id] });
   }, []);
 
   const addResult = useCallback(async (result: SessionResult) => {
@@ -1298,6 +1315,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addText,
         updateText,
         removeText,
+        recordTextClick,
         addResult,
         updateSettings,
         getProgressForText,

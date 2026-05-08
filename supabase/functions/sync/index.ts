@@ -110,6 +110,7 @@ app.post("/push", async (c) => {
           nativeLanguage: text.nativeLanguage,
           contentType: text.contentType,
           clientCreatedAt: text.clientCreatedAt,
+          lastClickedAt: text.lastClickedAt,
         },
       });
     acceptedTexts++;

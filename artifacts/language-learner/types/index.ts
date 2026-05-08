@@ -28,6 +28,7 @@ export interface LearningText {
   targetLanguage: string;
   nativeLanguage: string;
   createdAt: number;
+  lastClickedAt?: number;
   contentType?: ContentType;
 }
 

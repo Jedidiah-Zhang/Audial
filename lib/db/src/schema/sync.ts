@@ -53,6 +53,9 @@ export const textsTable = pgTable(
     // Original client createdAt (epoch ms). Lets sync return rows in the
     // same order the client originally saw them.
     clientCreatedAt: integer("client_created_at").notNull().default(0),
+    // Last time the user tapped this text in the article list. Used to
+    // sort articles by recency of access; null means never tapped.
+    lastClickedAt: integer("last_clicked_at"),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

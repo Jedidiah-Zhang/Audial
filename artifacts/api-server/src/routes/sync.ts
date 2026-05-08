@@ -78,6 +78,7 @@ router.get("/sync/snapshot", async (req, res) => {
       nativeLanguage: t.nativeLanguage,
       contentType: t.contentType ?? null,
       createdAt: t.clientCreatedAt,
+      lastClickedAt: t.lastClickedAt ?? undefined,
     })),
     results: results.map((r) => ({
       id: r.id,
@@ -168,6 +169,7 @@ router.post("/sync/push", async (req, res) => {
       nativeLanguage: t.nativeLanguage,
       contentType: t.contentType ?? null,
       clientCreatedAt: Math.floor(t.createdAt),
+      lastClickedAt: t.lastClickedAt != null ? Math.floor(t.lastClickedAt) : null,
     }));
     if (rows.length > 0) {
       await db
@@ -186,6 +188,7 @@ router.post("/sync/push", async (req, res) => {
             nativeLanguage: sql`excluded.native_language`,
             contentType: sql`excluded.content_type`,
             clientCreatedAt: sql`excluded.client_created_at`,
+            lastClickedAt: sql`excluded.last_clicked_at`,
             updatedAt: sql`now()`,
           },
         });

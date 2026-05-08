@@ -201,12 +201,14 @@ export const TextCard = forwardRef<React.ComponentRef<typeof TouchableOpacity>, 
             </Text>
           </View>
         </View>
-        <View style={styles.headerRight}>
-          <Flag code={item.targetLanguage} size={18} />
-          <Text style={[styles.lang, { color: colors.mutedForeground }]}>
-            {formatLangCode(item.targetLanguage)}
-          </Text>
-        </View>
+        {!showActions && (
+          <View style={styles.headerRight}>
+            <Flag code={item.targetLanguage} size={18} />
+            <Text style={[styles.lang, { color: colors.mutedForeground }]}>
+              {formatLangCode(item.targetLanguage)}
+            </Text>
+          </View>
+        )}
       </View>
 
       <Text style={[styles.title, { color: colors.foreground }, rtlTextStyle(item.title)]} numberOfLines={2}>

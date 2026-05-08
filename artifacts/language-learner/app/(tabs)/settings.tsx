@@ -97,6 +97,16 @@ export default function SettingsScreen() {
             onPress={() => setPaywallOpen(true)}
           />
         </Section>
+        <Section title={t("settings.section.appearance")} colors={colors}>
+          <Row
+            colors={colors}
+            icon="moon"
+            label={t("settings.theme")}
+            value={t(`settings.theme.${themePreference}`)}
+            onPress={() => setPicker("theme")}
+          />
+        </Section>
+
         <Section title={t("settings.section.language")} colors={colors}>
           <Row
             colors={colors}
@@ -120,16 +130,6 @@ export default function SettingsScreen() {
             label={t("settings.difficulty")}
             value={getDifficultyLabel(settings.defaultDifficulty, lang)}
             onPress={() => setPicker("difficulty")}
-          />
-        </Section>
-
-        <Section title={t("settings.section.appearance")} colors={colors}>
-          <Row
-            colors={colors}
-            icon="moon"
-            label={t("settings.theme")}
-            value={t(`settings.theme.${themePreference}`)}
-            onPress={() => setPicker("theme")}
           />
         </Section>
 

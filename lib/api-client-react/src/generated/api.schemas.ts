@@ -36,6 +36,7 @@ export interface LearningText {
   nativeLanguage: string;
   contentType?: string | null;
   createdAt: number;
+  lastClickedAt?: number;
 }
 
 export type SessionResultDetails = { [key: string]: unknown } | null;

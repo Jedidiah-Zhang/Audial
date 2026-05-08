@@ -241,7 +241,7 @@ app.post("/generate-text", optionalClerkAuth, requireDeepseek, enforceGeneration
   const systemPrompt = `You are a language-learning content creator. Generate engaging reading passages suitable for ${difficulty} level learners of ${targetLanguage || "English"}. The text should sound natural and authentic, suitable for oral practice and memorization.
 
 The response must be valid JSON with these fields:
-- text: the full passage (200-500 characters). Format dialogue with "SpeakerName: utterance" per line.
+- text: the full passage (200-500 characters).${contentType === "dialogue" ? ` Format as dialogue with "SpeakerName: utterance" per line.` : contentType === "speech" ? ` Write in a spoken-address style (like a TED talk or speech).` : contentType === "story" ? ` Write in a narrative style with descriptive prose.` : ` Write in a natural, informative style.`}
 - translation: translation in ${language || "Chinese"} (natural, not word-for-word)
 - title: a short title in ${targetLanguage || "English"}
 - contentType: ${contentType ? `MUST be "${contentType}".` : `decide yourself. Think step by step:
@@ -269,7 +269,18 @@ ${regenerate ? `Previous title was "${previousTitle}". Create something differen
     ...(regenerate ? { seed: Math.floor(Math.random() * 100000) } : {}),
   });
 
-  const content = JSON.parse(response.choices[0].message.content || "{}");
+  const raw = response.choices[0].message.content || "{}";
+  const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+  let content: Record<string, unknown>;
+  try {
+    content = JSON.parse(clean);
+  } catch {
+    console.error("[lang] generate-text JSON parse failed", { raw: raw.slice(0, 200), clean: clean.slice(0, 200) });
+    return c.json(ok({}));
+  }
+  if (!content.text || typeof content.text !== "string" || !content.text.trim()) {
+    console.error("[lang] generate-text returned empty text", { content });
+  }
   return c.json(ok(content));
 });
 
@@ -344,7 +355,15 @@ Return JSON only:
     response_format: { type: "json_object" },
   });
 
-  const result = JSON.parse(response.choices[0].message.content || "{}");
+  const raw = response.choices[0].message.content || "{}";
+  const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+  let result: Record<string, unknown>;
+  try {
+    result = JSON.parse(clean);
+  } catch {
+    console.error("[lang] process-manual JSON parse failed", { raw: raw.slice(0, 200), clean: clean.slice(0, 200) });
+    return c.json(ok({}));
+  }
   return c.json(ok(result));
 });
 

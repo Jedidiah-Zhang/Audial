@@ -109,6 +109,7 @@ export const PushSyncBody = zod.object({
         nativeLanguage: zod.string(),
         contentType: zod.string().nullish(),
         createdAt: zod.number(),
+        lastClickedAt: zod.number().optional(),
       }),
     )
     .optional(),

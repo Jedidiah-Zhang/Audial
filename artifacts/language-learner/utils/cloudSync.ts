@@ -150,11 +150,13 @@ export function mergeSnapshot(
       (t.contentType as LearningText["contentType"]) ?? undefined,
     createdAt:
       typeof t.createdAt === "number" ? t.createdAt : Date.now(),
+    lastClickedAt:
+      typeof t.lastClickedAt === "number" ? t.lastClickedAt : undefined,
   }));
 
   const localOnlyTexts = local.texts.filter((t) => !cloudTextIds.has(t.id));
   const mergedTexts = [...cloudTexts, ...localOnlyTexts].sort(
-    (a, b) => b.createdAt - a.createdAt,
+    (a, b) => (b.lastClickedAt ?? 0) - (a.lastClickedAt ?? 0) || b.createdAt - a.createdAt,
   );
 
   const cloudResults: SessionResult[] = cloud.results.map((r) => ({
@@ -240,6 +242,7 @@ function toApiText(t: LearningText) {
     nativeLanguage: t.nativeLanguage,
     contentType: t.contentType ?? null,
     createdAt: t.createdAt,
+    lastClickedAt: t.lastClickedAt,
   };
 }
 

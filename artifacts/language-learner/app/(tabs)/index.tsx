@@ -5,21 +5,38 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
   Platform,
   Modal,
   TextInput,
   KeyboardAvoidingView,
+  Animated,
+  Easing,
   type View as RNView,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { BookOpen, Plus } from "lucide-react-native";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { TextCard } from "@/components/TextCard";
 import { useT } from "@/utils/i18n";
 import type { LearningText } from "@/types";
+
+// Track the card that was just tapped, so we can reorder after the
+// practice-screen return animation completes and then animate all
+// affected cards to their new positions.
+let pendingClick: { id: string; originY: number; height: number } | null = null;
+
+// Per-card animated translateY values, created before recordTextClick
+// so cards that re-render at new positions can apply the offset
+// immediately and then animate to 0. The clicked card gets a positive
+// offset (appearing lower), cards above get a negative offset
+// (appearing higher), making the reorder look like a smooth cascade.
+let cardSlideAnims: Record<string, Animated.Value> | null = null;
+// The card that is sliding upward — rendered with higher zIndex so it
+// glides over (not under) the cards that are shifting down.
+let upwardCardId: string | null = null;
 
 type TextCardRowProps = {
   item: LearningText;
@@ -29,15 +46,28 @@ type TextCardRowProps = {
 };
 
 function TextCardRow({ item, stagesPassed, onDelete, onRename }: TextCardRowProps) {
-  // TouchableOpacity (and the snapshot variant's View) forwards its ref to
-  // the underlying View, which exposes NativeMethods including
-  // `measureInWindow`. We use the absolute on-screen geometry as the
-  // starting frame for the card-expand overlay on /practice.
   const cardRef = useRef<RNView | null>(null);
   const navigatingRef = useRef(false);
 
+  // When this card is part of the post-return reorder animation,
+  // apply its per-card translateY offset so it transitions smoothly
+  // from its old position to its new position.
+  const slideValue = cardSlideAnims?.[item.id];
+  const slideStyle = slideValue
+    ? {
+        transform: [{ translateY: slideValue }],
+        zIndex: item.id === upwardCardId ? 1 : 0,
+      }
+    : undefined;
+
   const handlePress = useCallback(() => {
     if (navigatingRef.current) return;
+
+    // Defer the reorder until after the return animation completes,
+    // so the overlay collapse targets the card's actual position.
+    // Save the tap position so we can animate the card from here
+    // to the top of the list after returning.
+    pendingClick = { id: item.id, originY: 0, height: 0 };
 
     const goPlain = () => {
       navigatingRef.current = true;
@@ -58,6 +88,11 @@ function TextCardRow({ item, stagesPassed, onDelete, onRename }: TextCardRowProp
         goPlain();
         return;
       }
+      // Store the actual measured position + size for the post-return animation.
+      if (pendingClick && pendingClick.id === item.id) {
+        pendingClick.originY = y;
+        pendingClick.height = height;
+      }
       navigatingRef.current = true;
       router.push({
         pathname: "/practice",
@@ -77,14 +112,16 @@ function TextCardRow({ item, stagesPassed, onDelete, onRename }: TextCardRowProp
   }, [item.id]);
 
   return (
-    <TextCard
-      ref={cardRef}
-      item={item}
-      onPress={handlePress}
-      onDelete={onDelete}
-      onRename={onRename}
-      stagesPassed={stagesPassed}
-    />
+    <Animated.View style={slideStyle}>
+      <TextCard
+        ref={cardRef}
+        item={item}
+        onPress={handlePress}
+        onDelete={onDelete}
+        onRename={onRename}
+        stagesPassed={stagesPassed}
+      />
+    </Animated.View>
   );
 }
 
@@ -92,7 +129,66 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const t = useT();
-  const { texts, removeText, updateText, getProgressForText } = useApp();
+  const { texts, removeText, updateText, getProgressForText, recordTextClick } = useApp();
+
+  // Bump this counter after creating cardSlideAnims so FlatList
+  // re-renders its items and each TextCardRow picks up its anim value.
+  const [animEpoch, setAnimEpoch] = useState(0);
+
+  // When the screen regains focus after the practice overlay dismisses,
+  // record the click and animate all affected cards to their new positions.
+  useFocusEffect(
+    useCallback(() => {
+      if (!pendingClick) return;
+      const { id, originY, height } = pendingClick;
+      pendingClick = null;
+
+      const handle = requestAnimationFrame(() => {
+        // Estimate slot height from the tapped card's measured height.
+        const slotH = (height > 0 ? height : 130) + 12; // 12 = card marginBottom
+        const idx = texts.findIndex((t) => t.id === id);
+        if (idx < 0) {
+          recordTextClick(id);
+          return;
+        }
+
+        const anims: Record<string, Animated.Value> = {};
+
+        // Cards above the clicked one shift down by one slot.
+        for (let i = 0; i < idx; i++) {
+          const aboveId = texts[i].id;
+          const v = new Animated.Value(-slotH);
+          anims[aboveId] = v;
+          Animated.timing(v, {
+            toValue: 0,
+            duration: 1000,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }).start();
+        }
+
+        // The clicked card shifts up by idx slots.
+        const v = new Animated.Value(idx * slotH);
+        anims[id] = v;
+        Animated.timing(v, {
+          toValue: 0,
+          duration: 1000,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start(() => {
+          cardSlideAnims = null;
+          upwardCardId = null;
+          setAnimEpoch((n) => n + 1);
+        });
+
+        cardSlideAnims = anims;
+        upwardCardId = id;
+        setAnimEpoch((n) => n + 1);
+        recordTextClick(id);
+      });
+      return () => cancelAnimationFrame(handle);
+    }, [recordTextClick, texts]),
+  );
 
   const [renameTarget, setRenameTarget] = useState<LearningText | null>(null);
   const [renameValue, setRenameValue] = useState("");

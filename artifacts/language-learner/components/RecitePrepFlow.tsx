@@ -1232,7 +1232,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   sentText: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     fontSize: 15,
     fontFamily: "Inter_400Regular",
     lineHeight: 22,

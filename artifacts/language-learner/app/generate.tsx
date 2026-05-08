@@ -10,6 +10,8 @@ import {
   Platform,
   Alert,
   Modal,
+  Keyboard,
+  Pressable,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -686,6 +688,7 @@ export default function GenerateScreen() {
           style={{ flex: 1 }}
           contentContainerStyle={[styles.content, { paddingBottom: Platform.OS === "web" ? 50 : insets.bottom + 40 }]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         >
           <View style={[styles.previewBanner, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}>
             <Edit3 size={14} color={colors.primary} />
@@ -899,8 +902,9 @@ export default function GenerateScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <TouchableOpacity onPress={() => { router.canGoBack() ? router.back() : router.replace("/(tabs)"); }} style={styles.backBtn} activeOpacity={0.7}>
+      <Pressable onPress={Keyboard.dismiss} style={{ flex: 1 }}>
+        <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+          <TouchableOpacity onPress={() => { router.canGoBack() ? router.back() : router.replace("/(tabs)"); }} style={styles.backBtn} activeOpacity={0.7}>
           <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{t("generate.title")}</Text>
@@ -940,6 +944,7 @@ export default function GenerateScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: Platform.OS === "web" ? 50 : insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <View style={styles.field}>
           <Text style={[styles.label, labelStyle]}>{t("generate.label.targetLanguage")}</Text>
@@ -1097,6 +1102,7 @@ export default function GenerateScreen() {
           </>
         )}
       </ScrollView>
+      </Pressable>
 
       <Modal
         visible={quotaSheetOpen}

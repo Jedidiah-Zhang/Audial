@@ -38,6 +38,7 @@ export const textsTable = pgTable(
     nativeLanguage: text("native_language").notNull().default("en-US"),
     contentType: text("content_type"),
     clientCreatedAt: integer("client_created_at").notNull().default(0),
+    lastClickedAt: integer("last_clicked_at"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

@@ -382,7 +382,7 @@ router.post("/language/generate-text", requireDeepseek, enforceGenerationQuota, 
     const systemPrompt = `You are a language learning content creator. Generate authentic, natural-sounding ${targetLanguage} text that a native speaker would actually say or write. The text should be at ${levelDesc}. The topic is: ${topic}.${dialectInstruction}${regenerateInstruction}
 
 Format your response as JSON with these fields:
-- "text": the main text in ${targetLanguage}
+- "text": the main text in ${targetLanguage}.${contentType === "dialogue" ? ` Format as dialogue with "SpeakerName: utterance" per line.` : contentType === "speech" ? ` Write in a spoken-address style (like a TED talk or speech).` : contentType === "story" ? ` Write in a narrative style with descriptive prose.` : ` Write in a natural, informative style.`}
 - "translation": translation in ${language}
 - "title": a short title for the text (in ${targetLanguage})
 - "contentType": ${contentType ? `MUST be "${contentType}".` : `decide yourself. Think step by step:
@@ -425,8 +425,13 @@ Make the text feel like something a real native speaker would say - not textbook
         : {}),
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    // Strip markdown code fences that some models wrap JSON in
+    const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+    const data = JSON.parse(clean);
+    if (!data.text || typeof data.text !== "string" || !data.text.trim()) {
+      req.log.warn({ data }, "generate-text returned empty text");
+    }
     res.json({ success: true, data });
   } catch (err) {
     req.log.error({ err }, "Failed to generate text");
@@ -460,8 +465,9 @@ router.post("/language/translate", requireDeepseek, async (req, res) => {
       response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+    const data = JSON.parse(clean);
     res.json({ success: true, data });
   } catch (err) {
     req.log.error({ err }, "Translate failed");
@@ -517,8 +523,9 @@ Return JSON only:
       response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+    const data = JSON.parse(clean);
     const allowed = ["beginner", "elementary", "intermediate", "advanced"];
     const difficulty = allowed.includes(data.difficulty) ? data.difficulty : "intermediate";
     res.json({
@@ -562,8 +569,9 @@ router.post("/language/word-detail", requireDeepseek, async (req, res) => {
       response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+    const data = JSON.parse(clean);
     res.json({ success: true, data });
   } catch (err) {
     req.log.error({ err }, "Word detail failed");
@@ -677,8 +685,9 @@ For non-spaced languages (Chinese / Japanese / Korean), tokenize at word/charact
       response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+    const data = JSON.parse(clean);
     res.json({ success: true, data });
   } catch (err) {
     req.log.error({ err }, "Score pronunciation failed");
@@ -925,8 +934,9 @@ CRITICAL: Punctuation differences DO NOT count as errors. Ignore any difference 
       response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
-    const data = JSON.parse(content);
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    const clean = raw.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+    const data = JSON.parse(clean);
 
     // ── defensive post-processing ────────────────────────────────────
     // Models occasionally ignore the "no punctuation penalty" rule, so
