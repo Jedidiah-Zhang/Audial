@@ -14,7 +14,7 @@ import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { setBaseUrl, setAuthTokenGetter } from "@workspace/api-client-react";
+import { setBaseUrl, setAuthTokenGetter } from "../api-client";
 import { ClerkProvider, useAuth, useUser } from "@clerk/expo";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -40,7 +40,7 @@ setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
 /**
  * Bridges Clerk's `getToken()` into the generated API client. This must
  * mount inside `ClerkProvider` so `useAuth()` resolves; once installed,
- * every request from `@workspace/api-client-react` (and any code path
+ * every request from the API client (and any code path
  * that imports `customFetch`) will automatically carry the user's
  * Clerk JWT in `Authorization: Bearer ...`. We intentionally don't
  * specify a template name so Clerk returns its default session token,

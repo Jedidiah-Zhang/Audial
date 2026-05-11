@@ -14,8 +14,31 @@
 // EXPO_PUBLIC_ADMOB_REWARDED_<PLACEMENT>_ID_(IOS|ANDROID) — see
 // `hooks/useRewardedAd.ts` for the full list.
 
+const { withGradleProperties } = require("@expo/config-plugins");
+
 const TEST_ANDROID_APP_ID = "ca-app-pub-3940256099942544~3347511713";
 const TEST_IOS_APP_ID = "ca-app-pub-3940256099942544~1458002511";
+
+/**
+ * Fixes duplicate META-INF file from jspecify and okhttp logging-interceptor.
+ * The generated android/app/build.gradle already reads
+ * `android.packagingOptions.excludes` from gradle.properties — we just need
+ * to set the value so the duplicate is excluded at mergeReleaseJavaResource.
+ */
+const withAndroidPackagingExcludes = (config) => {
+  return withGradleProperties(config, (config) => {
+    const key = "android.packagingOptions.excludes";
+    if (config.modResults.some((p) => p.type === "property" && p.key === key && p.value.includes("META-INF/versions/9/OSGI-INF"))) {
+      return config;
+    }
+    config.modResults.push({
+      type: "property",
+      key,
+      value: "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+    });
+    return config;
+  });
+};
 
 module.exports = ({ config }) => {
   const androidAppId =
@@ -38,6 +61,7 @@ module.exports = ({ config }) => {
   return {
     ...config,
     plugins: [
+      withAndroidPackagingExcludes,
       ...pluginsWithoutAdMob,
       [
         "react-native-google-mobile-ads",

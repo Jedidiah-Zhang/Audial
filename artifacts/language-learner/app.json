@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "Audial",
-    "slug": "language-learner",
+    "slug": "audial",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "language-learner",
+    "scheme": "audial",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -14,14 +14,19 @@
       "backgroundColor": "#FFF6D9"
     },
     "ios": {
+      "bundleIdentifier": "com.jedidiah.audial",
       "supportsTablet": false,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "需要麦克风权限进行跟读和背诵练习"
+        "NSMicrophoneUsageDescription": "需要麦克风权限进行跟读和背诵练习",
+        "NSSpeechRecognitionUsageDescription": "需要语音识别权限以显示实时字幕"
       }
     },
     "android": {
+      "package": "com.jedidiah.audial",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -63,9 +68,24 @@
         }
       ]
     ],
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/7ef5502e-8210-4ecb-b9a6-f05df5a06e63"
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7ef5502e-8210-4ecb-b9a6-f05df5a06e63"
+      }
+    },
+    "owner": "jedidiah-yz"
   }
 }

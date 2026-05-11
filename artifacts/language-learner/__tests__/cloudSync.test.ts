@@ -13,7 +13,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
   },
 }));
 
-vi.mock("@workspace/api-client-react", () => ({
+vi.mock("../api-client", () => ({
   getSyncSnapshot: vi.fn(),
   pushSync: vi.fn(),
   setSubscription: vi.fn(),

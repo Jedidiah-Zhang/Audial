@@ -7,7 +7,7 @@ import {
   type SyncSnapshot,
   type SyncPushPayload,
   type SubscriptionState as ApiSubscriptionState,
-} from "@workspace/api-client-react";
+} from "../api-client";
 import type {
   LearningText,
   SessionResult,
