@@ -81,6 +81,19 @@ export default function SignInScreen() {
   const [oauthBusy, setOauthBusy] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [langPickerOpen, setLangPickerOpen] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaSending, setMfaSending] = useState(false);
+  const [mfaVerifying, setMfaVerifying] = useState(false);
+
+  // If the user returns to this screen and a sign-in attempt is already
+  // waiting for the second factor, surface the MFA UI immediately.
+  useEffect(() => {
+    if (signIn.status === "needs_second_factor") {
+      setMfaSending(true);
+      (signIn as any).mfa?.sendEmailCode?.().finally(() => setMfaSending(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (isSignedIn) router.replace("/(tabs)");
@@ -162,12 +175,14 @@ export default function SignInScreen() {
 
     try {
       // If the in-memory signIn resource is left over from a previous
-      // attempt (e.g. abandoned or already-complete), reset it so
-      // signIn.password() doesn't no-op against a stale state machine.
+      // attempt, reset it so signIn.password() doesn't no-op against a
+      // stale state machine.  Covers every non-initial status so that
+      // partial attempts (including needs_second_factor) are discarded.
       const si = signIn as any;
+      const freshStatuses = new Set([null, undefined, "needs_identifier"]);
       if (
         !!si?.id &&
-        (si?.status === "complete" || si?.status === "abandoned") &&
+        !freshStatuses.has(si?.status) &&
         typeof si.reset === "function"
       ) {
         try {
@@ -211,10 +226,20 @@ export default function SignInScreen() {
         return;
       }
 
-      // Any other status (needs_client_trust / needs_first_factor /
-      // needs_identifier / etc.) — surface the status so the user
-      // (and we) can see what Clerk is asking for instead of a vague
-      // "try again later".
+      if (signIn.status === "needs_second_factor") {
+        setMfaSending(true);
+        try {
+          await signIn.mfa.sendEmailCode();
+        } catch {
+          setSubmitError(t("auth.error.generic"));
+        } finally {
+          setMfaSending(false);
+        }
+        return;
+      }
+
+      // Any other non-complete status — surface so we know what Clerk
+      // is asking for.
       if (__DEV__) {
         console.log("[sign-in] non-complete status", signIn.status, signIn);
       }
@@ -224,6 +249,48 @@ export default function SignInScreen() {
       // Without this catch the rejection is swallowed and the user is
       // left staring at a button that "did nothing".
       setSubmitError(err?.message ?? t("auth.error.generic"));
+    }
+  };
+
+  const handleVerifyMfa = async () => {
+    setSubmitError(null);
+    setMfaVerifying(true);
+    try {
+      await signIn.mfa.verifyEmailCode({ code: mfaCode });
+      if (signIn.status === "complete") {
+        await signIn.finalize({
+          navigate: () => {
+            router.replace("/(tabs)");
+          },
+        });
+      } else {
+        setSubmitError(t("auth.error.generic"));
+      }
+    } catch (err: any) {
+      setSubmitError(err?.message ?? t("auth.error.generic"));
+    } finally {
+      setMfaVerifying(false);
+    }
+  };
+
+  const handleMfaCancel = async () => {
+    try {
+      await (signIn as any).reset?.();
+    } catch {
+      /* best-effort */
+    }
+    setMfaCode("");
+    setSubmitError(null);
+  };
+
+  const handleMfaResend = async () => {
+    setMfaSending(true);
+    try {
+      await signIn.mfa.sendEmailCode();
+    } catch {
+      setSubmitError(t("auth.error.generic"));
+    } finally {
+      setMfaSending(false);
     }
   };
 
@@ -413,100 +480,188 @@ export default function SignInScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.heroBox}>
-          <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
-            <User size={28} color={colors.primary} />
-          </View>
-          <Text style={[styles.title, { color: colors.foreground }]}>
-            {t("auth.signIn.title")}
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-            {t("auth.signIn.subtitle")}
-          </Text>
-        </View>
-
-        <View style={styles.form}>
-          <SavedAccountsList accounts={savedAccounts} onSelect={handleSavedAccountTap} />
-          <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.identifier")}</Text>
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
-            ]}
-            value={identifier}
-            onChangeText={setIdentifier}
-            placeholder={t("auth.identifier.placeholder")}
-            placeholderTextColor={colors.mutedForeground}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="username"
-            textContentType="username"
-          />
-
-          <Text style={[styles.label, { color: colors.foreground, marginTop: 14 }]}>
-            {t("auth.password")}
-          </Text>
-          <PasswordInput
-            ref={passwordInputRef}
-            value={password}
-            onChangeText={setPassword}
-            placeholder={t("auth.password.placeholder")}
-            placeholderTextColor={colors.mutedForeground}
-          />
-          <TouchableOpacity
-            style={styles.forgotRow}
-            onPress={() => router.push("/(auth)/forgot-password")}
-            hitSlop={8}
-          >
-            <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_500Medium" }}>
-              {t("auth.forgotPassword")}
-            </Text>
-          </TouchableOpacity>
-
-          {submitError ? (
-            <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
-              {submitError}
-            </Text>
-          ) : null}
-
-          <TouchableOpacity
-            style={[
-              styles.primaryBtn,
-              { backgroundColor: colors.primary },
-              (!identifier || !password || fetchStatus === "fetching") && { opacity: 0.5 },
-            ]}
-            onPress={handleSubmit}
-            disabled={!identifier || !password || fetchStatus === "fetching"}
-            activeOpacity={0.85}
-          >
-            {fetchStatus === "fetching" ? (
-              <ActivityIndicator color={colors.primaryForeground} />
-            ) : (
-              <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
-                {t("auth.signIn.continue")}
+        {signIn.status === "needs_second_factor" ? (
+          <>
+            <View style={styles.heroBox}>
+              <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
+                <User size={28} color={colors.primary} />
+              </View>
+              <Text style={[styles.title, { color: colors.foreground }]}>
+                {t("auth.mfa.title")}
               </Text>
-            )}
-          </TouchableOpacity>
-
-          {/* TODO: OAuth buttons temporarily disabled — Google/Microsoft SSO needs fixing */}
-
-          <View style={styles.footerRow}>
-            <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
-              {t("auth.signIn.noAccount")}{" "}
-            </Text>
-            <TouchableOpacity onPress={() => router.replace("/(auth)/sign-up")}>
-              <Text style={{ color: colors.primary, fontSize: 14, fontFamily: "Inter_600SemiBold" }}>
-                {t("auth.signUp.title")}
+              <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+                {t("auth.mfa.subtitle.email")}
               </Text>
-            </TouchableOpacity>
-          </View>
+            </View>
 
-          <TouchableOpacity onPress={handleSkip} style={styles.skipBtn} activeOpacity={0.7}>
-            <Text style={{ color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_500Medium" }}>
-              {t("auth.skip")}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.form}>
+              <Text style={[styles.label, { color: colors.foreground }]}>
+                {t("auth.mfa.codeLabel")}
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
+                ]}
+                value={mfaCode}
+                onChangeText={setMfaCode}
+                placeholder="123456"
+                placeholderTextColor={colors.mutedForeground}
+                keyboardType="number-pad"
+                maxLength={6}
+                autoFocus
+              />
+
+              {submitError ? (
+                <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
+                  {submitError}
+                </Text>
+              ) : null}
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryBtn,
+                  { backgroundColor: colors.primary },
+                  (!mfaCode || mfaVerifying) && { opacity: 0.5 },
+                ]}
+                onPress={handleVerifyMfa}
+                disabled={!mfaCode || mfaVerifying}
+                activeOpacity={0.85}
+              >
+                {mfaVerifying ? (
+                  <ActivityIndicator color={colors.primaryForeground} />
+                ) : (
+                  <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
+                    {t("auth.mfa.verify")}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleMfaResend}
+                disabled={mfaSending}
+                style={{ alignSelf: "center", marginTop: 14 }}
+              >
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontSize: 13,
+                    fontFamily: "Inter_500Medium",
+                    opacity: mfaSending ? 0.5 : 1,
+                  }}
+                >
+                  {t("auth.mfa.resend")}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleMfaCancel}
+                style={{ alignSelf: "center", marginTop: 14 }}
+              >
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, fontFamily: "Inter_500Medium" }}>
+                  {t("auth.mfa.cancel")}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.heroBox}>
+              <View style={[styles.logo, { backgroundColor: colors.primary + "20" }]}>
+                <User size={28} color={colors.primary} />
+              </View>
+              <Text style={[styles.title, { color: colors.foreground }]}>
+                {t("auth.signIn.title")}
+              </Text>
+              <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+                {t("auth.signIn.subtitle")}
+              </Text>
+            </View>
+
+            <View style={styles.form}>
+              <SavedAccountsList accounts={savedAccounts} onSelect={handleSavedAccountTap} />
+              <Text style={[styles.label, { color: colors.foreground }]}>{t("auth.identifier")}</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground },
+                ]}
+                value={identifier}
+                onChangeText={setIdentifier}
+                placeholder={t("auth.identifier.placeholder")}
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                textContentType="username"
+              />
+
+              <Text style={[styles.label, { color: colors.foreground, marginTop: 14 }]}>
+                {t("auth.password")}
+              </Text>
+              <PasswordInput
+                ref={passwordInputRef}
+                value={password}
+                onChangeText={setPassword}
+                placeholder={t("auth.password.placeholder")}
+                placeholderTextColor={colors.mutedForeground}
+              />
+              <TouchableOpacity
+                style={styles.forgotRow}
+                onPress={() => router.push("/(auth)/forgot-password")}
+                hitSlop={8}
+              >
+                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: "Inter_500Medium" }}>
+                  {t("auth.forgotPassword")}
+                </Text>
+              </TouchableOpacity>
+
+              {submitError ? (
+                <Text style={[styles.fieldError, { color: colors.destructive, marginTop: 10 }]}>
+                  {submitError}
+                </Text>
+              ) : null}
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryBtn,
+                  { backgroundColor: colors.primary },
+                  (!identifier || !password || fetchStatus === "fetching") && { opacity: 0.5 },
+                ]}
+                onPress={handleSubmit}
+                disabled={!identifier || !password || fetchStatus === "fetching"}
+                activeOpacity={0.85}
+              >
+                {fetchStatus === "fetching" ? (
+                  <ActivityIndicator color={colors.primaryForeground} />
+                ) : (
+                  <Text style={[styles.primaryBtnText, { color: colors.primaryForeground }]}>
+                    {t("auth.signIn.continue")}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              {/* TODO: OAuth buttons temporarily disabled — Google/Microsoft SSO needs fixing */}
+
+              <View style={styles.footerRow}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
+                  {t("auth.signIn.noAccount")}{" "}
+                </Text>
+                <TouchableOpacity onPress={() => router.replace("/(auth)/sign-up")}>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontFamily: "Inter_600SemiBold" }}>
+                    {t("auth.signUp.title")}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity onPress={handleSkip} style={styles.skipBtn} activeOpacity={0.7}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 14, fontFamily: "Inter_500Medium" }}>
+                  {t("auth.skip")}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
 
       <LanguagePickerSheet

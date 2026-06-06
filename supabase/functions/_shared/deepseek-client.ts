@@ -8,7 +8,7 @@ export const deepseek = new OpenAI({
   baseURL: Deno.env.get("DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com",
 });
 
-export const DEEPSEEK_MODEL = Deno.env.get("DEEPSEEK_MODEL") ?? "deepseek-chat";
+export const DEEPSEEK_MODEL = Deno.env.get("DEEPSEEK_MODEL") ?? "deepseek-v4-pro";
 
 export function isDeepseekConfigured(): boolean {
   return _isConfigured;

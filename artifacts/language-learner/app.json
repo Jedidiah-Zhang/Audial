@@ -18,7 +18,8 @@
       "supportsTablet": false,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "需要麦克风权限进行跟读和背诵练习",
-        "NSSpeechRecognitionUsageDescription": "需要语音识别权限以显示实时字幕"
+        "NSSpeechRecognitionUsageDescription": "需要语音识别权限以显示实时字幕",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

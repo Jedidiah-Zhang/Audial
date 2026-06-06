@@ -94,116 +94,51 @@ export async function ensureCompatibleFormat(
   return { buffer: wavBuffer, format: "wav" };
 }
 
-/** Voice Chat: audio-in, audio-out using gpt-audio. */
+/** Voice Chat: audio-in, audio-out using gpt-audio.
+ * @deprecated gpt-audio model was deprecated. Use the Realtime API instead. */
 export async function voiceChat(
   audioBuffer: Buffer,
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy",
   inputFormat: "wav" | "mp3" = "wav",
   outputFormat: "wav" | "mp3" = "mp3"
 ): Promise<{ transcript: string; audioResponse: Buffer }> {
-  assertOpenaiConfigured();
-  const audioBase64 = audioBuffer.toString("base64");
-  const response = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format: outputFormat },
-    messages: [{
-      role: "user",
-      content: [
-        { type: "input_audio", input_audio: { data: audioBase64, format: inputFormat } },
-      ],
-    }],
-  });
-  const message = response.choices[0]?.message as any;
-  const transcript = message?.audio?.transcript || message?.content || "";
-  const audioData = message?.audio?.data ?? "";
-  return {
-    transcript,
-    audioResponse: Buffer.from(audioData, "base64"),
-  };
+  throw new Error("voiceChat is deprecated: gpt-audio model was removed. Use gpt-4o-mini-tts for TTS and gpt-4o-mini-transcribe for STT separately.");
 }
 
-/** Streaming Voice Chat for real-time audio responses. */
+/** Streaming Voice Chat for real-time audio responses.
+ * @deprecated gpt-audio model was deprecated. Use the Realtime API instead. */
 export async function voiceChatStream(
   audioBuffer: Buffer,
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy",
   inputFormat: "wav" | "mp3" = "wav"
 ): Promise<AsyncIterable<{ type: "transcript" | "audio"; data: string }>> {
-  assertOpenaiConfigured();
-  const audioBase64 = audioBuffer.toString("base64");
-  const stream = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format: "pcm16" },
-    messages: [{
-      role: "user",
-      content: [
-        { type: "input_audio", input_audio: { data: audioBase64, format: inputFormat } },
-      ],
-    }],
-    stream: true,
-  });
-
-  return (async function* () {
-    for await (const chunk of stream) {
-      const delta = chunk.choices?.[0]?.delta as any;
-      if (!delta) continue;
-      if (delta?.audio?.transcript) {
-        yield { type: "transcript", data: delta.audio.transcript };
-      }
-      if (delta?.audio?.data) {
-        yield { type: "audio", data: delta.audio.data };
-      }
-    }
-  })();
+  throw new Error("voiceChatStream is deprecated: gpt-audio model was removed. Use gpt-4o-mini-tts for TTS and gpt-4o-mini-transcribe for STT separately.");
 }
 
-/** Text-to-Speech using gpt-audio. */
+/** Text-to-Speech using gpt-4o-mini-tts (Speech API). */
 export async function textToSpeech(
   text: string,
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy",
-  format: "wav" | "mp3" | "flac" | "opus" | "pcm16" = "wav"
+  format: "wav" | "mp3" | "flac" | "opus" | "pcm" = "wav"
 ): Promise<Buffer> {
   assertOpenaiConfigured();
-  const response = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format },
-    messages: [
-      { role: "system", content: "You are an assistant that performs text-to-speech." },
-      { role: "user", content: `Repeat the following text verbatim: ${text}` },
-    ],
+  const response = await openai.audio.speech.create({
+    model: "gpt-4o-mini-tts",
+    voice,
+    input: text,
+    response_format: format,
   });
-  const audioData = (response.choices[0]?.message as any)?.audio?.data ?? "";
-  return Buffer.from(audioData, "base64");
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
-/** Streaming Text-to-Speech. */
+/** Streaming Text-to-Speech.
+ * @deprecated gpt-audio model was deprecated. Use textToSpeech() (non-streaming) with gpt-4o-mini-tts instead. */
 export async function textToSpeechStream(
   text: string,
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy"
 ): Promise<AsyncIterable<string>> {
-  assertOpenaiConfigured();
-  const stream = await openai.chat.completions.create({
-    model: "gpt-audio",
-    modalities: ["text", "audio"],
-    audio: { voice, format: "pcm16" },
-    messages: [
-      { role: "system", content: "You are an assistant that performs text-to-speech." },
-      { role: "user", content: `Repeat the following text verbatim: ${text}` },
-    ],
-    stream: true,
-  });
-
-  return (async function* () {
-    for await (const chunk of stream) {
-      const delta = chunk.choices?.[0]?.delta as any;
-      if (!delta) continue;
-      if (delta?.audio?.data) {
-        yield delta.audio.data;
-      }
-    }
-  })();
+  throw new Error("textToSpeechStream is deprecated: gpt-audio model was removed. Use textToSpeech() with gpt-4o-mini-tts instead.");
 }
 
 /** Speech-to-Text using gpt-4o-mini-transcribe. */

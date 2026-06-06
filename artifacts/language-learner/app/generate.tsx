@@ -902,7 +902,21 @@ export default function GenerateScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Pressable onPress={Keyboard.dismiss} style={{ flex: 1 }}>
+      <Pressable
+        onPress={() => {
+          // 在 Web 上避免点击输入框时立即失去焦点
+          if (
+            typeof document !== "undefined" &&
+            document.activeElement &&
+            ["INPUT", "TEXTAREA"].includes(
+              document.activeElement.tagName,
+            )
+          )
+            return;
+          Keyboard.dismiss();
+        }}
+        style={{ flex: 1 }}
+      >
         <View style={[styles.header, { paddingTop: topPad + 12 }]}>
           <TouchableOpacity onPress={() => { router.canGoBack() ? router.back() : router.replace("/(tabs)"); }} style={styles.backBtn} activeOpacity={0.7}>
           <ArrowLeft size={22} color={colors.foreground} style={flipIfRTL()} />
