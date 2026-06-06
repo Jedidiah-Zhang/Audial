@@ -25,7 +25,7 @@ export const deepseek = new OpenAI({
   baseURL: DEEPSEEK_BASE_URL,
 });
 
-export const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-pro";
+export const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 
 export function isDeepseekConfigured(): boolean {
   return _isConfigured;
