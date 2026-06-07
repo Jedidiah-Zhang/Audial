@@ -29,6 +29,8 @@ import { LanguagePickerModal } from "@/components/LanguagePickerModal";
 import { useRewardedAd } from "@/hooks/useRewardedAd";
 import { useGenerationQuota } from "@/hooks/useGenerationQuota";
 import { PaywallModal } from "@/components/PaywallModal";
+import { SentenceEditorModal } from "@/components/SentenceEditorModal";
+import { splitSentences } from "@/utils/sentences";
 import { useAuth } from "@clerk/expo";
 
 const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
@@ -121,6 +123,12 @@ export default function GenerateScreen() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftText, setDraftText] = useState("");
   const [draftTranslation, setDraftTranslation] = useState("");
+
+  // Sentence review (shown before saving)
+  const [showSentenceReview, setShowSentenceReview] = useState(false);
+  const [reviewSentences, setReviewSentences] = useState<string[]>([]);
+  const [reviewText, setReviewText] = useState("");
+  const pendingTextRef = useRef<LearningText | null>(null);
 
   // Bidirectional sync state for the draft preview screen
   const [textSyncing, setTextSyncing] = useState(false);
@@ -524,8 +532,8 @@ export default function GenerateScreen() {
       // Close the sheet & retry the original creation transparently.
       setQuotaSheetOpen(false);
       if (quotaTrigger === "manual") {
-        const ok = await runManualSave(token);
-        if (ok) router.canGoBack() ? router.back() : router.replace("/(tabs)");
+        await runManualSave(token);
+        // Navigation happens in handleReviewConfirm after sentence review
         return;
       }
       // AI generation retry path.
@@ -570,9 +578,11 @@ export default function GenerateScreen() {
       createdAt: Date.now(),
       contentType: draft.contentType,
     };
-    await addText(text);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.canGoBack() ? router.back() : router.replace("/(tabs)");
+    // Show sentence review before saving
+    pendingTextRef.current = text;
+    setReviewText(finalText);
+    setReviewSentences(splitSentences(finalText, targetLanguage));
+    setShowSentenceReview(true);
   };
 
   const handleDiscardDraft = () => {
@@ -586,6 +596,25 @@ export default function GenerateScreen() {
     setDraftTitle("");
     setDraftText("");
     setDraftTranslation("");
+  };
+
+  /** Called when the user confirms sentence boundaries in the review modal. */
+  const handleReviewConfirm = async (sentences: string[]) => {
+    const text = pendingTextRef.current;
+    if (!text) return;
+    text.customSentences = sentences;
+    await addText(text);
+    // Count against quota (manual path — mirrored from runManualSave)
+    if (!isPro && mode === "manual") await incrementGenerationCount();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowSentenceReview(false);
+    router.canGoBack() ? router.back() : router.replace("/(tabs)");
+  };
+
+  /** Called when the user cancels the sentence review. */
+  const handleReviewClose = () => {
+    pendingTextRef.current = null;
+    setShowSentenceReview(false);
   };
 
   /**
@@ -635,15 +664,11 @@ export default function GenerateScreen() {
         createdAt: Date.now(),
         contentType: attempt.data.contentType ?? detectContentType(attempt.data.targetText),
       };
-      await addText(text);
-      // Count this manual save against today's quota — same TTS cost as
-      // an AI-generated article. Pro users skip the counter entirely.
-      // Even when the server consumed a reward token (so it didn't bump
-      // its own count), we still tick the local mirror so the chip's
-      // "X left today" stays in sync with the user's lived experience
-      // of "I just created another article". Mirrors the AI path.
-      if (!isPro) await incrementGenerationCount();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Show sentence review before saving
+      pendingTextRef.current = text;
+      setReviewText(attempt.data.targetText);
+      setReviewSentences(splitSentences(attempt.data.targetText, targetLanguage));
+      setShowSentenceReview(true);
       return true;
     } finally {
       setIsTranslating(false);
@@ -665,8 +690,8 @@ export default function GenerateScreen() {
       setQuotaSheetOpen(true);
       return;
     }
-    const ok = await runManualSave();
-    if (ok) router.canGoBack() ? router.back() : router.replace("/(tabs)");
+    await runManualSave();
+    // Navigation happens in handleReviewConfirm after sentence review
   };
 
   const inputStyle = { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground };
@@ -815,6 +840,15 @@ export default function GenerateScreen() {
             </TouchableOpacity>
           </View>
         </ScrollView>
+
+        <SentenceEditorModal
+          visible={showSentenceReview}
+          text={reviewText}
+          sentences={reviewSentences}
+          locale={targetLanguage}
+          onSave={handleReviewConfirm}
+          onClose={handleReviewClose}
+        />
       </View>
     );
   }
@@ -1216,6 +1250,15 @@ export default function GenerateScreen() {
         onClose={() => setTargetPickerOpen(false)}
         title={t("generate.picker.title")}
         excludeCode={nativeLanguage}
+      />
+
+      <SentenceEditorModal
+        visible={showSentenceReview}
+        text={reviewText}
+        sentences={reviewSentences}
+        locale={targetLanguage}
+        onSave={handleReviewConfirm}
+        onClose={handleReviewClose}
       />
     </View>
   );

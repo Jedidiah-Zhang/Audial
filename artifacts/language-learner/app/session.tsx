@@ -1531,6 +1531,7 @@ export default function SessionScreen() {
               contentType={text.contentType}
               articleId={text.id}
               onContinue={startMemorizeCountdown}
+              customSentences={text.customSentences}
             />
           </View>
         )}
@@ -1565,6 +1566,7 @@ export default function SessionScreen() {
               articleId={text.id}
               language={text.targetLanguage}
               onComplete={handleShadowFlowComplete}
+              customSentences={text.customSentences}
             />
           </View>
         )}

@@ -95,6 +95,7 @@ interface Props {
   contentType?: ContentType;
   articleId?: string;
   onContinue: () => void;
+  customSentences?: string[];
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -129,6 +130,7 @@ export function RecitePrepFlow({
   contentType,
   articleId,
   onContinue,
+  customSentences,
 }: Props) {
   const colors = useColors();
   const t = useT();
@@ -174,8 +176,8 @@ export function RecitePrepFlow({
     [contentType, text]
   );
   const layout = useMemo(
-    () => buildSentenceLayout(text, effectiveType),
-    [effectiveType, text]
+    () => buildSentenceLayout(text, { contentType: effectiveType, customSentences }),
+    [effectiveType, text, customSentences]
   );
   const sentences = useMemo(() => flattenSentences(layout), [layout]);
 

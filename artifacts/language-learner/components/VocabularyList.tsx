@@ -24,9 +24,10 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
   const colors = useColors();
   const t = useT();
   const { settings, userId } = useApp();
-  const { playTTS } = useAudioPlayer({ articleId: text.id, userId });
+  const { playTTS, stop } = useAudioPlayer({ articleId: text.id, userId });
   const [items, setItems] = useState<VocabularyItem[]>(text.vocabulary);
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+  const [playingExampleIdx, setPlayingExampleIdx] = useState<number | null>(null);
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
@@ -43,6 +44,7 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
     async (idx: number) => {
       const item = items[idx];
       if (!item) return;
+      stop();
       setPlayingIdx(idx);
       await playTTS(
         item.word,
@@ -51,21 +53,23 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
         1
       );
     },
-    [items, playTTS, voice]
+    [items, playTTS, stop, voice]
   );
 
   const handlePlayExample = useCallback(
-    async (sentence: string, key: string) => {
-      const idx = -1; // separate state not needed; brief flash
-      void idx;
+    async (idx: number) => {
+      const item = items[idx];
+      if (!item?.example) return;
+      stop();
+      setPlayingExampleIdx(idx);
       await playTTS(
-        sentence,
+        item.example,
         voice,
-        () => {},
+        () => setPlayingExampleIdx((cur) => (cur === idx ? null : cur)),
         1
       );
     },
-    [playTTS, voice]
+    [items, playTTS, stop, voice]
   );
 
   const fetchDetail = useCallback(
@@ -193,12 +197,25 @@ export function VocabularyList({ text, onUpdateVocabulary }: Props) {
                     <View style={styles.exampleHeader}>
                       <Text style={[styles.exampleLabel, { color: colors.mutedForeground }]}>{t("vocab.exampleLabel")}</Text>
                       <TouchableOpacity
-                        onPress={() => handlePlayExample(v.example!, `${i}-ex`)}
+                        onPress={() => handlePlayExample(i)}
                         activeOpacity={0.7}
-                        style={[styles.examplePlayBtn, { borderColor: colors.border }]}
+                        style={[
+                          styles.examplePlayBtn,
+                          {
+                            borderColor: colors.border,
+                            backgroundColor: playingExampleIdx === i ? colors.primary : "transparent",
+                          },
+                        ]}
                       >
-                        <Play size={11} color={colors.primary} />
-                        <Text style={[styles.examplePlayText, { color: colors.primary }]}>{t("vocab.read")}</Text>
+                        <Play size={11} color={playingExampleIdx === i ? "#fff" : colors.primary} />
+                        <Text
+                          style={[
+                            styles.examplePlayText,
+                            { color: playingExampleIdx === i ? "#fff" : colors.primary },
+                          ]}
+                        >
+                          {t("vocab.read")}
+                        </Text>
                       </TouchableOpacity>
                     </View>
                     <Text style={[styles.exampleText, { color: colors.foreground }, rtlTextStyle(v.example)]}>{v.example}</Text>

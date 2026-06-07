@@ -34,6 +34,8 @@ export interface LearningText {
   translations?: Record<string, string>;
   /** 多语言词汇缓存: { "zh": [{meaning: "你好"}, ...], "ja": [...] } */
   vocabularyCache?: Record<string, Array<{ meaning: string; exampleTranslation?: string }>>;
+  /** 用户手动调整的句子列表。存在时直接使用，跳过自动断句。 */
+  customSentences?: string[];
 }
 
 export interface SessionResult {

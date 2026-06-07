@@ -556,6 +556,7 @@ export default function PracticeScreen() {
             targetLanguage={text.targetLanguage}
             showPlayAll={false}
             disablePlayback
+            customSentences={text.customSentences}
           />
 
           <View style={styles.textActions}>

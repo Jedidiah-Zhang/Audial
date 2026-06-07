@@ -56,6 +56,8 @@ interface SentenceArticleProps {
    * always wins.
    */
   targetLanguage?: string;
+  /** User-defined sentence list. Bypasses automatic segmentation. */
+  customSentences?: string[];
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -83,6 +85,7 @@ export function SentenceArticle({
   dictationMode = false,
   playLimit,
   targetLanguage,
+  customSentences,
 }: SentenceArticleProps) {
   const colors = useColors();
   const t = useT();
@@ -121,8 +124,8 @@ export function SentenceArticle({
   // playable sentences (we don't read names aloud). For paragraph-based types
   // we just split each paragraph into sentences.
   const layout = useMemo(
-    () => buildSentenceLayout(text, effectiveType),
-    [effectiveType, text]
+    () => buildSentenceLayout(text, { contentType: effectiveType, customSentences }),
+    [effectiveType, text, customSentences]
   );
 
   // Flat list of sentences to actually play (excludes speaker labels)

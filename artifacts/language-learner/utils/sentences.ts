@@ -45,10 +45,10 @@ export function splitSentences(text: string, locale?: string): string[] {
  */
 function segmentWithIntl(text: string, locale?: string): string[] | null {
   try {
-    // @ts-expect-error Intl.Segmenter is ES2022; available in Hermes 0.72+
+    // Intl.Segmenter is ES2022; available in Hermes 0.72+
     const Segmenter = Intl.Segmenter;
     if (typeof Segmenter !== "function") return null;
-    const segmenter = new Segmenter(locale ?? [], { granularity: "sentence" });
+    const segmenter = new Segmenter(locale ? [locale] : [], { granularity: "sentence" });
     const out: string[] = [];
     for (const { segment } of segmenter.segment(text)) {
       const trimmed = segment.trim();

@@ -124,6 +124,7 @@ interface Props {
   articleId?: string;
   language: string;
   onComplete: (result: ShadowFlowResult) => void;
+  customSentences?: string[];
 }
 
 const SPEED_OPTIONS: { label: string; value: number }[] = [
@@ -140,6 +141,7 @@ export function ShadowSentenceFlow({
   articleId,
   language,
   onComplete,
+  customSentences,
 }: Props) {
   const colors = useColors();
   const t = useT();
@@ -188,8 +190,8 @@ export function ShadowSentenceFlow({
     [contentType, text]
   );
   const layout = useMemo(
-    () => buildSentenceLayout(text, effectiveType),
-    [effectiveType, text]
+    () => buildSentenceLayout(text, { contentType: effectiveType, customSentences }),
+    [effectiveType, text, customSentences]
   );
   const sentences = useMemo(() => flattenSentences(layout), [layout]);
 
