@@ -136,23 +136,34 @@ export function mergeSnapshot(
   const cloudResultIds = new Set(cloud.results.map((r) => r.id));
   const cloudProgressTextIds = new Set(cloud.progress.map((p) => p.textId));
 
-  const cloudTexts: LearningText[] = cloud.texts.map((t) => ({
-    id: t.id,
-    title: t.title,
-    text: t.text,
-    translation: t.translation,
-    vocabulary: (t.vocabulary as LearningText["vocabulary"]) ?? [],
-    topic: t.topic,
-    difficulty: t.difficulty as LearningText["difficulty"],
-    targetLanguage: t.targetLanguage,
-    nativeLanguage: t.nativeLanguage,
-    contentType:
-      (t.contentType as LearningText["contentType"]) ?? undefined,
-    createdAt:
-      typeof t.createdAt === "number" ? t.createdAt : Date.now(),
-    lastClickedAt:
-      typeof t.lastClickedAt === "number" ? t.lastClickedAt : undefined,
-  }));
+  // Build a lookup of local texts so we can preserve client-only cache
+  // fields (translations, vocabularyCache) that don't exist on the server.
+  const localTextById = new Map(local.texts.map((t) => [t.id, t]));
+
+  const cloudTexts: LearningText[] = cloud.texts.map((t) => {
+    const local = localTextById.get(t.id);
+    return {
+      id: t.id,
+      title: t.title,
+      text: t.text,
+      translation: t.translation,
+      vocabulary: (t.vocabulary as LearningText["vocabulary"]) ?? [],
+      topic: t.topic,
+      difficulty: t.difficulty as LearningText["difficulty"],
+      targetLanguage: t.targetLanguage,
+      nativeLanguage: t.nativeLanguage,
+      contentType:
+        (t.contentType as LearningText["contentType"]) ?? undefined,
+      createdAt:
+        typeof t.createdAt === "number" ? t.createdAt : Date.now(),
+      lastClickedAt:
+        typeof t.lastClickedAt === "number" ? t.lastClickedAt : undefined,
+      // Preserve local translation cache — the server schema doesn't
+      // store these, so the cloud version always has undefined.
+      translations: local?.translations,
+      vocabularyCache: local?.vocabularyCache,
+    };
+  });
 
   const localOnlyTexts = local.texts.filter((t) => !cloudTextIds.has(t.id));
   const mergedTexts = [...cloudTexts, ...localOnlyTexts].sort(
@@ -243,6 +254,9 @@ function toApiText(t: LearningText) {
     contentType: t.contentType ?? null,
     createdAt: t.createdAt,
     lastClickedAt: t.lastClickedAt,
+    // translations & vocabularyCache intentionally excluded —
+    // they are local-only caches and the server schema doesn't
+    // have corresponding columns.
   };
 }
 
@@ -280,7 +294,14 @@ function toApiProgress(p: UserProgress) {
 export async function pullSnapshot(): Promise<SyncSnapshot | null> {
   try {
     return await getSyncSnapshot();
-  } catch {
+  } catch (e: any) {
+    if (__DEV__) {
+      const ctx =
+        e?.status != null
+          ? `HTTP ${e.status} ${e.statusText ?? ""}`.trim()
+          : "network";
+      console.error(`[sync] pullSnapshot failed (${ctx}):`, e?.message ?? e);
+    }
     return null;
   }
 }
@@ -299,7 +320,14 @@ export async function pushDelta(payload: SyncPushPayload): Promise<boolean> {
   try {
     await pushSync(payload);
     return true;
-  } catch {
+  } catch (e: any) {
+    if (__DEV__) {
+      const ctx =
+        e?.status != null
+          ? `HTTP ${e.status} ${e.statusText ?? ""}`.trim()
+          : "network";
+      console.error(`[sync] pushDelta failed (${ctx}):`, e?.message ?? e);
+    }
     return false;
   }
 }

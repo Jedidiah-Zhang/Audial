@@ -9,6 +9,7 @@ import {
   BackHandler,
   useWindowDimensions,
   View as RNView,
+  ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -91,6 +92,136 @@ export default function PracticeScreen() {
 
   const [showVocab, setShowVocab] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+
+  // ---- Auto-re-translate when interface language changes ----
+  // When the user opens an article whose stored nativeLanguage differs from
+  // the current settings.nativeLanguage, we re-translate both the full text
+  // and the vocabulary to the current language. Previous translations are
+  // cached in `translations` / `vocabularyCache` so switching back is instant.
+  const BASE_URL = `https://${process.env.EXPO_PUBLIC_DOMAIN}`;
+  const [isTranslating, setIsTranslating] = useState(false);
+  const translatedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!text) return;
+    if (text.nativeLanguage === lang) return;
+    // Only run once per (article, language) pair per mount to avoid loops
+    const key = `${text.id}:${lang}`;
+    if (translatedRef.current === key) return;
+
+    const newLang = lang;
+    const oldLang = text.nativeLanguage;
+
+    // 1. Check cache — instant swap, no network call
+    const cachedTranslation = text.translations?.[newLang];
+    const cachedVocab = text.vocabularyCache?.[newLang];
+
+    if (cachedTranslation != null && cachedVocab != null) {
+      translatedRef.current = key;
+      const restoredVocab = text.vocabulary.map((v, i) => ({
+        ...v,
+        meaning: cachedVocab[i]?.meaning ?? v.meaning,
+        exampleTranslation: cachedVocab[i]?.exampleTranslation ?? v.exampleTranslation,
+      }));
+      addText({
+        ...text,
+        translation: cachedTranslation,
+        vocabulary: restoredVocab,
+        nativeLanguage: newLang,
+      });
+      return;
+    }
+
+    // 2. Cache miss — call the translate API
+    translatedRef.current = key;
+    setIsTranslating(true);
+
+    (async () => {
+      try {
+        // Translate full article text (targetLang → newNativeLang)
+        const fullResp = await fetch(`${BASE_URL}/api/language/translate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: text.text,
+            fromLanguage: text.targetLanguage,
+            toLanguage: newLang,
+          }),
+        });
+        const fullJson = (await fullResp.json()) as {
+          success: boolean;
+          data?: { translation?: string };
+        };
+        const newTranslation = fullJson?.data?.translation?.trim();
+
+        // Translate vocabulary meanings & example translations in parallel.
+        // Collect all non-empty strings into a flat array, translate them,
+        // then map results back to the original vocabulary slots.
+        interface VocabSlot {
+          vi: number; // index into text.vocabulary
+          field: "meaning" | "exampleTranslation";
+        }
+        const slots: Array<VocabSlot & { text: string }> = [];
+        text.vocabulary.forEach((v, vi) => {
+          if (v.meaning?.trim()) slots.push({ vi, field: "meaning", text: v.meaning.trim() });
+          if (v.exampleTranslation?.trim())
+            slots.push({ vi, field: "exampleTranslation", text: v.exampleTranslation.trim() });
+        });
+
+        const translatedTexts = await Promise.all(
+          slots.map((s) =>
+            fetch(`${BASE_URL}/api/language/translate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                text: s.text,
+                fromLanguage: oldLang,
+                toLanguage: newLang,
+              }),
+            })
+              .then((r) => r.json() as Promise<{ success: boolean; data?: { translation?: string } }>)
+              .then((j) => j?.data?.translation?.trim() ?? s.text)
+              .catch(() => s.text),
+          ),
+        );
+
+        // Build updated vocabulary: apply translated text to each slot
+        const newVocab = text.vocabulary.map((v) => ({ ...v }));
+        slots.forEach((s, idx) => {
+          newVocab[s.vi] = {
+            ...newVocab[s.vi],
+            [s.field]: translatedTexts[idx],
+          };
+        });
+
+        // Build caches: store old values under oldLang
+        const translations = {
+          ...(text.translations ?? {}),
+          [oldLang]: text.translation,
+        };
+        const vocabularyCache = {
+          ...(text.vocabularyCache ?? {}),
+          [oldLang]: text.vocabulary.map((v) => ({
+            meaning: v.meaning,
+            exampleTranslation: v.exampleTranslation,
+          })),
+        };
+
+        addText({
+          ...text,
+          translation: newTranslation ?? text.translation,
+          vocabulary: newVocab,
+          nativeLanguage: newLang,
+          translations,
+          vocabularyCache,
+        });
+      } catch {
+        // Silent fallback — keep old translation on any error
+      } finally {
+        setIsTranslating(false);
+      }
+    })();
+  }, [text?.id, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 50 : insets.bottom + 20;
@@ -439,6 +570,14 @@ export default function PracticeScreen() {
                   {showTranslation ? t("practice.translation.hide") : t("practice.translation.show")}
                 </Text>
               </TouchableOpacity>
+            ) : null}
+            {isTranslating ? (
+              <View style={[styles.pillBtn, { borderColor: colors.border }]}>
+                <ActivityIndicator size={12} color={colors.mutedForeground} />
+                <Text style={[styles.pillBtnText, { color: colors.mutedForeground }]}>
+                  {t("practice.translating")}
+                </Text>
+              </View>
             ) : null}
             {text.vocabulary?.length > 0 ? (
               <TouchableOpacity

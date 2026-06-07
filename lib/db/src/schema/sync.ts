@@ -2,6 +2,7 @@ import {
   pgTable,
   text,
   integer,
+  bigint,
   jsonb,
   timestamp,
   primaryKey,
@@ -52,10 +53,10 @@ export const textsTable = pgTable(
     contentType: text("content_type"),
     // Original client createdAt (epoch ms). Lets sync return rows in the
     // same order the client originally saw them.
-    clientCreatedAt: integer("client_created_at").notNull().default(0),
+    clientCreatedAt: bigint("client_created_at", { mode: "number" }).notNull().default(0),
     // Last time the user tapped this text in the article list. Used to
     // sort articles by recency of access; null means never tapped.
-    lastClickedAt: integer("last_clicked_at"),
+    lastClickedAt: bigint("last_clicked_at", { mode: "number" }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -77,7 +78,7 @@ export const resultsTable = pgTable(
     score: integer("score").notNull(),
     feedback: text("feedback").notNull().default(""),
     details: jsonb("details"),
-    clientCreatedAt: integer("client_created_at").notNull().default(0),
+    clientCreatedAt: bigint("client_created_at", { mode: "number" }).notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

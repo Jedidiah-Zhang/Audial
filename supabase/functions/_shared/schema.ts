@@ -2,6 +2,7 @@ import {
   pgTable,
   text,
   integer,
+  bigint,
   jsonb,
   timestamp,
   primaryKey,
@@ -37,8 +38,8 @@ export const textsTable = pgTable(
     targetLanguage: text("target_language").notNull().default("en-US"),
     nativeLanguage: text("native_language").notNull().default("en-US"),
     contentType: text("content_type"),
-    clientCreatedAt: integer("client_created_at").notNull().default(0),
-    lastClickedAt: integer("last_clicked_at"),
+    clientCreatedAt: bigint("client_created_at", { mode: "number" }).notNull().default(0),
+    lastClickedAt: bigint("last_clicked_at", { mode: "number" }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

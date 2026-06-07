@@ -462,6 +462,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSyncStatus("idle");
     setSyncPendingCount(0);
     setLastSyncedAt(null);
+    clearSyncRetryTimer();
 
     if (userId === GUEST_USER_ID) {
       // Returning to the guest scope means a future sign-in should be
@@ -487,12 +488,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (currentUserRef.current !== userId) return;
       // Cloud sync runs only for Clerk-signed-in users. Local-only and
       // guest profiles intentionally stay device-only (the task scopes
-      // sync to "登录用户的核心数据"). The full sync is fire-and-forget;
-      // failure leaves local data intact and queues nothing — the next
-      // user write or app open will retry the pull.
+      // sync to "登录用户的核心数据").
       if (isCloudSyncableUser(userId)) {
         await refreshPendingCount(userId);
-        runFullSync(userId).catch(() => {});
+        // Serialise with any user-initiated forceSync so a tap during
+        // the initial sync doesn't start a parallel run.
+        if (runningSyncRef.current) {
+          await runningSyncRef.current;
+        }
+        const p = runFullSync(userId).finally(() => {
+          runningSyncRef.current = null;
+        });
+        runningSyncRef.current = p;
       }
     })();
   }, [authLoaded, localLoaded, userId]);
@@ -521,11 +528,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (uid === currentUserRef.current) setSyncStatus("syncing");
     try {
       await runFullSyncInner(uid);
+      // If runFullSyncInner returned without throwing and without an
+      // early "offline" return, it reached "synced" — cancel any
+      // pending retry.
+      if (uid === currentUserRef.current) clearSyncRetryTimer();
     } catch {
       // Anything other than "pushDelta returned false" lands here. Use
       // the distinct `error` state so the indicator can say "Sync
-      // failed" instead of "Offline".
-      if (uid === currentUserRef.current) setSyncStatus("error");
+      // failed" instead of "Offline". Schedule a retry for transient
+      // failures (cold start, token refresh, etc.).
+      if (uid === currentUserRef.current) {
+        setSyncStatus("error");
+        scheduleSyncRetry(uid);
+      }
     } finally {
       // Always refresh the pending count — both success (queue cleared)
       // and failure (queue retained / re-enqueued) need to show the
@@ -548,7 +563,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!queueOk) {
       // Still offline. Leave the queue intact for the next attempt and
       // do NOT pull/merge — that would overwrite the offline edits.
-      if (uid === currentUserRef.current) setSyncStatus("offline");
+      if (uid === currentUserRef.current) {
+        setSyncStatus("offline");
+        scheduleSyncRetry(uid);
+      }
       return;
     }
     await writePending(uid, {
@@ -566,7 +584,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Push worked but pull failed — partial success. Mark offline so
       // the user knows their device may be out of date even though
       // their writes did go up.
-      if (uid === currentUserRef.current) setSyncStatus("offline");
+      if (uid === currentUserRef.current) {
+        setSyncStatus("offline");
+        scheduleSyncRetry(uid);
+      }
       return;
     }
 
@@ -626,9 +647,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (uid !== currentUserRef.current) return;
     if (!localPushOk) {
       setSyncStatus("offline");
+      scheduleSyncRetry(uid);
       return;
     }
     setSyncStatus("synced");
+    clearSyncRetryTimer();
     setLastSyncedAt(Date.now());
   }
 
@@ -658,13 +681,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         if (uid === currentUserRef.current) {
           setSyncStatus("synced");
+          clearSyncRetryTimer();
           setLastSyncedAt(Date.now());
         }
       } else if (uid === currentUserRef.current) {
         setSyncStatus("offline");
+        scheduleSyncRetry(uid);
       }
     } catch {
-      if (uid === currentUserRef.current) setSyncStatus("error");
+      if (uid === currentUserRef.current) {
+        setSyncStatus("error");
+        scheduleSyncRetry(uid);
+      }
     } finally {
       await refreshPendingCount(uid);
     }
@@ -697,15 +725,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   /**
-   * User-initiated sync (tap on the SyncIndicator). Coalesces with any
-   * already-running attempt so multi-tap doesn't spawn parallel runs.
+   * User-initiated sync (tap on the SyncIndicator). If a sync is
+   * already in-flight we wait for it to settle and then start a fresh
+   * one — the user explicitly asked to retry, so just waiting isn't
+   * enough. After the in-flight run finishes we always launch a new
+   * attempt.
    */
   const forceSync = useCallback(async () => {
     const uid = currentUserRef.current;
     if (!isCloudSyncableUser(uid)) return;
     if (runningSyncRef.current) {
       await runningSyncRef.current;
-      return;
     }
     const p = runFullSync(uid).finally(() => {
       runningSyncRef.current = null;
@@ -713,6 +743,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     runningSyncRef.current = p;
     await p;
   }, []);
+
+  // One-shot auto-retry timer for the first sync after a user change.
+  // Guards against transient failures (token not yet cached, cold start
+  // of the Edge Function, etc.) without looping indefinitely. Cleared on
+  // user change and on successful sync.
+  const syncRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearSyncRetryTimer() {
+    if (syncRetryTimerRef.current !== null) {
+      clearTimeout(syncRetryTimerRef.current);
+      syncRetryTimerRef.current = null;
+    }
+  }
+
+  function scheduleSyncRetry(uid: string) {
+    clearSyncRetryTimer();
+    syncRetryTimerRef.current = setTimeout(() => {
+      syncRetryTimerRef.current = null;
+      if (uid !== currentUserRef.current) return;
+      if (!isCloudSyncableUser(uid)) return;
+      // Don't clash with a user-initiated forceSync already in flight.
+      if (runningSyncRef.current) return;
+      const p = runFullSync(uid).finally(() => {
+        runningSyncRef.current = null;
+      });
+      runningSyncRef.current = p;
+    }, 3000);
+  }
 
   async function ensureGuestMigrated(targetUserId: string): Promise<void> {
     if (migratedTargetsRef.current.has(targetUserId)) return;

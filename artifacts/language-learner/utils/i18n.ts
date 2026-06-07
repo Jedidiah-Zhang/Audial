@@ -96,6 +96,7 @@ const en: Dict = {
   "ctype.info": "Info",
   "practice.translation.show": "Show Translation",
   "practice.translation.hide": "Hide Translation",
+  "practice.translating": "Translating...",
   "practice.vocab": "Vocabulary ({n})",
   "practice.translationLabel": "TRANSLATION",
   "practice.mastered.title": "Mastered!",

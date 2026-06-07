@@ -111,17 +111,27 @@ function SavedAccountsRecorder() {
 }
 
 function ClerkApiTokenBridge() {
-  const { getToken, isSignedIn } = useAuth();
+  const { getToken } = useAuth();
   useEffect(() => {
+    // Intentionally NOT capturing `isSignedIn` — `getToken()` itself
+    // returns null when there is no active Clerk session, so the extra
+    // guard is unnecessary AND can return a stale `false` when the
+    // effect hasn't re-run yet after a fast sign-in → sync sequence.
     setAuthTokenGetter(async () => {
-      if (!isSignedIn) return null;
       try {
-        return (await getToken()) ?? null;
-      } catch {
+        const token = await getToken();
+        if (__DEV__ && !token) {
+          console.warn("[api] getToken() returned null — API calls needing auth will fail");
+        }
+        return token ?? null;
+      } catch (e) {
+        if (__DEV__) {
+          console.error("[api] getToken() threw:", e);
+        }
         return null;
       }
     });
-  }, [getToken, isSignedIn]);
+  }, [getToken]);
   return null;
 }
 

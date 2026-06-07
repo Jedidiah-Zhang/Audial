@@ -37,6 +37,10 @@ export interface LearningText {
   contentType?: string | null;
   createdAt: number;
   lastClickedAt?: number;
+  /** Per-language translation cache */
+  translations?: Record<string, string>;
+  /** Per-language vocabulary cache */
+  vocabularyCache?: Record<string, Array<{ meaning: string; exampleTranslation?: string }>>;
 }
 
 export type SessionResultDetails = { [key: string]: unknown } | null;

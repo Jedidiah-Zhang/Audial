@@ -30,6 +30,10 @@ export interface LearningText {
   createdAt: number;
   lastClickedAt?: number;
   contentType?: ContentType;
+  /** 多语言翻译缓存: { "zh": "你好...", "ja": "こんにちは..." } */
+  translations?: Record<string, string>;
+  /** 多语言词汇缓存: { "zh": [{meaning: "你好"}, ...], "ja": [...] } */
+  vocabularyCache?: Record<string, Array<{ meaning: string; exampleTranslation?: string }>>;
 }
 
 export interface SessionResult {
